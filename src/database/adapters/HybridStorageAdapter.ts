@@ -666,8 +666,9 @@ export class HybridStorageAdapter implements IStorageAdapter {
       }
     }
 
-    // Now delete the conversation itself
-    return this.conversationRepo.delete(id);
+    // Now delete the conversation itself from SQLite and remove the JSONL source file
+    await this.conversationRepo.delete(id);
+    await this.jsonlWriter.deleteFile(`conversations/conv_${id}.jsonl`);
   };
 
   searchConversations = async (query: string): Promise<ConversationMetadata[]> => {

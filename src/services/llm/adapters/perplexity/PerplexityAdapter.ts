@@ -148,7 +148,6 @@ export class PerplexityAdapter extends BaseAdapter {
         top_p: options?.topP,
         presence_penalty: options?.presencePenalty,
         frequency_penalty: options?.frequencyPenalty,
-        tools: options?.tools ? this.convertTools(options.tools) : undefined,
         stream: true,
         extra: {
           search_mode: options?.searchMode || 'web',
@@ -260,11 +259,6 @@ export class PerplexityAdapter extends BaseAdapter {
         }
       }
     };
-
-    // Add tools if provided
-    if (options?.tools) {
-      requestBody.tools = this.convertTools(options.tools);
-    }
 
     const response = await this.request<PerplexityChatResponse>({
       url: `${this.baseUrl}/chat/completions`,
