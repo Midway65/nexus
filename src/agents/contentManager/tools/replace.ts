@@ -86,7 +86,7 @@ export class ReplaceTool extends BaseTool<ReplaceParams, ReplaceResult> {
 
   async execute(params: ReplaceParams): Promise<ReplaceResult> {
     try {
-      const { path, oldContent, newContent, startLine, endLine } = params;
+      const { path, oldContent, newContent, startLine, endLine, nth } = params;
 
       // Normalize path (remove leading slash)
       const normalizedPath = path.startsWith('/') ? path.slice(1) : path;
@@ -104,66 +104,95 @@ export class ReplaceTool extends BaseTool<ReplaceParams, ReplaceResult> {
         );
       }
 
-      // Validate line numbers
-      if (startLine < 1) {
-        return this.prepareResult(false, undefined,
-          `Invalid startLine: ${startLine}. Line numbers are 1-based (minimum 1).`
-        );
-      }
-
-      if (endLine < startLine) {
-        return this.prepareResult(false, undefined,
-          `endLine (${endLine}) cannot be less than startLine (${startLine}).`
-        );
-      }
-
       const existingContent = normalizeCRLF(await this.app.vault.read(file));
       const fileLines = existingContent.split('\n');
       const totalLines = fileLines.length;
-
-      if (startLine > totalLines) {
-        return this.prepareResult(false, undefined,
-          `startLine ${startLine} is beyond file length (${totalLines} lines). Use read to view the file first.`
-        );
-      }
-
-      if (endLine > totalLines) {
-        return this.prepareResult(false, undefined,
-          `endLine ${endLine} is beyond file length (${totalLines} lines). Use read to view the file first.`
-        );
-      }
-
-      // Extract content at the specified line range and compare with oldContent
-      const targetContent = fileLines.slice(startLine - 1, endLine).join('\n');
-      const normalizedTarget = normalizeCRLF(targetContent);
       const normalizedOld = normalizeCRLF(oldContent);
 
-      if (normalizedTarget !== normalizedOld) {
-        // Content mismatch — search the entire file for where it actually is
+      let matchStart: number;
+      let matchEnd: number;
+
+      if (startLine === undefined || endLine === undefined) {
+        // Find-by-string mode: locate oldContent anywhere in the file
         const searchLines = normalizedOld.split('\n');
         const matches = findContentInLines(fileLines, searchLines);
 
-        if (matches.length === 1) {
-          const m = matches[0];
+        if (matches.length === 0) {
           return this.prepareResult(false, undefined,
-            `Content not found at lines ${startLine}-${endLine}. Found at lines ${m.start}-${m.end}. Retry with the correct line numbers.`
-          );
-        } else if (matches.length > 1) {
-          const locations = matches.map(m => `lines ${m.start}-${m.end}`).join(', ');
-          return this.prepareResult(false, undefined,
-            `Content not found at lines ${startLine}-${endLine}. Found at multiple locations: ${locations}. Specify which occurrence to replace using the correct startLine and endLine.`
-          );
-        } else {
-          return this.prepareResult(false, undefined,
-            `Content not found at lines ${startLine}-${endLine} or anywhere else in the note. The content may have been modified or removed.`
+            `Content not found anywhere in the note. The content may have been modified or removed.`
           );
         }
+
+        if (matches.length > 1 && nth === undefined) {
+          const locations = matches.map(m => `lines ${m.start}-${m.end}`).join(', ');
+          return this.prepareResult(false, undefined,
+            `Found ${matches.length} occurrences (${locations}). Use the nth parameter to specify which to replace (e.g. nth: 1 for the first).`
+          );
+        }
+
+        const index = (nth ?? 1) - 1;
+        if (index < 0 || index >= matches.length) {
+          return this.prepareResult(false, undefined,
+            `nth: ${nth} is out of range — found ${matches.length} occurrence(s).`
+          );
+        }
+
+        matchStart = matches[index].start;
+        matchEnd = matches[index].end;
+      } else {
+        // Line-targeted mode: validate content at the specified range
+        if (startLine < 1) {
+          return this.prepareResult(false, undefined,
+            `Invalid startLine: ${startLine}. Line numbers are 1-based (minimum 1).`
+          );
+        }
+        if (endLine < startLine) {
+          return this.prepareResult(false, undefined,
+            `endLine (${endLine}) cannot be less than startLine (${startLine}).`
+          );
+        }
+        if (startLine > totalLines) {
+          return this.prepareResult(false, undefined,
+            `startLine ${startLine} is beyond file length (${totalLines} lines). Use read to view the file first.`
+          );
+        }
+        if (endLine > totalLines) {
+          return this.prepareResult(false, undefined,
+            `endLine ${endLine} is beyond file length (${totalLines} lines). Use read to view the file first.`
+          );
+        }
+
+        const targetContent = fileLines.slice(startLine - 1, endLine).join('\n');
+        if (normalizeCRLF(targetContent) !== normalizedOld) {
+          // Mismatch — search for the content elsewhere to guide retry
+          const searchLines = normalizedOld.split('\n');
+          const matches = findContentInLines(fileLines, searchLines);
+
+          if (matches.length === 1) {
+            const m = matches[0];
+            return this.prepareResult(false, undefined,
+              `Content not found at lines ${startLine}-${endLine}. Found at lines ${m.start}-${m.end}. Retry with the correct line numbers.`
+            );
+          } else if (matches.length > 1) {
+            const locations = matches.map(m => `lines ${m.start}-${m.end}`).join(', ');
+            return this.prepareResult(false, undefined,
+              `Content not found at lines ${startLine}-${endLine}. Found at multiple locations: ${locations}. Specify which occurrence to replace using the correct startLine and endLine.`
+            );
+          } else {
+            return this.prepareResult(false, undefined,
+              `Content not found at lines ${startLine}-${endLine} or anywhere else in the note. The content may have been modified or removed.`
+            );
+          }
+        }
+
+        matchStart = startLine;
+        matchEnd = endLine;
       }
 
-      // Content matches — perform the replacement
-      const beforeLines = fileLines.slice(0, startLine - 1);
-      const afterLines = fileLines.slice(endLine);
-      const linesRemoved = endLine - startLine + 1;
+      // Perform the replacement
+      const beforeLines = fileLines.slice(0, matchStart - 1);
+      const afterLines = fileLines.slice(matchEnd);
+      const linesRemoved = matchEnd - matchStart + 1;
 
       let resultContent: string;
       let delta: number;
@@ -207,14 +236,18 @@ export class ReplaceTool extends BaseTool<ReplaceParams, ReplaceResult> {
         },
         startLine: {
           type: 'number',
-          description: 'The line number (1-indexed) where oldContent begins. Required — ensures the correct occurrence is targeted when identical content appears multiple times in a note.'
+          description: 'The line number (1-indexed) where oldContent begins. Optional — if omitted (along with endLine), the tool locates oldContent by string search instead of line position.'
         },
         endLine: {
           type: 'number',
-          description: 'The line number (1-indexed) where oldContent ends (inclusive). Required — defines the exact range to validate and replace.'
+          description: 'The line number (1-indexed) where oldContent ends (inclusive). Optional — must be provided if startLine is provided.'
+        },
+        nth: {
+          type: 'number',
+          description: 'When oldContent appears multiple times and no line numbers are given, which occurrence to replace (1-based). Defaults to 1 (first occurrence). Ignored when startLine/endLine are provided.'
         }
       },
-      required: ['path', 'oldContent', 'newContent', 'startLine', 'endLine']
+      required: ['path', 'oldContent', 'newContent']
     };
 
     return this.getMergedSchema(toolSchema);

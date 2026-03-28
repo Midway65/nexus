@@ -86,8 +86,7 @@ export class WriteTool extends BaseTool<WriteParams, WriteResult> {
         await ContentOperations.createContent(this.app, path, content);
       }
 
-      // Success - LLM already knows the path and content it passed
-      return this.prepareResult(true);
+      return { success: true, totalLines: content.split('\n').length };
     } catch (error) {
       return this.prepareResult(false, undefined, createErrorMessage('Error writing file: ', error));
     }
@@ -136,6 +135,10 @@ export class WriteTool extends BaseTool<WriteParams, WriteResult> {
         error: {
           type: 'string',
           description: 'Error message if failed (includes recovery guidance)'
+        },
+        totalLines: {
+          type: 'number',
+          description: 'Total line count of the file after the write.'
         }
       },
       required: ['success']

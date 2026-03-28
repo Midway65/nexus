@@ -93,7 +93,10 @@ export interface WriteParams extends CommonParameters {
 /**
  * Result of writing content to a file
  */
-export type WriteResult = CommonResult
+export interface WriteResult extends CommonResult {
+  /** Total line count of the file after the write. */
+  totalLines?: number;
+}
 
 /**
  * Params for replacing or deleting content in a file
@@ -102,17 +105,20 @@ export interface ReplaceParams extends CommonParameters {
   /** Path to the file to modify */
   path: string;
 
-  /** The exact text currently at lines startLine through endLine that you want to replace */
+  /** The exact text to find and replace */
   oldContent: string;
 
   /** The text to replace oldContent with. Set to empty string to delete the content. */
   newContent: string;
 
-  /** The line number (1-indexed) where oldContent begins */
-  startLine: number;
+  /** The line number (1-indexed) where oldContent begins. Optional — if omitted, the tool finds oldContent by string search. */
+  startLine?: number;
 
-  /** The line number (1-indexed) where oldContent ends (inclusive) */
-  endLine: number;
+  /** The line number (1-indexed) where oldContent ends (inclusive). Optional — required if startLine is provided. */
+  endLine?: number;
+
+  /** When oldContent appears multiple times and no line numbers are given, which occurrence to replace (1-based). Defaults to 1. */
+  nth?: number;
 }
 
 /**
