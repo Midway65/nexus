@@ -365,13 +365,15 @@
 }
 
 .message-display-container {
-    flex: 1;
+    flex: 1 1 0;
+    min-height: 0;
     overflow: hidden;
     display: flex;
     flex-direction: column;
 }
 
 .chat-input-container {
+    flex-shrink: 0;
     padding: 12px;
     border-top: 1px solid var(--background-modifier-border);
     background: var(--background-primary);
@@ -507,8 +509,10 @@
 }
 
 .messages-container {
-    flex: 1;
+    flex: 1 1 0;
+    min-height: 0;
     overflow-y: auto;
+    overflow-x: hidden;
     padding: 1rem;
     display: flex;
     flex-direction: column;
@@ -953,6 +957,8 @@
 .tool-accordion-content {
     background: var(--background-primary);
     border-top: 1px solid var(--background-modifier-border);
+    overflow: hidden;
+    min-width: 0;
 }
 
 .tool-call-item {
@@ -1027,6 +1033,10 @@
     line-height: 1.4;
     overflow-x: auto;
     margin: 0;
+    max-width: 100%;
+    white-space: pre-wrap;
+    word-break: break-all;
+    overflow-wrap: anywhere;
 }
 
 .tool-error-section {
@@ -1128,6 +1138,8 @@
 .progressive-tool-content {
     background: var(--background-primary);
     border-top: 1px solid var(--background-modifier-border);
+    overflow: hidden;
+    min-width: 0;
 }
 
 /* Progressive tool items */
