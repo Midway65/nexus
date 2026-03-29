@@ -140,11 +140,13 @@ export class PerplexityAdapter extends BaseAdapter {
    */
   async* generateStreamAsync(prompt: string, options?: PerplexityOptions): AsyncGenerator<StreamChunk, void, unknown> {
     try {
-      const requestBody: PerplexityRequestBody = {
-        model: options?.model || this.currentModel,
+      const modelId = options?.model || this.currentModel;
+      const modelSpec = PERPLEXITY_MODELS.find(m => m.apiName === modelId);
+      const requestBody = {
+        model: modelId,
         messages: this.buildMessages(prompt, options?.systemPrompt),
         temperature: options?.temperature,
-        max_tokens: options?.maxTokens,
+        max_tokens: options?.maxTokens ?? modelSpec?.maxTokens ?? 8000,
         top_p: options?.topP,
         presence_penalty: options?.presencePenalty,
         frequency_penalty: options?.frequencyPenalty,
@@ -243,11 +245,14 @@ export class PerplexityAdapter extends BaseAdapter {
    * Generate using standard chat completions
    */
   private async generateWithChatCompletions(prompt: string, options?: PerplexityOptions): Promise<LLMResponse> {
-    const requestBody: PerplexityRequestBody = {
-      model: options?.model || this.currentModel,
+    const model = options?.model || this.currentModel;
+    const modelSpec = PERPLEXITY_MODELS.find(m => m.apiName === model);
+
+    const requestBody: any = {
+      model,
       messages: this.buildMessages(prompt, options?.systemPrompt),
       temperature: options?.temperature,
-      max_tokens: options?.maxTokens,
+      max_tokens: options?.maxTokens ?? modelSpec?.maxTokens ?? 8000,
       top_p: options?.topP,
       presence_penalty: options?.presencePenalty,
       frequency_penalty: options?.frequencyPenalty,
