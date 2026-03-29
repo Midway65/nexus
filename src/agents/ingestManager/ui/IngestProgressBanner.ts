@@ -7,7 +7,7 @@
  * Completed/error banners show a dismiss button.
  */
 
-import { setIcon } from 'obsidian';
+import { Component, setIcon } from 'obsidian';
 import type { IngestProgress } from '../types';
 import { ACCEPTED_AUDIO_EXTENSIONS } from '../types';
 
@@ -24,8 +24,10 @@ export class IngestProgressBanner {
   private containerEl: HTMLElement;
   private banners: Map<string, HTMLElement> = new Map();
   private dismissHandlers: Map<string, { el: HTMLElement; handler: () => void }> = new Map();
+  private component: Component;
 
-  constructor(parentEl: HTMLElement) {
+  constructor(parentEl: HTMLElement, component: Component) {
+    this.component = component;
     this.containerEl = parentEl.createDiv({ cls: 'nexus-ingest-progress-container' });
     this.containerEl.setAttribute('aria-live', 'polite');
   }
@@ -49,11 +51,8 @@ export class IngestProgressBanner {
    * Remove a specific banner
    */
   remove(filePath: string): void {
-    const entry = this.dismissHandlers.get(filePath);
-    if (entry) {
-      entry.el.removeEventListener('click', entry.handler);
-      this.dismissHandlers.delete(filePath);
-    }
+    // click handler is managed by Component.registerDomEvent — no manual removeEventListener needed
+    this.dismissHandlers.delete(filePath);
     const bannerEl = this.banners.get(filePath);
     if (bannerEl) {
       bannerEl.remove();
@@ -65,7 +64,7 @@ export class IngestProgressBanner {
    * Remove all banners
    */
   clear(): void {
-    this.dismissHandlers.forEach(entry => entry.el.removeEventListener('click', entry.handler));
+    // click handlers are managed by Component.registerDomEvent — no manual removeEventListener needed
     this.dismissHandlers.clear();
     this.banners.forEach(el => el.remove());
     this.banners.clear();
@@ -103,7 +102,7 @@ export class IngestProgressBanner {
     dismissBtn.setAttribute('aria-label', 'Dismiss');
     setIcon(dismissBtn, 'x');
     const dismissHandler = () => this.remove(progress.filePath);
-    dismissBtn.addEventListener('click', dismissHandler);
+    this.component.registerDomEvent(dismissBtn, 'click', dismissHandler);
     this.dismissHandlers.set(progress.filePath, { el: dismissBtn, handler: dismissHandler });
 
     return banner;

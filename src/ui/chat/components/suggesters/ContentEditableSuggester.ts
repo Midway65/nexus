@@ -62,18 +62,14 @@ export abstract class ContentEditableSuggester<T> {
       this.element.addEventListener('keydown', keydownHandler);
     }
 
-    // Click outside to close - stored as instance property for cleanup
+    // Click outside to close - component is required (constructor asserts component! above)
     this.clickOutsideHandler = (e: MouseEvent) => {
       if (!this.suggestionContainer?.contains(e.target as Node) &&
           e.target !== this.element) {
         setTimeout(() => this.closeSuggestions(), 100);
       }
     };
-    if (this.component) {
-      this.component.registerDomEvent(document, 'click', this.clickOutsideHandler);
-    } else {
-      document.addEventListener('click', this.clickOutsideHandler);
-    }
+    this.component!.registerDomEvent(document, 'click', this.clickOutsideHandler);
   }
 
   /**
@@ -287,10 +283,7 @@ export abstract class ContentEditableSuggester<T> {
       clearTimeout(this.debounceTimer);
     }
 
-    // Remove document click listener
-    if (this.clickOutsideHandler) {
-      document.removeEventListener('click', this.clickOutsideHandler);
-    }
+    // document click listener is cleaned up automatically by Component.registerDomEvent
 
     if (this.suggestionContainer) {
       this.suggestionContainer.remove();
