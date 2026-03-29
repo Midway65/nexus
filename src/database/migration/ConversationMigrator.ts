@@ -50,7 +50,17 @@ export class ConversationMigrator extends BaseMigrator<ConversationMigrationResu
   ): Promise<void> {
     // Read legacy conversation JSON via adapter
     const content = await this.app.vault.adapter.read(filePath);
-    const conversation = JSON.parse(content) as IndividualConversation;
+    let conversation: IndividualConversation;
+    try {
+      conversation = JSON.parse(content);
+    } catch (parseError) {
+      result.errors.push(`Skipping malformed JSON in ${filePath}: ${parseError}`);
+      return;
+    }
+    if (!conversation || typeof conversation !== 'object' || !conversation.id) {
+      result.errors.push(`Skipping invalid conversation structure in ${filePath}: missing id`);
+      return;
+    }
 
     // Collect all events for this conversation
     const events: Array<Omit<ConversationEvent, 'id' | 'deviceId' | 'timestamp'>> = [];

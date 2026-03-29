@@ -367,7 +367,7 @@ export const MIGRATIONS: Migration[] = [
       'CREATE INDEX IF NOT EXISTS idx_conversations_scheduledFor ON conversations(scheduledFor)',
       'CREATE INDEX IF NOT EXISTS idx_conversations_runKey ON conversations(runKey)'
     ],
-    migrationFn: (db: MigratableDatabase): void => {
+    migrationFn: (db: MigratableDatabase) => {
       const rows = db.exec('SELECT id, metadataJson FROM conversations WHERE metadataJson IS NOT NULL');
       if (rows.length === 0) return;
 
@@ -376,7 +376,7 @@ export const MIGRATIONS: Migration[] = [
         const metadataJson = row[1] as string;
 
         try {
-          const metadata = JSON.parse(metadataJson) as LegacyConversationMetadata;
+          const metadata = JSON.parse(metadataJson);
           const workflowId = metadata?.workflowId;
           const runTrigger = metadata?.runTrigger;
           const scheduledFor = metadata?.scheduledFor;
@@ -459,10 +459,22 @@ export class SchemaMigrator {
     }
   }
 
+  private static readonly KNOWN_TABLES = new Set([
+    'schema_version', 'workspaces', 'sessions', 'states', 'memory_traces',
+    'conversations', 'messages', 'sync_state', 'applied_events',
+    'embedding_metadata', 'trace_embedding_metadata', 'custom_prompts',
+    'conversation_embedding_metadata', 'embedding_backfill_state',
+    'projects', 'tasks', 'task_dependencies', 'task_note_links'
+  ]);
+
   /**
    * Check if a column exists in a table
    */
   private columnExists(tableName: string, columnName: string): boolean {
+    if (!SchemaMigrator.KNOWN_TABLES.has(tableName)) {
+      console.error(`[SchemaMigrator] Refusing PRAGMA for unknown table: ${tableName}`);
+      return false;
+    }
     try {
       const result = this.db.exec(`PRAGMA table_info(${tableName})`);
 

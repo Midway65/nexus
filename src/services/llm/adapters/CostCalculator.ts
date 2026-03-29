@@ -180,12 +180,13 @@ export class TokenCounter {
     try {
       // Google's countTokens API
       const response = await ProviderHttpClient.request<GoogleCountTokensResponse>({
-        url: `https://generativelanguage.googleapis.com/v1beta/models/${model}:countTokens?key=${process.env.GOOGLE_API_KEY}`,
+        url: `https://generativelanguage.googleapis.com/v1beta/models/${model}:countTokens`,
         provider: 'google',
         operation: 'Google token counting',
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json'
+          'Content-Type': 'application/json',
+          'x-goog-api-key': process.env.GOOGLE_API_KEY || ''
         },
         body: JSON.stringify({
           contents: [{
