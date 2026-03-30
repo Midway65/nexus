@@ -3,9 +3,14 @@
  * Location: /src/ui/chat/modals/CreateFileModal.ts
  */
 
-import { App, Modal, Notice, Setting } from 'obsidian';
+import { App, Modal, Notice, Plugin, Setting } from 'obsidian';
 import { EditorInsertService } from '../services/EditorInsertService';
 import { getNexusPlugin } from '../../../utils/pluginLocator';
+
+/** Minimal interface describing only the settings shape we need */
+interface PluginWithFileSettings extends Plugin {
+  settings?: { settings?: { defaultNewFileLocation?: string } };
+}
 
 export class CreateFileModal extends Modal {
   private filename = '';
@@ -18,8 +23,7 @@ export class CreateFileModal extends Modal {
     private editorService: EditorInsertService
   ) {
     super(app);
-    // Pre-fill folder from settings, falling back to a sensible default
-    const plugin = getNexusPlugin<any>(app);
+    const plugin = getNexusPlugin<PluginWithFileSettings>(app);
     this.folder = plugin?.settings?.settings?.defaultNewFileLocation ?? '01-Inbox';
   }
 
@@ -65,7 +69,6 @@ export class CreateFileModal extends Modal {
     const createBtn = buttonContainer.createEl('button', { text: 'Create', cls: 'mod-cta' });
     createBtn.addEventListener('click', () => this.submit());
 
-    // Focus filename input
     requestAnimationFrame(() => {
       const input = contentEl.querySelector<HTMLInputElement>('input');
       if (input) input.focus();
@@ -94,7 +97,7 @@ export class CreateFileModal extends Modal {
       );
       if (file) {
         new Notice(`Created: ${file.path}`);
-        await this.app.workspace.openLinkText(file.path, '', false);
+        await this.app.workspace.getLeaf(false).openFile(file);
       }
     } catch (err) {
       new Notice(`Failed to create file: ${err instanceof Error ? err.message : String(err)}`);

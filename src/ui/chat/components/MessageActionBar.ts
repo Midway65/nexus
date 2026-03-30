@@ -28,7 +28,7 @@ export class MessageActionBar {
     const editorService = new EditorInsertService(app);
 
     // Thin separator between existing copy button and new action buttons
-    const sep = container.createDiv('nexus-action-separator');
+    container.createDiv('nexus-action-separator');
 
     const buttons: Array<{ icon: string; label: string; onClick: () => void }> = [
       {
