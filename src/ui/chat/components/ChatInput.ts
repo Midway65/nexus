@@ -221,8 +221,8 @@ export class ChatInput {
     this.inputElement.addClass('chat-input-auto-height');
 
     // Set height limits - matches CSS min/max heights
-    const minHeight = 48;
-    const maxHeight = 120;
+    const minHeight = 72;
+    const maxHeight = 200;
     const newHeight = Math.min(Math.max(this.inputElement.scrollHeight, minHeight), maxHeight);
 
     // Remove auto-height class and set specific height

@@ -105,17 +105,10 @@ export class AgentStatusMenu {
     this.badgeEl = badge;
 
     // Click handler - clears success state when modal opens
-    if (this.component) {
-      this.component.registerDomEvent(button, 'click', () => {
-        this.clearSuccessState();
-        this.callbacks.onOpenModal();
-      });
-    } else {
-      button.addEventListener('click', () => {
-        this.clearSuccessState();
-        this.callbacks.onOpenModal();
-      });
-    }
+    this.component?.registerDomEvent(button, 'click', () => {
+      this.clearSuccessState();
+      this.callbacks.onOpenModal();
+    });
 
     this.element = button;
 

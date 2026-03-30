@@ -24,7 +24,7 @@ export class CreateFileModal extends Modal {
   ) {
     super(app);
     const plugin = getNexusPlugin<PluginWithFileSettings>(app);
-    this.folder = plugin?.settings?.settings?.defaultNewFileLocation ?? '01-Inbox';
+    this.folder = plugin?.settings?.settings?.defaultNewFileLocation ?? '00-Inbox';
   }
 
   onOpen(): void {
@@ -48,7 +48,7 @@ export class CreateFileModal extends Modal {
       .setDesc('Folder path within your vault')
       .addText((text) => {
         text.setValue(this.folder);
-        text.setPlaceholder('e.g., 01-Inbox');
+        text.setPlaceholder('e.g., 00-Inbox');
         text.onChange((value) => { this.folder = value; });
       });
 
@@ -92,7 +92,7 @@ export class CreateFileModal extends Modal {
       const file = await this.editorService.createNewFile(
         this.text,
         filename,
-        this.folder || '01-Inbox',
+        this.folder || '00-Inbox',
         this.createBacklink
       );
       if (file) {

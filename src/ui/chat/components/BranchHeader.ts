@@ -108,11 +108,7 @@ export class BranchHeader {
       this.callbacks.onNavigateToParent();
     };
 
-    if (this.component) {
-      this.component.registerDomEvent(backBtn, 'click', handleBack);
-    } else {
-      backBtn.addEventListener('click', handleBack);
-    }
+    this.component?.registerDomEvent(backBtn, 'click', handleBack);
 
     // Branch info container
     const info = header.createDiv('nexus-branch-info');
@@ -147,16 +143,9 @@ export class BranchHeader {
           text: 'Cancel',
         });
         const subagentId = metadata.subagentId;
-        const onCancel = this.callbacks.onCancel;
-        if (this.component) {
-          this.component.registerDomEvent(cancelBtn, 'click', () => {
-            onCancel(subagentId);
-          });
-        } else {
-          cancelBtn.addEventListener('click', () => {
-            onCancel(subagentId);
-          });
-        }
+        this.component?.registerDomEvent(cancelBtn, 'click', () => {
+          this.callbacks.onCancel!(subagentId);
+        });
       }
 
       if (metadata.state === 'max_iterations' && this.callbacks.onContinue) {
@@ -165,16 +154,9 @@ export class BranchHeader {
           text: 'Continue',
         });
         const branchId = this.context.branchId;
-        const onContinue = this.callbacks.onContinue;
-        if (this.component) {
-          this.component.registerDomEvent(continueBtn, 'click', () => {
-            onContinue(branchId);
-          });
-        } else {
-          continueBtn.addEventListener('click', () => {
-            onContinue(branchId);
-          });
-        }
+        this.component?.registerDomEvent(continueBtn, 'click', () => {
+          this.callbacks.onContinue!(branchId);
+        });
       }
     } else {
       // Human branch

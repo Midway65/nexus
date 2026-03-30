@@ -71,11 +71,7 @@ export class ProgressiveToolAccordion {
 
     const header = accordion.createDiv('progressive-tool-header');
     const toggleHandler = () => this.toggle();
-    if (this.component) {
-      this.component.registerDomEvent(header, 'click', toggleHandler);
-    } else {
-      header.addEventListener('click', toggleHandler);
-    }
+    this.component?.registerDomEvent(header, 'click', toggleHandler);
     header.addClass('progressive-accordion-hidden');
 
     const summary = header.createDiv('tool-summary');
@@ -475,19 +471,11 @@ export class ProgressiveToolAccordion {
       href: '#'
     });
 
-    if (this.component) {
-      this.component.registerDomEvent(viewLink, 'click', (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        this.callbacks.onViewBranch?.(resolvedBranchId);
-      });
-    } else {
-      viewLink.addEventListener('click', (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        this.callbacks.onViewBranch?.(resolvedBranchId);
-      });
-    }
+    this.component?.registerDomEvent(viewLink, 'click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      this.callbacks.onViewBranch?.(resolvedBranchId);
+    });
   }
 
   private addCopyButton(container: HTMLElement, getContent: () => string): void {
@@ -511,11 +499,7 @@ export class ProgressiveToolAccordion {
       });
     };
 
-    if (this.component) {
-      this.component.registerDomEvent(copyBtn, 'click', copyHandler);
-    } else {
-      copyBtn.addEventListener('click', copyHandler);
-    }
+    this.component?.registerDomEvent(copyBtn, 'click', copyHandler);
   }
 
   cleanup(): void {

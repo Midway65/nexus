@@ -253,10 +253,10 @@ export class DefaultsTab {
       .setDesc('Pre-filled location when using "Create new file" from a chat message.')
       .addText((text) => {
         text
-          .setPlaceholder('01-Inbox')
-          .setValue(pluginSettings.defaultNewFileLocation ?? '01-Inbox')
+          .setPlaceholder('00-Inbox')
+          .setValue(pluginSettings.defaultNewFileLocation ?? '00-Inbox')
           .onChange(async (value) => {
-            pluginSettings.defaultNewFileLocation = value.trim() || '01-Inbox';
+            pluginSettings.defaultNewFileLocation = value.trim() || '00-Inbox';
             await this.services.settings.saveSettings();
           });
       });
