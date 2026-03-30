@@ -67,6 +67,7 @@ export interface MCPSettings {
   defaultWorkspaceId?: string;
   defaultPromptId?: string;
   defaultContextNotes?: string[];
+  defaultNewFileLocation?: string;
   // Update tracking
   lastUpdateVersion?: string;
   lastUpdateDate?: string;

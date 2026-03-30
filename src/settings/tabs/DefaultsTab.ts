@@ -233,6 +233,35 @@ export class DefaultsTab {
         rendererContainer.appendChild(embeddingsSection);
       }
     }
+
+    this.renderChatActionsSection(rendererContainer);
+  }
+
+  /**
+   * Render the chat action buttons section (default new file location)
+   */
+  private renderChatActionsSection(parentEl: HTMLElement): void {
+    const pluginSettings = this.services.settings.settings;
+
+    const section = createDiv({ cls: 'csr-section' });
+    const header = section.createDiv({ cls: 'csr-section-header' });
+    header.setText('Chat actions');
+    const content = section.createDiv({ cls: 'csr-section-content' });
+
+    new Setting(content)
+      .setName('Default folder for new files')
+      .setDesc('Pre-filled location when using "Create new file" from a chat message.')
+      .addText((text) => {
+        text
+          .setPlaceholder('01-Inbox')
+          .setValue(pluginSettings.defaultNewFileLocation ?? '01-Inbox')
+          .onChange(async (value) => {
+            pluginSettings.defaultNewFileLocation = value.trim() || '01-Inbox';
+            await this.services.settings.saveSettings();
+          });
+      });
+
+    parentEl.appendChild(section);
   }
 
   /**

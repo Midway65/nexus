@@ -11,10 +11,11 @@
  * following the Factory pattern for consistent bubble creation.
  */
 
-import { setIcon, Component } from 'obsidian';
+import { setIcon, Component, App } from 'obsidian';
 import { ConversationMessage } from '../../../../types/chat/ChatTypes';
 import { ProgressiveToolAccordion } from '../ProgressiveToolAccordion';
 import { normalizeToolCallsForDisplay } from '../../utils/toolDisplayNormalizer';
+import { MessageActionBar } from '../MessageActionBar';
 
 export interface ToolBubbleFactoryOptions {
   message: ConversationMessage;
@@ -98,7 +99,9 @@ export class ToolBubbleFactory {
     showCopyFeedback: (button: HTMLElement) => void,
     messageBranchNavigator: MessageBranchNavigatorLike | null,
     onMessageAlternativeChanged?: (messageId: string, alternativeIndex: number) => void,
-    component?: Component
+    component?: Component,
+    app?: App,
+    getContent?: () => string
   ): HTMLElement {
     const messageContainer = document.createElement('div');
     messageContainer.addClass('message-container');
@@ -138,6 +141,11 @@ export class ToolBubbleFactory {
       component.registerDomEvent(copyBtn, 'click', copyHandler);
     } else {
       copyBtn.addEventListener('click', copyHandler);
+    }
+
+    // Insert / append / create-file buttons added into the same pill as copy
+    if (app && component && getContent) {
+      MessageActionBar.addToContainer(actions, getContent, app, component);
     }
 
     // Message branch navigator for messages with branches

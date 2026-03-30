@@ -22,6 +22,7 @@ import { ToolEventParser } from '../utils/ToolEventParser';
 import { normalizeToolCallForDisplay } from '../utils/toolDisplayNormalizer';
 import { MessageContentRenderer } from './renderers/MessageContentRenderer';
 import { MessageEditController } from '../controllers/MessageEditController';
+import { MessageActionBar } from './MessageActionBar';
 
 export class MessageBubble extends Component {
   private element: HTMLElement | null = null;
@@ -236,6 +237,14 @@ export class MessageBubble extends Component {
         this.showCopyFeedback(copyBtn);
         this.onCopy(this.message.id);
       });
+
+      // Insert / append / create-file buttons added into the same pill as copy
+      MessageActionBar.addToContainer(
+        actions,
+        () => this.getActiveMessageContent(this.message),
+        this.app,
+        this
+      );
 
       // Message branch navigator for AI messages with branches
       if (this.message.branches && this.message.branches.length > 0) {
