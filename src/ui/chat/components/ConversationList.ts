@@ -17,8 +17,8 @@ export class ConversationList {
     private container: HTMLElement,
     private onConversationSelect: (conversation: ConversationData) => void,
     private onConversationDelete: (conversationId: string) => void,
-    private onConversationRename?: (conversationId: string, newTitle: string) => void,
-    private component: Component
+    private component: Component,
+    private onConversationRename?: (conversationId: string, newTitle: string) => void
   ) {
     this.render();
   }

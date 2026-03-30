@@ -464,16 +464,10 @@ export class ChatView extends ItemView {
   private initializeComponents(): void {
     this.conversationList = new ConversationList(
       this.layoutElements.conversationListContainer,
-      (conversation) => {
-        void this.conversationManager.selectConversation(conversation);
-      },
-      (conversationId) => {
-        void this.conversationManager.deleteConversation(conversationId);
-      },
-      (conversationId, newTitle) => {
-        void this.conversationManager.renameConversation(conversationId, newTitle);
-      },
-      this // Pass Component for registerDomEvent
+      (conversation) => this.conversationManager.selectConversation(conversation),
+      (conversationId) => this.conversationManager.deleteConversation(conversationId),
+      this, // Component for registerDomEvent
+      (conversationId, newTitle) => this.conversationManager.renameConversation(conversationId, newTitle)
     );
 
     this.messageDisplay = new MessageDisplay(
