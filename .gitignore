@@ -16,7 +16,8 @@ BCPs.md
 
 CLAUDE.md 
 
-docs/
+docs/*
+!docs/plans/
 
 Example Files/
 
