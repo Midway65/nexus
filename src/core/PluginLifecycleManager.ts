@@ -344,7 +344,8 @@ export class PluginLifecycleManager {
                 storageAdapter.cache,
                 enableEmbeddings,
                 storageAdapter.messages,
-                huggingFaceToken
+                huggingFaceToken,
+                () => this.config.settings.settings.semanticExcludePatterns ?? []
             );
             this.embeddingManager.initialize();
             (this.config.plugin as PluginWithServices).embeddingManager = this.embeddingManager;

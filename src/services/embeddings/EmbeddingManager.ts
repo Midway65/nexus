@@ -50,6 +50,7 @@ export class EmbeddingManager {
   private isEnabled: boolean;
   private isInitialized: boolean = false;
   private hfToken: string | null = null;
+  private getExclusionPatterns: () => string[];
 
   constructor(
     app: App,
@@ -57,13 +58,15 @@ export class EmbeddingManager {
     db: SQLiteCacheManager,
     enableEmbeddings: boolean = true,
     messageRepository?: MessageRepository,
-    huggingFaceToken?: string
+    huggingFaceToken?: string,
+    getExclusionPatterns?: () => string[]
   ) {
     this.app = app;
     this.plugin = plugin;
     this.db = db;
     this.messageRepository = messageRepository ?? null;
     this.hfToken = huggingFaceToken ?? null;
+    this.getExclusionPatterns = getExclusionPatterns ?? (() => []);
 
     // Disable on mobile or if user disabled embeddings
     this.isEnabled = !Platform.isMobile && enableEmbeddings;
@@ -96,7 +99,7 @@ export class EmbeddingManager {
       // Create coordinator for startup reconciliation and vault event handling
       const exclusions = new EmbeddingExclusionService(
         this.app,
-        () => [] // TODO: wire user-defined exclusion patterns from settings
+        this.getExclusionPatterns
       );
       this.coordinator = new EmbeddingIndexCoordinator(
         this.app,

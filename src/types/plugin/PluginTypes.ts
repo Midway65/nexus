@@ -66,6 +66,7 @@ export interface MCPSettings {
   enabledVault: boolean;
   enableEmbeddings?: boolean; // Enable/disable local embeddings for semantic search (desktop only)
   huggingFaceToken?: string; // Optional HF access token for downloading gated models (e.g. nomic-embed-text-v1.5)
+  semanticExcludePatterns?: string[]; // Glob/prefix patterns for paths to exclude from semantic index
   enableIngestion?: boolean; // Enable/disable PDF/audio ingestion UI and ingest-only model settings
   autoIngestion?: boolean; // Automatically convert newly added supported binary files to Markdown
   configFilePath?: string;
