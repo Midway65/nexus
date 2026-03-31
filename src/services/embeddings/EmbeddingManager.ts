@@ -20,7 +20,6 @@ import { EmbeddingRuntime, DEFAULT_EMBEDDING_MODEL_ID } from './EmbeddingRuntime
 import { EmbeddingIndexCoordinator } from './EmbeddingIndexCoordinator';
 import { EmbeddingExclusionService } from './EmbeddingExclusionService';
 import { EmbeddingService } from './EmbeddingService';
-import { EmbeddingWatcher } from './EmbeddingWatcher';
 import { ConversationEmbeddingWatcher } from './ConversationEmbeddingWatcher';
 import { IndexingQueue } from './IndexingQueue';
 import { EmbeddingStatusBar } from './EmbeddingStatusBar';
@@ -42,7 +41,6 @@ export class EmbeddingManager {
   private runtime: EmbeddingRuntime | null = null;
   private coordinator: EmbeddingIndexCoordinator | null = null;
   private service: EmbeddingService | null = null;
-  private watcher: EmbeddingWatcher | null = null;
   private conversationWatcher: ConversationEmbeddingWatcher | null = null;
   private queue: IndexingQueue | null = null;
   private statusBar: EmbeddingStatusBar | null = null;
@@ -108,15 +106,11 @@ export class EmbeddingManager {
       );
       this.plugin.addChild(this.coordinator);
 
-      this.watcher = new EmbeddingWatcher(this.app, this.service);
       this.queue = new IndexingQueue(this.app, this.service, this.db);
       this.statusBar = new EmbeddingStatusBar(this.plugin, this.queue);
 
       // Initialize status bar (desktop only)
       this.statusBar.init();
-
-      // Start watching vault events (note changes)
-      this.watcher.start();
 
       // Start watching conversation events (assistant message completions)
       if (this.messageRepository) {
@@ -241,11 +235,6 @@ export class EmbeddingManager {
       // Cancel indexing and remove all listeners
       if (this.queue) {
         this.queue.destroy();
-      }
-
-      // Stop watching vault events
-      if (this.watcher) {
-        this.watcher.stop();
       }
 
       // Stop watching conversation events
