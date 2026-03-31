@@ -27,6 +27,13 @@ export interface EmbeddingModelEntry {
   requiresMeanPool: boolean;
   /** Whether the iframe should apply normalize: true in the pipeline options */
   normalizeInPipeline: boolean;
+  /**
+   * URL where the user must accept the model's license before downloading.
+   * For models hosted by Xenova/onnx-community this is often the original
+   * upstream author's repo page, not the Xenova mirror.
+   * Omit for fully open models that require no license acceptance.
+   */
+  licenseUrl?: string;
 }
 
 /** All supported local embedding models (order matters — first is default). */
@@ -58,11 +65,12 @@ export const EMBEDDING_MODELS: EmbeddingModelEntry[] = [
     displayName: 'Nomic Embed Text v1.5',
     dimensions: 768,
     quantizedSize: '~140 MB',
-    description: 'High-quality 768-dim model. Best semantic quality. Requires HuggingFace account and license acceptance.',
+    description: 'High-quality 768-dim model. Best semantic quality. Requires HuggingFace account, license acceptance, and an access token.',
     documentPrefix: 'search_document: ',
     queryPrefix: 'search_query: ',
     requiresMeanPool: true,
     normalizeInPipeline: true,
+    licenseUrl: 'https://huggingface.co/nomic-ai/nomic-embed-text-v1.5',
   },
 ];
 

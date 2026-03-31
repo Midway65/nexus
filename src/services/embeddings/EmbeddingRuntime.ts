@@ -319,15 +319,18 @@ export class EmbeddingRuntime {
         const response = await requestUrl({ url, method: 'GET', throw: false, headers });
         if (response.status === 401) {
           throw new Error(
-            `HuggingFace authentication required for ${this.modelId}. ` +
-            `Add a HuggingFace access token in Embeddings settings (huggingface.co/settings/tokens).`
+            `HuggingFace token invalid or expired for ${this.modelId}. ` +
+            `Create a new read token at huggingface.co/settings/tokens and paste it in Embeddings settings.`
           );
         }
         if (response.status === 403 || response.status === 404) {
+          const licenseUrl = this.modelEntry.licenseUrl ?? `https://huggingface.co/${this.modelId}`;
           throw new Error(
-            `Cannot access ${this.modelId} on HuggingFace (HTTP ${response.status}). ` +
-            `This model requires accepting its license at huggingface.co/${this.modelId} while logged in, ` +
-            `then try again. Or use MiniLM-L6-v2 which has no restrictions.`
+            `Cannot download ${this.modelId} (HTTP ${response.status}). ` +
+            `Step 1: Accept the license at ${licenseUrl} while logged in to HuggingFace. ` +
+            `Step 2: Create a read token at huggingface.co/settings/tokens. ` +
+            `Step 3: Paste the token in Embeddings settings and retry. ` +
+            `Or switch to MiniLM-L6-v2 which has no restrictions.`
           );
         }
         if (response.status !== 200) {
