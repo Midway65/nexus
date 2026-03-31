@@ -54,6 +54,14 @@ export class NoteEmbeddingService {
     private runtime: EmbeddingRuntime,
   ) {}
 
+  /**
+   * Hot-swap the runtime (called after model selection change in EmbeddingsTab).
+   * The old runtime must already be disposed by the caller.
+   */
+  switchRuntime(newRuntime: EmbeddingRuntime): void {
+    this.runtime = newRuntime;
+  }
+
   // ---------------------------------------------------------------------------
   // Index state
   // ---------------------------------------------------------------------------

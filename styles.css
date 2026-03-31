@@ -8368,3 +8368,77 @@ body.is-mobile .nexus-task-board-shell {
     color: var(--text-normal);
     border-color: var(--text-muted);
 }
+
+/* ==========================================================================
+   Embeddings Tab (Settings)
+   ========================================================================== */
+
+.nexus-settings-section {
+    margin-bottom: 24px;
+}
+
+.nexus-settings-desc {
+    color: var(--text-muted);
+    font-size: var(--font-ui-small);
+    margin: 4px 0 12px;
+}
+
+/* Status grid */
+.nexus-embed-status-grid {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 4px 16px;
+    font-size: var(--font-ui-small);
+    margin-top: 8px;
+}
+
+.nexus-embed-status-label {
+    color: var(--text-muted);
+}
+
+.nexus-embed-status-value {
+    color: var(--text-normal);
+    font-weight: 500;
+    word-break: break-all;
+}
+
+/* Download progress bar */
+.nexus-embed-download-progress {
+    margin: 8px 0 12px;
+    padding: 10px 12px;
+    border-radius: var(--radius-m);
+    background: var(--background-secondary);
+    border: 1px solid var(--background-modifier-border);
+}
+
+.nexus-embed-download-header {
+    margin-bottom: 6px;
+}
+
+.nexus-embed-download-label {
+    font-size: var(--font-ui-small);
+    color: var(--text-muted);
+}
+
+.nexus-embed-download-bar-track {
+    height: 6px;
+    border-radius: 3px;
+    background: var(--background-modifier-border);
+    overflow: hidden;
+}
+
+.nexus-embed-download-bar-fill {
+    height: 100%;
+    width: 0%;
+    background: var(--interactive-accent);
+    border-radius: 3px;
+    transition: width 0.3s ease;
+}
+
+/* DefaultsTab redirect note */
+.csr-redirect-note {
+    color: var(--text-muted);
+    font-size: var(--font-ui-small);
+    margin: 4px 0;
+    font-style: italic;
+}

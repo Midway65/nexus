@@ -3,7 +3,8 @@
  * Purpose: Embeddings settings tab — all embedding-related controls in one place.
  *
  * Single canonical home for:
- * - Model selection
+ * - Enable/disable semantic indexing
+ * - Model selection with download progress
  * - Semantic index status (note count, block count, active model)
  * - Block indexing toggle
  * - Maintenance utilities (refresh, clean, rebuild, clear)
@@ -17,10 +18,12 @@
 import { Setting, Notice, Platform } from 'obsidian';
 import type { SettingsRouter } from '../SettingsRouter';
 import type { EmbeddingManager } from '../../services/embeddings/EmbeddingManager';
+import type { Settings } from '../../settings';
 import { EMBEDDING_MODELS, DEFAULT_EMBEDDING_MODEL_ID } from '../../services/embeddings/EmbeddingModelCatalog';
 
 export interface EmbeddingsTabConfig {
   embeddingManager: EmbeddingManager | null;
+  settings: Settings;
 }
 
 export class EmbeddingsTab {
@@ -29,11 +32,25 @@ export class EmbeddingsTab {
   private config: EmbeddingsTabConfig;
   private refreshInterval: ReturnType<typeof setInterval> | null = null;
 
+  // Download progress state
+  private downloadProgressEl: HTMLElement | null = null;
+  private downloadProgressBar: HTMLElement | null = null;
+  private downloadProgressText: HTMLElement | null = null;
+
   constructor(container: HTMLElement, router: SettingsRouter, config: EmbeddingsTabConfig) {
     this.container = container;
     this.router = router;
     this.config = config;
-    this.render();
+    this.wireProgressCallback();
+    void this.render();
+  }
+
+  private wireProgressCallback(): void {
+    const manager = this.config.embeddingManager;
+    if (!manager) return;
+    manager.onDownloadProgress = (percent) => {
+      this.updateDownloadProgress(percent);
+    };
   }
 
   private async render(): Promise<void> {
@@ -54,6 +71,7 @@ export class EmbeddingsTab {
       cls: 'nexus-settings-desc'
     });
 
+    this.renderEnableSection();
     await this.renderStatusSection();
     this.renderModelSection();
     this.renderBlockIndexingSection();
@@ -62,17 +80,38 @@ export class EmbeddingsTab {
   }
 
   // ---------------------------------------------------------------------------
+  // Enable / disable
+  // ---------------------------------------------------------------------------
+
+  private renderEnableSection(): void {
+    const section = this.container.createDiv('nexus-settings-section');
+
+    new Setting(section)
+      .setName('Enable semantic indexing')
+      .setDesc('Indexes your notes locally for semantic search and the Semantic Panel. Requires restart to take effect after toggling.')
+      .addToggle(toggle => {
+        toggle
+          .setValue(this.config.settings.settings.enableEmbeddings ?? true)
+          .onChange(async (value) => {
+            this.config.settings.settings.enableEmbeddings = value;
+            await this.config.settings.saveSettings();
+            new Notice(`Semantic indexing ${value ? 'enabled' : 'disabled'}. Restart Obsidian to apply.`);
+          });
+      });
+  }
+
+  // ---------------------------------------------------------------------------
   // Status section
   // ---------------------------------------------------------------------------
 
   private async renderStatusSection(): Promise<void> {
     const section = this.container.createDiv('nexus-settings-section');
-    section.createEl('h4', { text: 'Index Status' });
+    section.createEl('h4', { text: 'Index status' });
 
     const manager = this.config.embeddingManager;
     if (!manager) {
       section.createEl('p', {
-        text: 'Embedding system not initialized yet. Try again after startup completes.',
+        text: 'Embedding system not initialized yet. It starts automatically a few seconds after Obsidian loads.',
         cls: 'nexus-settings-desc'
       });
       return;
@@ -108,32 +147,83 @@ export class EmbeddingsTab {
     const section = this.container.createDiv('nexus-settings-section');
     section.createEl('h4', { text: 'Embedding model' });
     section.createEl('p', {
-      text: 'Changing the model requires a full index rebuild. Existing embeddings from a different model are incompatible.',
+      text: 'Models are downloaded on first use and cached locally. Switching models requires a full index rebuild.',
       cls: 'nexus-settings-desc'
     });
 
-    const noteService = this.config.embeddingManager?.getService()?.getNoteEmbeddingService();
+    // Download progress bar (hidden until a download starts)
+    const progressWrapper = section.createDiv('nexus-embed-download-progress');
+    progressWrapper.style.display = 'none';
+    const progressHeader = progressWrapper.createDiv('nexus-embed-download-header');
+    this.downloadProgressText = progressHeader.createEl('span', {
+      text: 'Downloading model…',
+      cls: 'nexus-embed-download-label'
+    });
+    this.downloadProgressBar = progressWrapper.createDiv('nexus-embed-download-bar-track')
+      .createDiv('nexus-embed-download-bar-fill');
+    this.downloadProgressEl = progressWrapper;
+
+    const manager = this.config.embeddingManager;
 
     for (const model of EMBEDDING_MODELS) {
-      new Setting(section)
+      const setting = new Setting(section)
         .setName(model.displayName)
-        .setDesc(`${model.description} (${model.quantizedSize}, ${model.dimensions}-dim)`)
-        .addButton(button => {
-          button.setButtonText('Select');
-          button.onClick(async () => {
-            if (!noteService) {
-              new Notice('Embedding service not ready.');
-              return;
-            }
-            try {
-              await noteService.setConfigValue('activeModel', model.id);
-              await noteService.setConfigValue('activeDimension', String(model.dimensions));
-              new Notice(`Model set to ${model.displayName}. Rebuild the index to apply.`);
-            } catch {
-              new Notice('Failed to update model setting.');
-            }
-          });
+        .setDesc(`${model.description} Download size: ${model.quantizedSize} · ${model.dimensions} dimensions`);
+
+      setting.addButton(button => {
+        button.setButtonText('Select & download');
+        button.onClick(async () => {
+          if (!manager) {
+            new Notice('Embedding system not ready yet.');
+            return;
+          }
+          button.setButtonText('Switching…').setDisabled(true);
+          this.showDownloadProgress(`Downloading ${model.displayName}…`);
+          try {
+            await manager.switchModel(model.id, model.dimensions);
+            this.hideDownloadProgress();
+            new Notice(`Switched to ${model.displayName}. Rebuild the index to apply.`, 5000);
+          } catch (err) {
+            this.hideDownloadProgress();
+            new Notice(`Failed to switch model: ${err instanceof Error ? err.message : String(err)}`);
+          } finally {
+            button.setButtonText('Select & download').setDisabled(false);
+          }
         });
+      });
+    }
+  }
+
+  private showDownloadProgress(label: string): void {
+    if (!this.downloadProgressEl || !this.downloadProgressText) return;
+    this.downloadProgressText.textContent = label;
+    this.downloadProgressEl.style.display = '';
+    this.setDownloadBarPercent(0);
+  }
+
+  private hideDownloadProgress(): void {
+    if (!this.downloadProgressEl) return;
+    this.downloadProgressEl.style.display = 'none';
+  }
+
+  private setDownloadBarPercent(percent: number): void {
+    if (this.downloadProgressBar) {
+      this.downloadProgressBar.style.width = `${Math.max(0, Math.min(100, percent))}%`;
+    }
+    if (this.downloadProgressText && percent > 0) {
+      const base = this.downloadProgressText.textContent?.replace(/ \d+%$/, '') ?? 'Downloading…';
+      this.downloadProgressText.textContent = `${base} ${Math.round(percent)}%`;
+    }
+  }
+
+  private updateDownloadProgress(percent: number): void {
+    // Show progress bar if it's hidden (model loading at startup)
+    if (this.downloadProgressEl?.style.display === 'none') {
+      this.showDownloadProgress('Downloading model…');
+    }
+    this.setDownloadBarPercent(percent);
+    if (percent >= 100) {
+      setTimeout(() => this.hideDownloadProgress(), 1500);
     }
   }
 
@@ -149,15 +239,15 @@ export class EmbeddingsTab {
 
     new Setting(section)
       .setName('Enable block-level indexing')
-      .setDesc('Index note sections and paragraphs for higher-precision retrieval. Increases index size and build time.')
+      .setDesc('Index note sections and paragraphs for higher-precision retrieval in the Semantic Panel. Increases index size and build time.')
       .addToggle(toggle => {
         toggle.onChange(async (enabled) => {
           if (!noteService) return;
           await noteService.setConfigValue('blockIndexingEnabled', enabled ? 'true' : 'false');
           await noteService.setConfigValue('blockIndexStale', 'true');
           new Notice(enabled
-            ? 'Block indexing enabled. Refresh or rebuild the index to index blocks.'
-            : 'Block indexing disabled. Refresh or rebuild to remove existing block rows.'
+            ? 'Block indexing enabled. Use Rebuild index to index blocks.'
+            : 'Block indexing disabled. Use Rebuild index to remove existing block rows.'
           );
         });
       });
@@ -192,7 +282,7 @@ export class EmbeddingsTab {
 
     new Setting(section)
       .setName('Rebuild index')
-      .setDesc('Clear all embeddings and re-embed from scratch. Use after changing the model.')
+      .setDesc('Clear all embeddings and re-embed from scratch. Required after switching models.')
       .addButton(button => {
         button.setButtonText('Rebuild').setCta();
         button.onClick(async () => {
@@ -262,6 +352,10 @@ export class EmbeddingsTab {
     if (this.refreshInterval !== null) {
       clearInterval(this.refreshInterval);
       this.refreshInterval = null;
+    }
+    // Detach progress callback so a stale tab can't update a destroyed DOM
+    if (this.config.embeddingManager) {
+      this.config.embeddingManager.onDownloadProgress = null;
     }
   }
 }

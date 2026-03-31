@@ -108,6 +108,15 @@ export class EmbeddingService {
     return this.runtime;
   }
 
+  /**
+   * Hot-swap the note embedding runtime.
+   * Caller is responsible for disposing the old runtime and initializing the new one.
+   */
+  switchRuntime(newRuntime: EmbeddingRuntime): void {
+    this.runtime = newRuntime;
+    this.noteService.switchRuntime(newRuntime);
+  }
+
   // ==================== NOTE EMBEDDINGS ====================
 
   async embedNote(notePath: string): Promise<void> {

@@ -76,9 +76,14 @@ export class EmbeddingManager {
     }
 
     try {
+      // Read the persisted activeModel from DB before constructing the runtime.
+      // Falls back to DEFAULT_EMBEDDING_MODEL_ID when no config row exists yet.
+      const savedModelId = await this.readActiveModelFromDb();
+
       // Create components
       this.engine = new EmbeddingEngine();
-      this.runtime = new EmbeddingRuntime(DEFAULT_EMBEDDING_MODEL_ID);
+      this.runtime = new EmbeddingRuntime(savedModelId);
+      this.wireProgressCallback();
       this.service = new EmbeddingService(this.app, this.db, this.engine, this.runtime);
 
       // Create coordinator for startup reconciliation and vault event handling
@@ -144,6 +149,66 @@ export class EmbeddingManager {
       console.error('[EmbeddingManager] Initialization failed:', error);
       // Don't throw - embeddings are optional functionality
     }
+  }
+
+  /**
+   * Read persisted activeModel from embedding_config table.
+   * Returns DEFAULT_EMBEDDING_MODEL_ID when the table is empty or not yet created.
+   */
+  private async readActiveModelFromDb(): Promise<string> {
+    try {
+      const row = await this.db.queryOne<{ value: string }>(
+        "SELECT value FROM embedding_config WHERE key = 'activeModel'"
+      );
+      if (row?.value) return row.value;
+    } catch {
+      // Table may not exist yet on first run — fall through to default
+    }
+    return DEFAULT_EMBEDDING_MODEL_ID;
+  }
+
+  /** Optional callback — fired with 0–100 while the note model downloads. */
+  onDownloadProgress: ((percent: number) => void) | null = null;
+
+  private wireProgressCallback(): void {
+    if (this.runtime) {
+      this.runtime.onProgress = (percent) => {
+        this.onDownloadProgress?.(percent);
+      };
+    }
+  }
+
+  /**
+   * Switch to a different embedding model at runtime.
+   * 1. Writes new model to DB config.
+   * 2. Disposes old runtime, creates new one.
+   * 3. Hot-swaps runtime into the service layer.
+   * 4. Marks block index as stale (different model = incompatible blocks).
+   *
+   * The caller (EmbeddingsTab) should trigger a rebuild after switching.
+   */
+  async switchModel(modelId: string, dimensions: number): Promise<void> {
+    if (!this.isEnabled || !this.service) return;
+
+    const noteService = this.service.getNoteEmbeddingService();
+
+    // Persist new model selection
+    await noteService.setConfigValue('activeModel', modelId);
+    await noteService.setConfigValue('activeDimension', String(dimensions));
+    await noteService.setConfigValue('blockIndexStale', 'true');
+
+    // Dispose old runtime
+    if (this.runtime) {
+      await this.runtime.dispose();
+    }
+
+    // Create and wire new runtime
+    this.runtime = new EmbeddingRuntime(modelId);
+    this.wireProgressCallback();
+    this.service.switchRuntime(this.runtime);
+
+    // Initialize the new runtime (starts model download if not cached)
+    await this.runtime.initialize();
   }
 
   /**

@@ -42,7 +42,7 @@ export class DefaultsTab {
     this.router = router;
     this.services = services;
 
-    void this.loadDataAndRender();
+    this.loadDataAndRender();
   }
 
   /**
@@ -186,9 +186,7 @@ export class DefaultsTab {
       initialSettings: this.getCurrentSettings(),
       options: { workspaces, prompts },
       callbacks: {
-        onSettingsChange: (settings) => {
-          void this.saveSettings(settings);
-        }
+        onSettingsChange: (settings) => this.saveSettings(settings)
       }
     });
 
@@ -213,18 +211,10 @@ export class DefaultsTab {
       embeddingsHeader.setText('Embeddings');
       const embeddingsContent = embeddingsSection.createDiv({ cls: 'csr-section-content' });
 
-      new Setting(embeddingsContent)
-        .setName('Enable')
-        .setDesc('Local embeddings for semantic search (~23 megabytes download). Restart to apply.')
-        .addToggle(toggle => {
-          toggle
-            .setValue(this.services.settings.settings.enableEmbeddings ?? true)
-            .onChange(async (value) => {
-              this.services.settings.settings.enableEmbeddings = value;
-              await this.services.settings.saveSettings();
-              new Notice(`Embeddings ${value ? 'enabled' : 'disabled'}. Restart Obsidian to apply.`);
-            });
-        });
+      const redirectDesc = embeddingsContent.createEl('p', {
+        cls: 'csr-redirect-note',
+        text: 'Embedding settings have moved to the Embeddings tab — enable/disable, model selection, index controls, and download progress are all there.',
+      });
 
       // Insert before Temperature, or append if not found
       if (temperatureSection) {
@@ -323,18 +313,6 @@ export class DefaultsTab {
           });
       });
 
-    new Setting(content)
-      .setName('Auto-convert new files')
-      .setDesc('When supported PDF or audio files are added to the vault, automatically convert them to sibling Markdown files using the defaults below.')
-      .addToggle(toggle => {
-        toggle
-          .setValue(pluginSettings.autoIngestion === true)
-          .onChange(async (value) => {
-            pluginSettings.autoIngestion = value;
-            await this.services.settings.saveSettings();
-          });
-      });
-
     if (!isEnabled) {
       ingestionSettingsContainer.addClass('nexus-ingest-confirm-hidden');
     }
@@ -344,11 +322,11 @@ export class DefaultsTab {
 
     new Setting(ingestionSettingsContainer)
       .setName('Default PDF mode')
-      .setDesc('Text extraction is free. Vision scan uses a model for scanned documents.')
+      .setDesc('Text extraction is free. Vision OCR uses an LLM for scanned documents.')
       .addDropdown(dropdown => {
         dropdown
           .addOption('text', 'Text extraction')
-          .addOption('vision', 'Vision scan')
+          .addOption('vision', 'Vision OCR')
           .setValue(llmSettings.defaultPdfMode || 'text')
           .onChange(async (value) => {
             llmSettings.defaultPdfMode = value as 'text' | 'vision';
@@ -452,9 +430,8 @@ export class DefaultsTab {
         return;
       }
 
-      const currentModelDropdown = modelDropdown;
       provider.models.forEach(model => {
-        currentModelDropdown.createEl('option', {
+        modelDropdown!.createEl('option', {
           value: model.id,
           text: model.name
         });
