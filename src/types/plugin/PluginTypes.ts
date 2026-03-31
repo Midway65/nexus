@@ -53,6 +53,15 @@ export interface ProcessedFilesData {
  * Plugin settings interface
  * Includes vault access toggle and version tracking
  */
+export interface SemanticPanelSettings {
+  resultCount: number;              // default: 10
+  minScore: number;                 // default: 0.70 (raw cosine threshold, 0–1)
+  resultMode: 'notes' | 'blocks';  // default: 'notes' — persisted from toggle
+  autoRefresh: boolean;             // default: true
+  showScore: boolean;               // default: true
+  showFullPath: boolean;            // default: false
+}
+
 export interface MCPSettings {
   enabledVault: boolean;
   enableEmbeddings?: boolean; // Enable/disable local embeddings for semantic search (desktop only)
@@ -77,4 +86,5 @@ export interface MCPSettings {
   workflowScheduler?: {
     lastCheckAt?: number;
   };
+  semanticPanel?: Partial<SemanticPanelSettings>;
 }

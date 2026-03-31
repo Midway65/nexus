@@ -240,25 +240,60 @@ CREATE TABLE IF NOT EXISTS applied_events (
 
 CREATE INDEX IF NOT EXISTS idx_applied_events_time ON applied_events(appliedAt);
 
--- ==================== NOTE EMBEDDINGS ====================
+-- ==================== NOTE EMBEDDINGS (Plan 04 — v12, 768-dim Nomic default) ====================
 
--- Vector storage (vec0 virtual table)
+-- Vector storage (vec0 virtual table) — 768-dim for nomic-embed-text-v1.5
 CREATE VIRTUAL TABLE IF NOT EXISTS note_embeddings USING vec0(
-  embedding float[384]
+  embedding float[768]
 );
 
--- Metadata linked to vec0 by rowid
+-- Metadata linked to vec0 by rowid — includes dimension column for multi-model support
 CREATE TABLE IF NOT EXISTS embedding_metadata (
-  rowid INTEGER PRIMARY KEY,
-  notePath TEXT NOT NULL UNIQUE,
-  model TEXT NOT NULL,
+  rowid       INTEGER PRIMARY KEY,
+  notePath    TEXT NOT NULL UNIQUE,
   contentHash TEXT NOT NULL,
-  created INTEGER NOT NULL,
-  updated INTEGER NOT NULL
+  model       TEXT NOT NULL,
+  dimension   INTEGER NOT NULL,
+  created     INTEGER NOT NULL,
+  updated     INTEGER NOT NULL
 );
 
-CREATE INDEX IF NOT EXISTS idx_embedding_meta_path ON embedding_metadata(notePath);
-CREATE INDEX IF NOT EXISTS idx_embedding_meta_hash ON embedding_metadata(contentHash);
+CREATE INDEX IF NOT EXISTS idx_embed_meta_notePath ON embedding_metadata(notePath);
+CREATE INDEX IF NOT EXISTS idx_embed_meta_updated ON embedding_metadata(updated);
+
+-- Block-level embeddings (optional — enabled via embedding_config.blockIndexingEnabled)
+CREATE VIRTUAL TABLE IF NOT EXISTS block_embeddings USING vec0(
+  embedding float[768]
+);
+
+CREATE TABLE IF NOT EXISTS block_embedding_metadata (
+  rowid          INTEGER PRIMARY KEY,
+  notePath       TEXT NOT NULL,
+  chunkIndex     INTEGER NOT NULL,
+  heading        TEXT,
+  charOffset     INTEGER NOT NULL,
+  contentHash    TEXT NOT NULL,
+  contentPreview TEXT,
+  model          TEXT NOT NULL,
+  dimension      INTEGER NOT NULL,
+  created        INTEGER NOT NULL,
+  updated        INTEGER NOT NULL,
+  UNIQUE(notePath, chunkIndex)
+);
+
+CREATE INDEX IF NOT EXISTS idx_block_embed_meta_notePath ON block_embedding_metadata(notePath);
+CREATE INDEX IF NOT EXISTS idx_block_embed_meta_note_chunk ON block_embedding_metadata(notePath, chunkIndex);
+
+-- Embedding runtime configuration store
+CREATE TABLE IF NOT EXISTS embedding_config (
+  key   TEXT PRIMARY KEY,
+  value TEXT NOT NULL
+);
+
+INSERT OR IGNORE INTO embedding_config(key, value) VALUES ('activeModel', 'Xenova/nomic-embed-text-v1.5');
+INSERT OR IGNORE INTO embedding_config(key, value) VALUES ('activeDimension', '768');
+INSERT OR IGNORE INTO embedding_config(key, value) VALUES ('blockIndexingEnabled', 'false');
+INSERT OR IGNORE INTO embedding_config(key, value) VALUES ('blockIndexStale', 'false');
 
 -- ==================== TRACE EMBEDDINGS ====================
 
@@ -420,7 +455,20 @@ CREATE TABLE IF NOT EXISTS task_note_links (
 
 CREATE INDEX IF NOT EXISTS idx_task_links_note ON task_note_links(notePath);
 
+-- ==================== SEMANTIC PANEL FEEDBACK (Plan 05 — v13) ====================
+
+CREATE TABLE IF NOT EXISTS semantic_feedback (
+  sourceNotePath TEXT NOT NULL,
+  targetNotePath TEXT NOT NULL,
+  state          TEXT NOT NULL CHECK(state IN ('pinned', 'hidden')),
+  createdAt      INTEGER NOT NULL,
+  PRIMARY KEY (sourceNotePath, targetNotePath, state)
+);
+
+CREATE INDEX IF NOT EXISTS idx_semantic_feedback_source ON semantic_feedback(sourceNotePath);
+CREATE INDEX IF NOT EXISTS idx_semantic_feedback_state ON semantic_feedback(sourceNotePath, state);
+
 -- ==================== INITIALIZATION ====================
 
-INSERT OR IGNORE INTO schema_version VALUES (9, strftime('%s', 'now') * 1000);
+INSERT OR IGNORE INTO schema_version VALUES (13, strftime('%s', 'now') * 1000);
 `;

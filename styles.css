@@ -321,7 +321,8 @@
 }
 
 .chat-hamburger-button,
-.chat-settings-button {
+.chat-settings-button,
+.chat-semantic-panel-button {
     background: none;
     border: none;
     color: var(--text-muted);
@@ -335,9 +336,31 @@
 }
 
 .chat-hamburger-button:hover,
-.chat-settings-button:hover {
+.chat-settings-button:hover,
+.chat-semantic-panel-button:hover {
     background: var(--background-modifier-hover);
     color: var(--text-normal);
+}
+
+/* Right-side header button group — keeps space-between layout intact */
+.chat-header-right {
+    display: flex;
+    gap: 4px;
+    align-items: center;
+}
+
+/* Active state when semantic panel is open */
+.chat-semantic-panel-button.is-active {
+    color: var(--text-accent);
+    background: var(--background-modifier-hover);
+}
+
+/* Mobile touch targets */
+body.is-mobile .chat-hamburger-button,
+body.is-mobile .chat-settings-button,
+body.is-mobile .chat-semantic-panel-button {
+    min-width: 44px;
+    min-height: 44px;
 }
 
 .chat-title {
@@ -7995,4 +8018,353 @@ body.is-mobile .nexus-task-board-shell {
 .nexus-ingest-confirm-submit {
     min-width: 80px;
     min-height: 44px;
+}
+
+/* ==========================================================================
+   Semantic Panel (Plan 05)
+   ========================================================================== */
+
+.semantic-panel-view {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    overflow: hidden;
+    font-size: var(--font-ui-small);
+    color: var(--text-normal);
+}
+
+/* Header */
+.semantic-panel-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--background-modifier-border);
+    flex-shrink: 0;
+}
+
+.semantic-panel-title {
+    font-weight: 600;
+    font-size: var(--font-ui-medium);
+}
+
+.semantic-panel-header-actions {
+    display: flex;
+    gap: 2px;
+    align-items: center;
+}
+
+.semantic-panel-icon-btn {
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    padding: 4px;
+    border-radius: var(--radius-s);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.15s;
+}
+
+.semantic-panel-icon-btn:hover {
+    background: var(--background-modifier-hover);
+    color: var(--text-normal);
+}
+
+/* Mode bar */
+.semantic-panel-mode-bar {
+    padding: 6px 10px;
+    border-bottom: 1px solid var(--background-modifier-border);
+    flex-shrink: 0;
+}
+
+.semantic-panel-active-note {
+    color: var(--text-muted);
+    font-size: var(--font-ui-smaller);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    display: block;
+}
+
+.semantic-panel-search-wrapper {
+    display: flex;
+    align-items: center;
+}
+
+.semantic-panel-search-input {
+    width: 100%;
+    border: 1px solid var(--background-modifier-border);
+    border-radius: var(--radius-s);
+    background: var(--background-primary);
+    color: var(--text-normal);
+    padding: 4px 8px;
+    font-size: var(--font-ui-small);
+}
+
+.semantic-panel-search-input:focus {
+    outline: none;
+    border-color: var(--interactive-accent);
+}
+
+/* Notes / Blocks toggle */
+.semantic-panel-toggle {
+    display: flex;
+    gap: 4px;
+    padding: 6px 10px;
+    border-bottom: 1px solid var(--background-modifier-border);
+    flex-shrink: 0;
+}
+
+.semantic-panel-toggle-btn {
+    background: none;
+    border: 1px solid var(--background-modifier-border);
+    border-radius: var(--radius-s);
+    color: var(--text-muted);
+    cursor: pointer;
+    padding: 3px 10px;
+    font-size: var(--font-ui-smaller);
+    transition: all 0.15s;
+}
+
+.semantic-panel-toggle-btn.is-active {
+    background: var(--interactive-accent);
+    border-color: var(--interactive-accent);
+    color: var(--text-on-accent);
+}
+
+.semantic-panel-toggle-btn:hover:not(.is-active):not([disabled]) {
+    background: var(--background-modifier-hover);
+    color: var(--text-normal);
+}
+
+.semantic-panel-toggle-btn[disabled] {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+
+/* Status / empty states */
+.semantic-panel-status {
+    padding: 20px 12px;
+    text-align: center;
+    color: var(--text-muted);
+    flex-shrink: 0;
+}
+
+.semantic-panel-empty-msg {
+    margin: 0 0 10px 0;
+    line-height: 1.5;
+}
+
+.semantic-panel-action-link {
+    color: var(--text-accent);
+    cursor: pointer;
+    text-decoration: underline;
+    margin-left: 4px;
+}
+
+.semantic-panel-action-btn {
+    display: block;
+    margin: 8px auto 0;
+    background: var(--interactive-accent);
+    color: var(--text-on-accent);
+    border: none;
+    border-radius: var(--radius-s);
+    padding: 5px 14px;
+    cursor: pointer;
+    font-size: var(--font-ui-small);
+}
+
+.semantic-panel-action-btn:hover {
+    background: var(--interactive-accent-hover);
+}
+
+/* Results list */
+.semantic-panel-results {
+    flex: 1;
+    overflow-y: auto;
+    padding: 4px 0;
+}
+
+.semantic-panel-results.is-loading {
+    opacity: 0.6;
+    pointer-events: none;
+}
+
+/* Section headings */
+.semantic-panel-section-heading {
+    font-size: var(--font-ui-smaller);
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--text-faint);
+    margin: 8px 10px 4px;
+}
+
+/* Conversation cross-refs */
+.semantic-panel-conv-refs {
+    border-top: 1px solid var(--background-modifier-border);
+    padding-bottom: 4px;
+    flex-shrink: 0;
+}
+
+.semantic-panel-conv-list {
+    padding: 0 4px;
+}
+
+.semantic-panel-conv-item {
+    padding: 6px 8px;
+    border-radius: var(--radius-s);
+    cursor: pointer;
+    color: var(--text-muted);
+    font-size: var(--font-ui-smaller);
+}
+
+.semantic-panel-conv-item:hover {
+    background: var(--background-modifier-hover);
+    color: var(--text-normal);
+}
+
+.semantic-panel-conv-item:focus-visible {
+    outline: 2px solid var(--interactive-accent);
+    outline-offset: -2px;
+}
+
+/* Footer */
+.semantic-panel-footer {
+    padding: 4px 10px 6px;
+    font-size: var(--font-ui-smaller);
+    color: var(--text-faint);
+    border-top: 1px solid var(--background-modifier-border);
+    flex-shrink: 0;
+}
+
+/* Result rows */
+.semantic-result-row {
+    border-radius: var(--radius-s);
+    margin: 1px 4px;
+    outline: none;
+}
+
+.semantic-result-row:focus-visible {
+    outline: 2px solid var(--interactive-accent);
+    outline-offset: -2px;
+}
+
+.semantic-result-header {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 5px 6px;
+    cursor: pointer;
+    border-radius: var(--radius-s);
+    user-select: none;
+}
+
+.semantic-result-header:hover {
+    background: var(--background-modifier-hover);
+}
+
+.semantic-result-chevron {
+    color: var(--text-faint);
+    flex-shrink: 0;
+    width: 16px;
+    height: 16px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.semantic-result-title {
+    flex: 1;
+    font-size: var(--font-ui-small);
+    color: var(--text-normal);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    min-width: 0;
+}
+
+.semantic-result-subtitle {
+    font-size: var(--font-ui-smaller);
+    color: var(--text-faint);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 30%;
+    flex-shrink: 0;
+}
+
+.semantic-result-score {
+    font-size: var(--font-ui-smaller);
+    color: var(--text-faint);
+    flex-shrink: 0;
+    padding: 1px 5px;
+    border-radius: 10px;
+    background: var(--background-modifier-border);
+}
+
+.semantic-result-menu-btn {
+    background: none;
+    border: none;
+    color: var(--text-faint);
+    cursor: pointer;
+    padding: 2px;
+    border-radius: var(--radius-s);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    opacity: 0;
+    transition: opacity 0.15s;
+}
+
+.semantic-result-header:hover .semantic-result-menu-btn,
+.semantic-result-menu-btn:focus {
+    opacity: 1;
+}
+
+.semantic-result-menu-btn:hover {
+    background: var(--background-modifier-hover);
+    color: var(--text-normal);
+}
+
+/* Expanded state */
+.semantic-result-row.is-expanded .semantic-result-header {
+    background: var(--background-modifier-hover);
+}
+
+.semantic-result-preview {
+    padding: 4px 10px 6px 26px;
+    font-size: var(--font-ui-smaller);
+    color: var(--text-muted);
+    line-height: 1.5;
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
+/* Action bar */
+.semantic-result-actions {
+    display: flex;
+    gap: 4px;
+    padding: 4px 10px 6px 26px;
+    flex-wrap: wrap;
+}
+
+.semantic-action-btn {
+    background: none;
+    border: 1px solid var(--background-modifier-border);
+    border-radius: var(--radius-s);
+    color: var(--text-muted);
+    cursor: pointer;
+    padding: 2px 8px;
+    font-size: var(--font-ui-smaller);
+    transition: all 0.15s;
+}
+
+.semantic-action-btn:hover {
+    background: var(--background-modifier-hover);
+    color: var(--text-normal);
+    border-color: var(--text-muted);
 }

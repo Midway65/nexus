@@ -1,121 +1,160 @@
 /**
  * Location: src/services/embeddings/NoteEmbeddingService.ts
- * Purpose: Domain service for note-level embedding operations.
+ * Purpose: Persistence and query logic for note-level and block-level embeddings.
  *
- * Handles embedding, searching, and managing embeddings for vault notes.
- * Each note gets a single embedding (no chunking) stored in the note_embeddings
- * vec0 table with metadata in embedding_metadata.
+ * Responsibilities (post-Plan-04 refactor):
+ * - Note and block embedding upsert / remove / rename
+ * - Cosine-based similarity search (vec_distance_cosine on L2-normalized vectors)
+ * - Index stats and cleanup
+ * - getIndexState() for panel / UI consumption
  *
- * Features:
- * - Note-level embeddings (one per note, no chunking)
- * - Content hash for change detection (skip re-embedding unchanged notes)
- * - Semantic search with heuristic re-ranking (recency + title match)
- * - Find similar notes by embedding distance
- * - Path updates for rename operations
+ * NOT responsible for:
+ * - Vault access or event handling (handled by EmbeddingIndexCoordinator)
+ * - Text preprocessing or model inference (handled by EmbeddingRuntime / EmbeddingPreprocessor)
+ * - Exclusion decisions (handled by EmbeddingExclusionService)
  *
- * Relationships:
- * - Used by EmbeddingService (facade) which delegates note operations here
- * - Uses EmbeddingEngine for generating embeddings
- * - Uses SQLiteCacheManager for vector storage
- * - Uses shared utilities from EmbeddingUtils.ts
+ * Schema dependency: expects schema v12 tables:
+ *   note_embeddings (vec0, float[N]), embedding_metadata,
+ *   block_embeddings (vec0, float[N]), block_embedding_metadata, embedding_config
  */
 
 import { App, TFile } from 'obsidian';
-import type { EmbeddingEngine } from './EmbeddingEngine';
-import { preprocessContent, hashContent } from './EmbeddingUtils';
+import type { EmbeddingRuntime } from './EmbeddingRuntime';
 import type { SQLiteCacheManager } from '../../database/storage/SQLiteCacheManager';
-import type { QueryParams } from '../../database/repositories/base/BaseRepository';
-
-const asQueryParams = (params: unknown[]): QueryParams => params as unknown as QueryParams;
+import { preprocessContent, hashContent } from './EmbeddingUtils';
+import { chunkNote } from './NoteChunker';
 
 export interface SimilarNote {
   notePath: string;
-  distance: number;
+  score: number; // cosine similarity in [0, 1]; higher = more similar
+}
+
+export interface SimilarBlock {
+  notePath: string;
+  chunkIndex: number;
+  heading: string | null;
+  contentPreview: string;
+  score: number;
+}
+
+export interface IndexState {
+  noteCount: number;
+  blockCount: number;
+  activeModel: string | null;
+  activeDimension: number | null;
+  blockIndexingEnabled: boolean;
+  blockIndexStale: boolean;
+  lastRebuildAt: number | null;
 }
 
 export class NoteEmbeddingService {
-  private app: App;
-  private db: SQLiteCacheManager;
-  private engine: EmbeddingEngine;
+  constructor(
+    private app: App,
+    private db: SQLiteCacheManager,
+    private runtime: EmbeddingRuntime,
+  ) {}
 
-  constructor(app: App, db: SQLiteCacheManager, engine: EmbeddingEngine) {
-    this.app = app;
-    this.db = db;
-    this.engine = engine;
+  // ---------------------------------------------------------------------------
+  // Index state
+  // ---------------------------------------------------------------------------
+
+  async getIndexState(): Promise<IndexState> {
+    try {
+      const noteCount = await this.db.queryOne<{ count: number }>(
+        'SELECT COUNT(*) as count FROM embedding_metadata'
+      );
+      const blockCount = await this.db.queryOne<{ count: number }>(
+        'SELECT COUNT(*) as count FROM block_embedding_metadata'
+      );
+      const config = await this.loadConfig();
+
+      return {
+        noteCount: noteCount?.count ?? 0,
+        blockCount: blockCount?.count ?? 0,
+        activeModel: config.activeModel,
+        activeDimension: config.activeDimension,
+        blockIndexingEnabled: config.blockIndexingEnabled,
+        blockIndexStale: config.blockIndexStale,
+        lastRebuildAt: config.lastRebuildAt,
+      };
+    } catch {
+      return {
+        noteCount: 0,
+        blockCount: 0,
+        activeModel: null,
+        activeDimension: null,
+        blockIndexingEnabled: false,
+        blockIndexStale: false,
+        lastRebuildAt: null,
+      };
+    }
   }
 
-  /**
-   * Embed a single note (or update if content changed)
-   *
-   * @param notePath - Path to the note
-   */
+  // ---------------------------------------------------------------------------
+  // Note embedding upsert
+  // ---------------------------------------------------------------------------
+
   async embedNote(notePath: string): Promise<void> {
     try {
       const file = this.app.vault.getAbstractFileByPath(notePath);
-      if (!file || !(file instanceof TFile)) {
-        // File doesn't exist - remove stale embedding
-        await this.removeEmbedding(notePath);
-        return;
-      }
-
-      // Only process markdown files
-      if (file.extension !== 'md') {
+      if (!file || !(file instanceof TFile) || file.extension !== 'md') {
+        await this.removeNote(notePath);
         return;
       }
 
       const content = await this.app.vault.read(file);
       const processedContent = preprocessContent(content);
-
-      // Skip empty notes
-      if (!processedContent) {
-        return;
-      }
+      if (!processedContent) return;
 
       const contentHash = hashContent(processedContent);
 
-      // Check if already up to date
       const existing = await this.db.queryOne<{ rowid: number; contentHash: string }>(
         'SELECT rowid, contentHash FROM embedding_metadata WHERE notePath = ?',
         [notePath]
       );
 
       if (existing && existing.contentHash === contentHash) {
-        return; // Already current
+        // Note content unchanged — skip re-embedding
+        // But still update blocks if block indexing is enabled (block count may change)
+        const config = await this.loadConfig();
+        if (config.blockIndexingEnabled && !config.blockIndexStale) {
+          await this.embedNoteBlocks(notePath, content, file.basename);
+        }
+        return;
       }
 
-      // Generate embedding
-      const embedding = await this.engine.generateEmbedding(processedContent);
-      // Convert Float32Array to Buffer for SQLite BLOB binding
+      const embedding = await this.runtime.embedDocument(processedContent);
       const embeddingBuffer = Buffer.from(embedding.buffer);
-
       const now = Date.now();
-      const modelInfo = this.engine.getModelInfo();
+      const modelInfo = { id: this.runtime.currentModelId, dimensions: this.runtime.dimensions };
 
-      // Insert or update
       if (existing) {
-        // Update existing - vec0 tables need direct buffer, no vec_f32() function
         await this.db.run(
           'UPDATE note_embeddings SET embedding = ? WHERE rowid = ?',
-          asQueryParams([embeddingBuffer, existing.rowid])
+          [embeddingBuffer, existing.rowid]
         );
         await this.db.run(
-          'UPDATE embedding_metadata SET contentHash = ?, updated = ?, model = ? WHERE rowid = ?',
-          [contentHash, now, modelInfo.id, existing.rowid]
+          'UPDATE embedding_metadata SET contentHash = ?, updated = ?, model = ?, dimension = ? WHERE rowid = ?',
+          [contentHash, now, modelInfo.id, modelInfo.dimensions, existing.rowid]
         );
       } else {
-        // Insert new - vec0 auto-generates rowid, we get it after insert
         await this.db.run(
           'INSERT INTO note_embeddings(embedding) VALUES (?)',
-          asQueryParams([embeddingBuffer])
+          [embeddingBuffer]
         );
         const result = await this.db.queryOne<{ id: number }>('SELECT last_insert_rowid() as id');
         const rowid = result?.id ?? 0;
-
         await this.db.run(
-          `INSERT INTO embedding_metadata(rowid, notePath, model, contentHash, created, updated)
-           VALUES (?, ?, ?, ?, ?, ?)`,
-          [rowid, notePath, modelInfo.id, contentHash, now, now]
+          `INSERT INTO embedding_metadata(rowid, notePath, model, dimension, contentHash, created, updated)
+           VALUES (?, ?, ?, ?, ?, ?, ?)`,
+          [rowid, notePath, modelInfo.id, modelInfo.dimensions, contentHash, now, now]
         );
+      }
+
+      // Optionally embed blocks
+      const config = await this.loadConfig();
+      if (config.blockIndexingEnabled && !config.blockIndexStale) {
+        await this.embedNoteBlocks(notePath, content, file.basename);
       }
     } catch (error) {
       console.error(`[NoteEmbeddingService] Failed to embed note ${notePath}:`, error);
@@ -123,16 +162,165 @@ export class NoteEmbeddingService {
     }
   }
 
-  /**
-   * Find notes similar to a given note
-   *
-   * @param notePath - Path to the reference note
-   * @param limit - Maximum number of results (default: 10)
-   * @returns Array of similar notes with distance scores
-   */
-  async findSimilarNotes(notePath: string, limit = 10): Promise<SimilarNote[]> {
+  // ---------------------------------------------------------------------------
+  // Block embedding upsert
+  // ---------------------------------------------------------------------------
+
+  async embedNoteBlocks(notePath: string, content: string, _basename: string): Promise<void> {
     try {
-      // First get the embedding for the source note
+      const chunks = chunkNote(notePath, content);
+      const modelInfo = { id: this.runtime.currentModelId, dimensions: this.runtime.dimensions };
+      const now = Date.now();
+
+      for (const chunk of chunks) {
+        const existing = await this.db.queryOne<{ rowid: number; contentHash: string }>(
+          'SELECT rowid, contentHash FROM block_embedding_metadata WHERE notePath = ? AND chunkIndex = ?',
+          [notePath, chunk.chunkIndex]
+        );
+
+        if (existing && existing.contentHash === chunk.contentHash) {
+          continue; // Block content unchanged
+        }
+
+        const embedding = await this.runtime.embedDocument(chunk.enrichedText);
+        const embeddingBuffer = Buffer.from(embedding.buffer);
+
+        if (existing) {
+          await this.db.run(
+            'UPDATE block_embeddings SET embedding = ? WHERE rowid = ?',
+            [embeddingBuffer, existing.rowid]
+          );
+          await this.db.run(
+            `UPDATE block_embedding_metadata SET heading = ?, charOffset = ?, contentHash = ?,
+             contentPreview = ?, model = ?, dimension = ?, updated = ? WHERE rowid = ?`,
+            [chunk.heading, chunk.charOffset, chunk.contentHash,
+             chunk.contentPreview, modelInfo.id, modelInfo.dimensions, now, existing.rowid]
+          );
+        } else {
+          await this.db.run(
+            'INSERT INTO block_embeddings(embedding) VALUES (?)',
+            [embeddingBuffer]
+          );
+          const result = await this.db.queryOne<{ id: number }>('SELECT last_insert_rowid() as id');
+          const rowid = result?.id ?? 0;
+          await this.db.run(
+            `INSERT INTO block_embedding_metadata
+             (rowid, notePath, chunkIndex, heading, charOffset, contentHash, contentPreview, model, dimension, created, updated)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            [rowid, notePath, chunk.chunkIndex, chunk.heading, chunk.charOffset,
+             chunk.contentHash, chunk.contentPreview, modelInfo.id, modelInfo.dimensions, now, now]
+          );
+        }
+      }
+
+      // Prune stale rows: any rows with chunkIndex >= newChunkCount are orphaned
+      await this.db.run(
+        `DELETE FROM block_embeddings WHERE rowid IN (
+           SELECT rowid FROM block_embedding_metadata
+           WHERE notePath = ? AND chunkIndex >= ?
+         )`,
+        [notePath, chunks.length]
+      );
+      await this.db.run(
+        'DELETE FROM block_embedding_metadata WHERE notePath = ? AND chunkIndex >= ?',
+        [notePath, chunks.length]
+      );
+    } catch (error) {
+      console.error(`[NoteEmbeddingService] Failed to embed blocks for ${notePath}:`, error);
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Remove / rename
+  // ---------------------------------------------------------------------------
+
+  async removeNote(notePath: string): Promise<void> {
+    try {
+      const existing = await this.db.queryOne<{ rowid: number }>(
+        'SELECT rowid FROM embedding_metadata WHERE notePath = ?',
+        [notePath]
+      );
+      if (existing) {
+        await this.db.run('DELETE FROM note_embeddings WHERE rowid = ?', [existing.rowid]);
+        await this.db.run('DELETE FROM embedding_metadata WHERE rowid = ?', [existing.rowid]);
+      }
+
+      // Remove all block rows for this note
+      const blockRows = await this.db.query<{ rowid: number }>(
+        'SELECT rowid FROM block_embedding_metadata WHERE notePath = ?',
+        [notePath]
+      );
+      for (const row of blockRows) {
+        await this.db.run('DELETE FROM block_embeddings WHERE rowid = ?', [row.rowid]);
+      }
+      await this.db.run('DELETE FROM block_embedding_metadata WHERE notePath = ?', [notePath]);
+    } catch (error) {
+      console.error(`[NoteEmbeddingService] Failed to remove note ${notePath}:`, error);
+    }
+  }
+
+  async renameNote(oldPath: string, newPath: string): Promise<void> {
+    try {
+      await this.db.run(
+        'UPDATE embedding_metadata SET notePath = ? WHERE notePath = ?',
+        [newPath, oldPath]
+      );
+      await this.db.run(
+        'UPDATE block_embedding_metadata SET notePath = ? WHERE notePath = ?',
+        [newPath, oldPath]
+      );
+    } catch (error) {
+      console.error(`[NoteEmbeddingService] Failed to rename ${oldPath} -> ${newPath}:`, error);
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Retrieval contract
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Find notes similar to the given note path.
+   * Uses the stored note embedding as the query vector — does NOT re-embed.
+   * Returns raw cosine similarity scores (higher = more similar).
+   */
+  async findSimilarNotes(notePath: string, limit = 10, minScore = 0): Promise<SimilarNote[]> {
+    try {
+      const sourceEmbed = await this.db.queryOne<{ embedding: Buffer }>(
+        `SELECT ne.embedding FROM note_embeddings ne
+         JOIN embedding_metadata em ON em.rowid = ne.rowid
+         WHERE em.notePath = ?`,
+        [notePath]
+      );
+
+      if (!sourceEmbed) return [];
+
+      const results = await this.db.query<{ notePath: string; distance: number }>(`
+        SELECT em.notePath, vec_distance_cosine(ne.embedding, ?) as distance
+        FROM note_embeddings ne
+        JOIN embedding_metadata em ON em.rowid = ne.rowid
+        WHERE em.notePath != ?
+        ORDER BY distance
+        LIMIT ?
+      `, [sourceEmbed.embedding, notePath, limit * 2]);
+
+      return results
+        .map(r => ({ notePath: r.notePath, score: 1 - r.distance }))
+        .filter(r => r.score >= minScore)
+        .sort((a, b) => b.score - a.score)
+        .slice(0, limit);
+    } catch (error) {
+      console.error('[NoteEmbeddingService] findSimilarNotes failed:', error);
+      return [];
+    }
+  }
+
+  /**
+   * Find blocks similar to the given note path.
+   * Uses the stored note embedding as the query vector against block_embeddings.
+   * Available only when block indexing is enabled and not stale.
+   */
+  async findSimilarBlocks(notePath: string, limit = 10, minScore = 0): Promise<SimilarBlock[]> {
+    try {
       const sourceEmbed = await this.db.queryOne<{ embedding: Buffer }>(
         `SELECT ne.embedding FROM note_embeddings ne
          JOIN embedding_metadata em ON em.rowid = ne.rowid
@@ -141,157 +329,263 @@ export class NoteEmbeddingService {
       );
 
       if (!sourceEmbed) {
-        return [];
+        return []; // Source note not indexed yet
       }
 
-      // Then find similar notes using vec_distance_l2
-      const results = await this.db.query<SimilarNote>(`
-        SELECT
-          em.notePath,
-          vec_distance_l2(ne.embedding, ?) as distance
-        FROM note_embeddings ne
-        JOIN embedding_metadata em ON em.rowid = ne.rowid
-        WHERE em.notePath != ?
+      const fetchLimit = Math.min(limit * 3, 300);
+      const candidates = await this.db.query<{
+        notePath: string;
+        chunkIndex: number;
+        heading: string | null;
+        contentPreview: string;
+        distance: number;
+      }>(`
+        SELECT bm.notePath, bm.chunkIndex, bm.heading, bm.contentPreview,
+               vec_distance_cosine(be.embedding, ?) as distance
+        FROM block_embeddings be
+        JOIN block_embedding_metadata bm ON bm.rowid = be.rowid
+        WHERE bm.notePath != ?
         ORDER BY distance
         LIMIT ?
-      `, asQueryParams([sourceEmbed.embedding, notePath, limit]));
+      `, [sourceEmbed.embedding, notePath, fetchLimit]);
 
-      return results;
+      // Deduplication: keep best-scoring block per note
+      const bestPerNote = new Map<string, typeof candidates[0]>();
+      for (const row of candidates) {
+        const existing = bestPerNote.get(row.notePath);
+        if (!existing || row.distance < existing.distance) {
+          bestPerNote.set(row.notePath, row);
+        }
+      }
+
+      return Array.from(bestPerNote.values())
+        .map(r => ({
+          notePath: r.notePath,
+          chunkIndex: r.chunkIndex,
+          heading: r.heading,
+          contentPreview: r.contentPreview,
+          score: 1 - r.distance,
+        }))
+        .filter(r => r.score >= minScore)
+        .sort((a, b) => b.score - a.score)
+        .slice(0, limit);
     } catch (error) {
-      console.error('[NoteEmbeddingService] Failed to find similar notes:', error);
+      console.error('[NoteEmbeddingService] findSimilarBlocks failed:', error);
       return [];
     }
   }
 
   /**
-   * Semantic search for notes by query text.
-   * Applies heuristic re-ranking (Recency + Title Match).
-   *
-   * @param query - Search query
-   * @param limit - Maximum number of results (default: 10)
-   * @returns Array of matching notes with distance scores
+   * Semantic search for notes by free-text query.
+   * Embeds the query at call time using the query role prefix.
    */
-  async semanticSearch(query: string, limit = 10): Promise<SimilarNote[]> {
+  async semanticSearchNotes(query: string, limit = 10, minScore = 0): Promise<SimilarNote[]> {
     try {
-      // Generate query embedding
-      const queryEmbedding = await this.engine.generateEmbedding(query);
+      const queryEmbedding = await this.runtime.embedQuery(query);
       const queryBuffer = Buffer.from(queryEmbedding.buffer);
 
-      // 1. FETCH CANDIDATES
-      // Fetch 3x the limit to allow for re-ranking
-      const candidateLimit = limit * 3;
-
-      const candidates = await this.db.query<{ notePath: string; distance: number; updated: number }>(`
-        SELECT
-          em.notePath,
-          em.updated,
-          vec_distance_l2(ne.embedding, ?) as distance
+      const results = await this.db.query<{ notePath: string; distance: number }>(`
+        SELECT em.notePath, vec_distance_cosine(ne.embedding, ?) as distance
         FROM note_embeddings ne
         JOIN embedding_metadata em ON em.rowid = ne.rowid
         ORDER BY distance
         LIMIT ?
-      `, asQueryParams([queryBuffer, candidateLimit]));
+      `, [queryBuffer, limit * 2]);
 
-      // 2. RE-RANKING LOGIC
-      const now = Date.now();
-      const oneDayMs = 1000 * 60 * 60 * 24;
-      const queryLower = query.toLowerCase();
-      const queryTerms = queryLower.split(/\s+/).filter(t => t.length > 2);
-
-      const ranked = candidates.map(item => {
-        let score = item.distance;
-
-        // --- A. Recency Boost ---
-        // Boost notes modified in the last 30 days
-        const daysSinceUpdate = (now - item.updated) / oneDayMs;
-        if (daysSinceUpdate < 30) {
-          // Linear decay: 0 days = 15% boost, 30 days = 0% boost
-          const recencyBoost = 0.15 * (1 - (daysSinceUpdate / 30));
-          score = score * (1 - recencyBoost);
-        }
-
-        // --- B. Title/Path Boost ---
-        // If query terms appear in the file path, give a significant boost
-        const pathLower = item.notePath.toLowerCase();
-
-        // Exact filename match (strongest)
-        if (pathLower.includes(queryLower)) {
-          score = score * 0.8; // 20% boost
-        }
-        // Partial term match
-        else if (queryTerms.some(term => pathLower.includes(term))) {
-          score = score * 0.9; // 10% boost
-        }
-
-        return {
-          notePath: item.notePath,
-          distance: score,
-          originalDistance: item.distance
-        };
-      });
-
-      // 3. SORT & SLICE
-      ranked.sort((a, b) => a.distance - b.distance);
-
-      return ranked.slice(0, limit);
+      return results
+        .map(r => ({ notePath: r.notePath, score: 1 - r.distance }))
+        .filter(r => r.score >= minScore)
+        .sort((a, b) => b.score - a.score)
+        .slice(0, limit);
     } catch (error) {
-      console.error('[NoteEmbeddingService] Semantic search failed:', error);
+      console.error('[NoteEmbeddingService] semanticSearchNotes failed:', error);
       return [];
     }
   }
 
   /**
-   * Remove embedding for a note
-   *
-   * @param notePath - Path to the note
+   * Semantic search for blocks by free-text query.
+   * Available only when block indexing is enabled and not stale.
    */
-  async removeEmbedding(notePath: string): Promise<void> {
+  async semanticSearchBlocks(query: string, limit = 10, minScore = 0): Promise<SimilarBlock[]> {
     try {
-      const existing = await this.db.queryOne<{ rowid: number }>(
-        'SELECT rowid FROM embedding_metadata WHERE notePath = ?',
-        [notePath]
-      );
+      const queryEmbedding = await this.runtime.embedQuery(query);
+      const queryBuffer = Buffer.from(queryEmbedding.buffer);
 
-      if (existing) {
-        await this.db.run('DELETE FROM note_embeddings WHERE rowid = ?', [existing.rowid]);
-        await this.db.run('DELETE FROM embedding_metadata WHERE rowid = ?', [existing.rowid]);
+      const fetchLimit = Math.min(limit * 3, 300);
+      const candidates = await this.db.query<{
+        notePath: string;
+        chunkIndex: number;
+        heading: string | null;
+        contentPreview: string;
+        distance: number;
+      }>(`
+        SELECT bm.notePath, bm.chunkIndex, bm.heading, bm.contentPreview,
+               vec_distance_cosine(be.embedding, ?) as distance
+        FROM block_embeddings be
+        JOIN block_embedding_metadata bm ON bm.rowid = be.rowid
+        ORDER BY distance
+        LIMIT ?
+      `, [queryBuffer, fetchLimit]);
+
+      const bestPerNote = new Map<string, typeof candidates[0]>();
+      for (const row of candidates) {
+        const existing = bestPerNote.get(row.notePath);
+        if (!existing || row.distance < existing.distance) {
+          bestPerNote.set(row.notePath, row);
+        }
       }
+
+      return Array.from(bestPerNote.values())
+        .map(r => ({
+          notePath: r.notePath,
+          chunkIndex: r.chunkIndex,
+          heading: r.heading,
+          contentPreview: r.contentPreview,
+          score: 1 - r.distance,
+        }))
+        .filter(r => r.score >= minScore)
+        .sort((a, b) => b.score - a.score)
+        .slice(0, limit);
     } catch (error) {
-      console.error(`[NoteEmbeddingService] Failed to remove embedding for ${notePath}:`, error);
+      console.error('[NoteEmbeddingService] semanticSearchBlocks failed:', error);
+      return [];
     }
   }
 
-  /**
-   * Update note path (for rename operations)
-   *
-   * @param oldPath - Old note path
-   * @param newPath - New note path
-   */
-  async updatePath(oldPath: string, newPath: string): Promise<void> {
+  // ---------------------------------------------------------------------------
+  // Maintenance
+  // ---------------------------------------------------------------------------
+
+  async getIndexedPaths(): Promise<string[]> {
     try {
-      await this.db.run(
-        'UPDATE embedding_metadata SET notePath = ? WHERE notePath = ?',
-        [newPath, oldPath]
+      const rows = await this.db.query<{ notePath: string }>(
+        'SELECT notePath FROM embedding_metadata'
       );
-    } catch (error) {
-      console.error(`[NoteEmbeddingService] Failed to update path ${oldPath} -> ${newPath}:`, error);
+      return rows.map(r => r.notePath);
+    } catch {
+      return [];
     }
   }
 
-  /**
-   * Get note embedding statistics
-   *
-   * @returns Count of embedded notes
-   */
-  async getNoteStats(): Promise<number> {
+  async getIndexStats(): Promise<{ noteCount: number; blockCount: number }> {
     try {
-      const result = await this.db.queryOne<{ count: number }>(
+      const notes = await this.db.queryOne<{ count: number }>(
         'SELECT COUNT(*) as count FROM embedding_metadata'
       );
-      return result?.count ?? 0;
+      const blocks = await this.db.queryOne<{ count: number }>(
+        'SELECT COUNT(*) as count FROM block_embedding_metadata'
+      );
+      return {
+        noteCount: notes?.count ?? 0,
+        blockCount: blocks?.count ?? 0,
+      };
+    } catch {
+      return { noteCount: 0, blockCount: 0 };
+    }
+  }
+
+  async cleanIndex(): Promise<void> {
+    try {
+      // Remove block rows for notes that no longer have a note embedding
+      await this.db.run(`
+        DELETE FROM block_embeddings WHERE rowid IN (
+          SELECT bm.rowid FROM block_embedding_metadata bm
+          LEFT JOIN embedding_metadata em ON em.notePath = bm.notePath
+          WHERE em.rowid IS NULL
+        )
+      `);
+      await this.db.run(`
+        DELETE FROM block_embedding_metadata WHERE notePath NOT IN (
+          SELECT notePath FROM embedding_metadata
+        )
+      `);
     } catch (error) {
-      console.error('[NoteEmbeddingService] Failed to get stats:', error);
-      return 0;
+      console.error('[NoteEmbeddingService] cleanIndex failed:', error);
+    }
+  }
+
+  async clearAllEmbeddings(): Promise<void> {
+    try {
+      await this.db.run('DELETE FROM note_embeddings');
+      await this.db.run('DELETE FROM embedding_metadata');
+      await this.db.run('DELETE FROM block_embeddings');
+      await this.db.run('DELETE FROM block_embedding_metadata');
+    } catch (error) {
+      console.error('[NoteEmbeddingService] clearAllEmbeddings failed:', error);
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // embedding_config helpers
+  // ---------------------------------------------------------------------------
+
+  private async loadConfig(): Promise<{
+    activeModel: string | null;
+    activeDimension: number | null;
+    blockIndexingEnabled: boolean;
+    blockIndexStale: boolean;
+    lastRebuildAt: number | null;
+  }> {
+    try {
+      const rows = await this.db.query<{ key: string; value: string }>(
+        'SELECT key, value FROM embedding_config'
+      );
+      const map = new Map(rows.map(r => [r.key, r.value]));
+      return {
+        activeModel: map.get('activeModel') ?? null,
+        activeDimension: map.has('activeDimension') ? Number(map.get('activeDimension')) : null,
+        blockIndexingEnabled: map.get('blockIndexingEnabled') === 'true',
+        blockIndexStale: map.get('blockIndexStale') === 'true',
+        lastRebuildAt: map.has('lastRebuildAt') ? Number(map.get('lastRebuildAt')) : null,
+      };
+    } catch {
+      return {
+        activeModel: null,
+        activeDimension: null,
+        blockIndexingEnabled: false,
+        blockIndexStale: false,
+        lastRebuildAt: null,
+      };
+    }
+  }
+
+  async setConfigValue(key: string, value: string): Promise<void> {
+    try {
+      await this.db.run(
+        'INSERT OR REPLACE INTO embedding_config(key, value) VALUES (?, ?)',
+        [key, value]
+      );
+    } catch (error) {
+      console.error(`[NoteEmbeddingService] setConfigValue(${key}) failed:`, error);
+    }
+  }
+
+  /**
+   * Get conversations that reference a specific note path.
+   * Used by Plan 05 Phase 10 conversation cross-reference.
+   */
+  async getConversationsReferencingNote(notePath: string): Promise<Array<{
+    conversationId: string;
+    sessionId: string | null;
+    created: number;
+  }>> {
+    try {
+      const rows = await this.db.query<{
+        conversationId: string;
+        sessionId: string | null;
+        created: number;
+      }>(`
+        SELECT DISTINCT m.conversationId, m.sessionId, m.created
+        FROM conversation_embedding_metadata m, json_each(m.referencedNotes)
+        WHERE json_each.value = ?
+          AND m.referencedNotes IS NOT NULL
+        ORDER BY m.created DESC
+        LIMIT 10
+      `, [notePath]);
+      return rows;
+    } catch {
+      return [];
     }
   }
 }

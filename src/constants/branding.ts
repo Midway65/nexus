@@ -23,6 +23,9 @@ export const CHAT_VIEW_TYPES = {
     legacy: ['claudesidian-chat']
 } as const;
 
+/** View type for the semantic discovery panel (Plan 05). */
+export const SEMANTIC_PANEL_VIEW_TYPE = 'nexus-semantic-panel';
+
 export const SERVER_LABELS = {
     current: 'nexus',
     legacy: ['claudesidian']

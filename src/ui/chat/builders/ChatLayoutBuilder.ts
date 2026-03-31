@@ -21,6 +21,7 @@ export interface ChatLayoutElements {
   conversationListContainer: HTMLElement;
   newChatButton: HTMLElement;
   settingsButton: HTMLElement;
+  semanticPanelButton: HTMLElement;
   chatTitle: HTMLElement;
   hamburgerButton: HTMLElement;
   backdrop: HTMLElement;
@@ -42,7 +43,7 @@ export class ChatLayoutBuilder {
     const mainContainer = chatLayout.createDiv('chat-main');
 
     // Header
-    const { chatTitle, hamburgerButton, settingsButton } = this.createHeader(mainContainer);
+    const { chatTitle, hamburgerButton, settingsButton, semanticPanelButton } = this.createHeader(mainContainer);
 
     // Branch header container (above messages, separate from message container)
     // This ensures BranchHeader isn't clobbered when MessageDisplay.setConversation() empties the message container
@@ -67,6 +68,7 @@ export class ChatLayoutBuilder {
       conversationListContainer,
       newChatButton,
       settingsButton,
+      semanticPanelButton,
       chatTitle,
       hamburgerButton,
       backdrop,
@@ -119,12 +121,13 @@ export class ChatLayoutBuilder {
   }
 
   /**
-   * Create chat header with hamburger, title, and settings
+   * Create chat header with hamburger, title, and right-side button group
    */
   private static createHeader(container: HTMLElement): {
     chatTitle: HTMLElement;
     hamburgerButton: HTMLElement;
     settingsButton: HTMLElement;
+    semanticPanelButton: HTMLElement;
   } {
     const chatHeader = container.createDiv('chat-header');
 
@@ -136,12 +139,18 @@ export class ChatLayoutBuilder {
     const chatTitle = chatHeader.createDiv('chat-title');
     chatTitle.textContent = 'Chat';
 
-    // Right: Settings gear icon
-    const settingsButton = chatHeader.createEl('button', { cls: 'chat-settings-button' });
+    // Right: button group (AgentStatusMenu also inserts here, to the left of settings)
+    const headerRight = chatHeader.createDiv('chat-header-right');
+
+    const semanticPanelButton = headerRight.createEl('button', { cls: 'chat-semantic-panel-button' });
+    setIcon(semanticPanelButton, 'network');
+    semanticPanelButton.setAttribute('aria-label', 'Open Semantic Panel');
+
+    const settingsButton = headerRight.createEl('button', { cls: 'chat-settings-button' });
     setIcon(settingsButton, 'settings');
     settingsButton.setAttribute('aria-label', 'Chat settings');
 
-    return { chatTitle, hamburgerButton, settingsButton };
+    return { chatTitle, hamburgerButton, settingsButton, semanticPanelButton };
   }
 
   /**

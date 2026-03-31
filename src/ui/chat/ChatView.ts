@@ -539,6 +539,12 @@ export class ChatView extends ItemView {
       this
     );
 
+    this.registerDomEvent(
+      this.layoutElements.semanticPanelButton,
+      'click',
+      () => void this.openSemanticPanel()
+    );
+
     this.uiStateController.initializeEventListeners();
   }
 
@@ -819,6 +825,34 @@ export class ChatView extends ItemView {
       console.error('[ChatView] Failed to initialize subagent infrastructure:', error);
       throw error;
     }
+  }
+
+  /**
+   * Open the semantic panel (or focus it if already open).
+   * Wires the addSemanticContext callback on first open.
+   */
+  private async openSemanticPanel(): Promise<void> {
+    const plugin = getNexusPlugin<NexusPlugin>(this.app);
+    const lifecycleManager = (plugin as unknown as { lifecycleManager?: { getSemanticPanelUIManager?(): { setSendToChatCallback(fn: (p: unknown) => void): void; openSemanticPanel(): Promise<void> } } }).lifecycleManager;
+    if (!lifecycleManager) return;
+    const uiManager = lifecycleManager.getSemanticPanelUIManager?.();
+    if (!uiManager) return;
+    uiManager.setSendToChatCallback((payload) => this.addSemanticContext(payload as import('../../ui/semanticPanel/SemanticPanelView').SemanticContextPayload));
+    await uiManager.openSemanticPanel();
+  }
+
+  /**
+   * Receive a semantic context payload from the semantic panel and add it to the context tray.
+   * Called via the callback wired in openSemanticPanel().
+   */
+  addSemanticContext(payload: import('../../ui/semanticPanel/SemanticPanelView').SemanticContextPayload): void {
+    // For now, add as a context note using the existing context system.
+    // SemanticContextTray (Plan 05 Phase 6) will replace this with richer dedup+display.
+    const path = payload.path;
+    if (!path) return;
+    try {
+      (this.modelAgentManager as unknown as { addContextNote?(p: string): void }).addContextNote?.(path);
+    } catch { /* best-effort */ }
   }
 
   /**

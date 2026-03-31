@@ -73,7 +73,7 @@ export interface MigratableDatabase {
 // Alias for backward compatibility
 type Database = MigratableDatabase;
 
-export const CURRENT_SCHEMA_VERSION = 11;
+export const CURRENT_SCHEMA_VERSION = 13;
 
 export interface Migration {
   version: number;
@@ -402,6 +402,93 @@ export const MIGRATIONS: Migration[] = [
     sql: [
       'ALTER TABLE workspaces ADD COLUMN isArchived INTEGER DEFAULT 0',
       'CREATE INDEX IF NOT EXISTS idx_workspaces_archived ON workspaces(isArchived)'
+    ]
+  },
+
+  // Version 11 -> 12: Plan 04 — Semantic database with multi-model support and optional block indexing.
+  //
+  // CRITICAL: note_embeddings and embedding_metadata already exist at float[384] (MiniLM).
+  // Vec0 virtual tables CANNOT be ALTER TABLE'd to change dimensions — DROP+recreate is the
+  // only safe path. We also add block_embeddings, block_embedding_metadata, and embedding_config.
+  // The default dimension is 768 for nomic-embed-text-v1.5. Existing note embeddings are wiped
+  // (model change always requires rebuild — see Plan 04 Architecture Decisions).
+  {
+    version: 12,
+    description: 'Plan 04: Semantic database upgrade — multi-model note+block embeddings with embedding_config',
+    sql: [
+      // Drop existing 384-dim note embedding tables (cannot ALTER vec0 dimension)
+      'DROP TABLE IF EXISTS embedding_metadata',
+      'DROP TABLE IF EXISTS note_embeddings',
+
+      // Recreate at 768-dim (nomic-embed-text-v1.5 default)
+      `CREATE VIRTUAL TABLE note_embeddings USING vec0(
+        embedding float[768]
+      )`,
+
+      `CREATE TABLE embedding_metadata (
+        rowid       INTEGER PRIMARY KEY,
+        notePath    TEXT NOT NULL UNIQUE,
+        contentHash TEXT NOT NULL,
+        model       TEXT NOT NULL,
+        dimension   INTEGER NOT NULL,
+        created     INTEGER NOT NULL,
+        updated     INTEGER NOT NULL
+      )`,
+
+      `CREATE INDEX IF NOT EXISTS idx_embed_meta_notePath ON embedding_metadata(notePath)`,
+      `CREATE INDEX IF NOT EXISTS idx_embed_meta_updated ON embedding_metadata(updated)`,
+
+      // Block embeddings (optional layer — enabled/disabled via embedding_config)
+      `CREATE VIRTUAL TABLE IF NOT EXISTS block_embeddings USING vec0(
+        embedding float[768]
+      )`,
+
+      `CREATE TABLE IF NOT EXISTS block_embedding_metadata (
+        rowid          INTEGER PRIMARY KEY,
+        notePath       TEXT NOT NULL,
+        chunkIndex     INTEGER NOT NULL,
+        heading        TEXT,
+        charOffset     INTEGER NOT NULL,
+        contentHash    TEXT NOT NULL,
+        contentPreview TEXT,
+        model          TEXT NOT NULL,
+        dimension      INTEGER NOT NULL,
+        created        INTEGER NOT NULL,
+        updated        INTEGER NOT NULL,
+        UNIQUE(notePath, chunkIndex)
+      )`,
+
+      `CREATE INDEX IF NOT EXISTS idx_block_embed_meta_notePath ON block_embedding_metadata(notePath)`,
+      `CREATE INDEX IF NOT EXISTS idx_block_embed_meta_note_chunk ON block_embedding_metadata(notePath, chunkIndex)`,
+
+      // Embedding configuration store
+      `CREATE TABLE IF NOT EXISTS embedding_config (
+        key   TEXT PRIMARY KEY,
+        value TEXT NOT NULL
+      )`,
+
+      // Seed config with defaults for new installs
+      `INSERT OR IGNORE INTO embedding_config(key, value) VALUES ('activeModel', 'Xenova/nomic-embed-text-v1.5')`,
+      `INSERT OR IGNORE INTO embedding_config(key, value) VALUES ('activeDimension', '768')`,
+      `INSERT OR IGNORE INTO embedding_config(key, value) VALUES ('blockIndexingEnabled', 'false')`,
+      `INSERT OR IGNORE INTO embedding_config(key, value) VALUES ('blockIndexStale', 'false')`,
+    ]
+  },
+
+  // Version 12 -> 13: Plan 05 — Semantic panel pin/hide feedback table.
+  {
+    version: 13,
+    description: 'Plan 05: Add semantic_feedback table for pin/hide curation in the semantic panel',
+    sql: [
+      `CREATE TABLE IF NOT EXISTS semantic_feedback (
+        sourceNotePath TEXT NOT NULL,
+        targetNotePath TEXT NOT NULL,
+        state          TEXT NOT NULL CHECK(state IN ('pinned', 'hidden')),
+        createdAt      INTEGER NOT NULL,
+        PRIMARY KEY (sourceNotePath, targetNotePath, state)
+      )`,
+      `CREATE INDEX IF NOT EXISTS idx_semantic_feedback_source ON semantic_feedback(sourceNotePath)`,
+      `CREATE INDEX IF NOT EXISTS idx_semantic_feedback_state ON semantic_feedback(sourceNotePath, state)`,
     ]
   },
 ];

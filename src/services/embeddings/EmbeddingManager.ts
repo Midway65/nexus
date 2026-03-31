@@ -16,6 +16,9 @@
 
 import { App, Plugin, Platform } from 'obsidian';
 import { EmbeddingEngine } from './EmbeddingEngine';
+import { EmbeddingRuntime, DEFAULT_EMBEDDING_MODEL_ID } from './EmbeddingRuntime';
+import { EmbeddingIndexCoordinator } from './EmbeddingIndexCoordinator';
+import { EmbeddingExclusionService } from './EmbeddingExclusionService';
 import { EmbeddingService } from './EmbeddingService';
 import { EmbeddingWatcher } from './EmbeddingWatcher';
 import { ConversationEmbeddingWatcher } from './ConversationEmbeddingWatcher';
@@ -36,6 +39,8 @@ export class EmbeddingManager {
   private messageRepository: MessageRepository | null;
 
   private engine: EmbeddingEngine | null = null;
+  private runtime: EmbeddingRuntime | null = null;
+  private coordinator: EmbeddingIndexCoordinator | null = null;
   private service: EmbeddingService | null = null;
   private watcher: EmbeddingWatcher | null = null;
   private conversationWatcher: ConversationEmbeddingWatcher | null = null;
@@ -43,13 +48,13 @@ export class EmbeddingManager {
   private statusBar: EmbeddingStatusBar | null = null;
 
   private isEnabled: boolean;
-  private isInitialized = false;
+  private isInitialized: boolean = false;
 
   constructor(
     app: App,
     plugin: Plugin,
     db: SQLiteCacheManager,
-    enableEmbeddings = true,
+    enableEmbeddings: boolean = true,
     messageRepository?: MessageRepository
   ) {
     this.app = app;
@@ -65,7 +70,7 @@ export class EmbeddingManager {
    * Initialize the embedding system
    * Should be called after a delay from plugin startup (e.g., 3 seconds)
    */
-  initialize(): void {
+  async initialize(): Promise<void> {
     if (!this.isEnabled || this.isInitialized) {
       return;
     }
@@ -73,7 +78,21 @@ export class EmbeddingManager {
     try {
       // Create components
       this.engine = new EmbeddingEngine();
-      this.service = new EmbeddingService(this.app, this.db, this.engine);
+      this.runtime = new EmbeddingRuntime(DEFAULT_EMBEDDING_MODEL_ID);
+      this.service = new EmbeddingService(this.app, this.db, this.engine, this.runtime);
+
+      // Create coordinator for startup reconciliation and vault event handling
+      const exclusions = new EmbeddingExclusionService(
+        this.app,
+        () => [] // TODO: wire user-defined exclusion patterns from settings
+      );
+      this.coordinator = new EmbeddingIndexCoordinator(
+        this.app,
+        this.service.getNoteEmbeddingService(),
+        exclusions,
+      );
+      this.plugin.addChild(this.coordinator);
+
       this.watcher = new EmbeddingWatcher(this.app, this.service);
       this.queue = new IndexingQueue(this.app, this.service, this.db);
       this.statusBar = new EmbeddingStatusBar(this.plugin, this.queue);
@@ -96,8 +115,27 @@ export class EmbeddingManager {
 
       // Start background indexing after a brief delay
       // This ensures the plugin is fully loaded before we start heavy processing
-      setTimeout(() => {
-        void this.runBackgroundIndexing();
+      setTimeout(async () => {
+        if (this.coordinator) {
+          try {
+            // Phase 1: Startup reconciliation via EmbeddingIndexCoordinator
+            await this.coordinator.start();
+          } catch (error) {
+            console.error('[EmbeddingManager] Coordinator start failed:', error);
+          }
+        }
+
+        if (this.queue) {
+          try {
+            // Phase 2: Backfill existing traces (from migration)
+            await this.queue.startTraceIndex();
+
+            // Phase 3: Backfill existing conversations
+            await this.queue.startConversationIndex();
+          } catch (error) {
+            console.error('[EmbeddingManager] Background indexing failed:', error);
+          }
+        }
       }, 3000); // 3-second delay
 
       this.isInitialized = true;
@@ -138,9 +176,12 @@ export class EmbeddingManager {
         this.statusBar.destroy();
       }
 
-      // Dispose of embedding engine (revokes blob URL, removes iframe)
+      // Dispose of embedding engines (revokes blob URL, removes iframes)
       if (this.engine) {
         await this.engine.dispose();
+      }
+      if (this.runtime) {
+        await this.runtime.dispose();
       }
 
       this.isInitialized = false;
@@ -162,6 +203,13 @@ export class EmbeddingManager {
    */
   getQueue(): IndexingQueue | null {
     return this.queue;
+  }
+
+  /**
+   * Get the index coordinator (for maintenance actions and event listening)
+   */
+  getCoordinator(): EmbeddingIndexCoordinator | null {
+    return this.coordinator;
   }
 
   /**
@@ -203,25 +251,5 @@ export class EmbeddingManager {
       conversationChunkCount: stats.conversationChunkCount,
       indexingInProgress: this.queue?.isIndexing() ?? false
     };
-  }
-
-  private async runBackgroundIndexing(): Promise<void> {
-    if (!this.queue) {
-      return;
-    }
-
-    try {
-      // Phase 1: Index all notes
-      await this.queue.startFullIndex();
-
-      // Phase 2: Backfill existing traces (from migration)
-      await this.queue.startTraceIndex();
-
-      // Phase 3: Backfill existing conversations
-      // Runs after notes and traces; idempotent and resumable on interrupt
-      await this.queue.startConversationIndex();
-    } catch (error) {
-      console.error('[EmbeddingManager] Background indexing failed:', error);
-    }
   }
 }

@@ -3,7 +3,8 @@ import { BaseAgent } from '../baseAgent';
 import {
   SearchContentTool,
   SearchDirectoryTool,
-  SearchMemoryTool
+  SearchMemoryTool,
+  FindRelatedTool
 } from './tools';
 import { MemorySettings, DEFAULT_MEMORY_SETTINGS } from '../../types';
 import { MemoryService } from "../memoryManager/services/MemoryService";
@@ -150,6 +151,13 @@ export class SearchManagerAgent extends BaseAgent {
         pluginOrFallback,
         this.workspaceService || undefined
       ),
+    });
+
+    this.registerLazyTool({
+      slug: 'findRelated', name: 'Find Related',
+      description: 'Find semantically related notes or blocks. Provide either notePath (to find what is related to a specific note) or a free-text query. Mode "notes" is always available; "blocks" requires block indexing to be enabled in Embeddings settings.',
+      version: '1.0.0',
+      factory: () => new FindRelatedTool(app),
     });
 
     this.registerLazyTool({
