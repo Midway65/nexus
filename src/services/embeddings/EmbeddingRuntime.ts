@@ -290,6 +290,19 @@ export class EmbeddingRuntime {
 <html>
 <head>
   <meta charset="utf-8">
+  <script>
+    // Force pure browser mode before transformers.js loads.
+    // Obsidian's Electron renderer has nodeIntegration enabled, so
+    // process.versions.node is defined — causing @xenova/transformers to
+    // enter Node.js mode and attempt fs.readFile for remote model URLs,
+    // which fails with "Unauthorized access to file: https://...".
+    // Clearing versions.node makes the library treat this as a browser.
+    try {
+      if (typeof process !== 'undefined' && process.versions) {
+        process.versions = Object.assign({}, process.versions, { node: undefined });
+      }
+    } catch (e) {}
+  <\/script>
   <script type="module">
     import { pipeline, env } from 'https://cdn.jsdelivr.net/npm/@xenova/transformers@2.17.2';
 
