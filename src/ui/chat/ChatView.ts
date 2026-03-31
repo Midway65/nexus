@@ -1087,7 +1087,7 @@ export class ChatView extends ItemView {
         this.modelAgentManager.setMessageEnhancement(enhancement);
       }
 
-      let messageOptions = await this.modelAgentManager.getMessageOptions();
+      let messageOptions = await this.modelAgentManager.getMessageOptions(message);
 
       // Check if context compaction is needed before sending.
       // Uses shared provider policy with conservative soft caps.
@@ -1100,7 +1100,7 @@ export class ChatView extends ItemView {
         this.setPreSendCompactionState(true);
         try {
           await this.performContextCompaction(currentConversation);
-          messageOptions = await this.modelAgentManager.getMessageOptions();
+          messageOptions = await this.modelAgentManager.getMessageOptions(message);
         } finally {
           this.setPreSendCompactionState(false);
         }

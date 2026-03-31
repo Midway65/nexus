@@ -22,6 +22,8 @@ import type NexusPlugin from '../../main';
 import { SEMANTIC_PANEL_VIEW_TYPE } from '../../constants/branding';
 import type { NoteEmbeddingService, SimilarNote, SimilarBlock } from '../../services/embeddings/NoteEmbeddingService';
 import type { SemanticFeedbackService } from './SemanticFeedbackService';
+import { ConnectionsService } from './ConnectionsService';
+import type { ConnectionsSettings } from './ConnectionsSettings';
 import { SemanticResultRow } from './SemanticResultRow';
 import type { RowResult } from './SemanticResultRow';
 
@@ -80,6 +82,7 @@ export class SemanticPanelView extends ItemView {
   // ---- services (resolved lazily from plugin) ----
   private noteEmbeddingService: NoteEmbeddingService | null = null;
   private feedbackService: SemanticFeedbackService | null = null;
+  private connectionsService: ConnectionsService | null = null;
 
   // ---- state ----
   private panelMode: PanelMode = 'browse';
@@ -163,6 +166,22 @@ export class SemanticPanelView extends ItemView {
         this.feedbackService = new SFS(db);
       }
     } catch { /* not available */ }
+
+    if (this.noteEmbeddingService) {
+      this.connectionsService = new ConnectionsService(
+        this.app,
+        this.noteEmbeddingService,
+        () => this.getConnectionsSettings(),
+      );
+    }
+  }
+
+  private getConnectionsSettings(): Partial<ConnectionsSettings> {
+    try {
+      return (this.plugin as unknown as { settings?: { connections?: Partial<ConnectionsSettings> } }).settings?.connections ?? {};
+    } catch {
+      return {};
+    }
   }
 
   private loadSettings(): void {
@@ -438,20 +457,18 @@ export class SemanticPanelView extends ItemView {
   private async loadBrowseResults(notePath: string, requestId: number): Promise<RowResult[]> {
     if (!this.noteEmbeddingService) return [];
 
+    const opts = { limit: this.settings.resultCount, minScore: this.settings.minScore };
+
     if (this.resultMode === 'blocks') {
-      const raw = await this.noteEmbeddingService.findSimilarBlocks(
-        notePath,
-        this.settings.resultCount,
-        this.settings.minScore
-      );
+      const raw = this.connectionsService
+        ? await this.connectionsService.getBlockConnectionsForFile(notePath, opts)
+        : await this.noteEmbeddingService.findSimilarBlocks(notePath, opts.limit, opts.minScore);
       if (requestId !== this.requestId) return [];
       return raw.map(b => this.blockToRow(b));
     } else {
-      const raw = await this.noteEmbeddingService.findSimilarNotes(
-        notePath,
-        this.settings.resultCount,
-        this.settings.minScore
-      );
+      const raw = this.connectionsService
+        ? await this.connectionsService.getConnectionsForFile(notePath, opts)
+        : await this.noteEmbeddingService.findSimilarNotes(notePath, opts.limit, opts.minScore);
       if (requestId !== this.requestId) return [];
       return raw.map(n => this.noteToRow(n));
     }
@@ -460,20 +477,18 @@ export class SemanticPanelView extends ItemView {
   private async loadSearchResults(query: string, requestId: number): Promise<RowResult[]> {
     if (!this.noteEmbeddingService) return [];
 
+    const opts = { limit: this.settings.resultCount, minScore: this.settings.minScore };
+
     if (this.resultMode === 'blocks') {
-      const raw = await this.noteEmbeddingService.semanticSearchBlocks(
-        query,
-        this.settings.resultCount,
-        this.settings.minScore
-      );
+      const raw = this.connectionsService
+        ? await this.connectionsService.semanticSearchBlocks(query, opts)
+        : await this.noteEmbeddingService.semanticSearchBlocks(query, opts.limit, opts.minScore);
       if (requestId !== this.requestId) return [];
       return raw.map(b => this.blockToRow(b));
     } else {
-      const raw = await this.noteEmbeddingService.semanticSearchNotes(
-        query,
-        this.settings.resultCount,
-        this.settings.minScore
-      );
+      const raw = this.connectionsService
+        ? await this.connectionsService.semanticSearch(query, opts)
+        : await this.noteEmbeddingService.semanticSearchNotes(query, opts.limit, opts.minScore);
       if (requestId !== this.requestId) return [];
       return raw.map(n => this.noteToRow(n));
     }

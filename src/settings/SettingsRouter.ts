@@ -3,7 +3,7 @@
  * Handles tab switching and list/detail view navigation
  */
 
-export type SettingsTab = 'defaults' | 'workspaces' | 'prompts' | 'providers' | 'apps' | 'data' | 'embeddings';
+export type SettingsTab = 'defaults' | 'workspaces' | 'prompts' | 'providers' | 'apps' | 'data' | 'embeddings' | 'connections';
 export type SettingsView = 'list' | 'detail';
 
 export interface RouterState {

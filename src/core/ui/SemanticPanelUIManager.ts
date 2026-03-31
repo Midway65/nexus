@@ -85,7 +85,10 @@ export class SemanticPanelUIManager {
   }
 
   async openSemanticPanel(): Promise<void> {
-    await openSemanticPanelView(this.config.app);
+    const side = (this.config.plugin as unknown as {
+      settings?: { connections?: { connections_view_location?: 'left' | 'right' } };
+    }).settings?.connections?.connections_view_location ?? 'right';
+    await openSemanticPanelView(this.config.app, side);
   }
 
   private async refreshSemanticPanel(): Promise<void> {

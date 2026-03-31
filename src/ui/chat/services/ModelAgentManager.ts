@@ -120,6 +120,9 @@ interface PluginWithSettings {
       defaultWorkspaceId?: string;
       defaultPromptId?: string;
       defaultContextNotes?: string[];
+      connectionsAutoInjectContext?: boolean;
+      connectionsContextLimit?: number;
+      connections?: Record<string, unknown>;
     };
   };
   serviceManager?: {
@@ -130,6 +133,9 @@ interface PluginWithSettings {
       getAllAgents: () => Map<string, AgentLike>;
     };
   };
+  getEmbeddingManager?: () => {
+    getService?: () => { getNoteEmbeddingService?: () => import('../../../services/embeddings/NoteEmbeddingService').NoteEmbeddingService } | null;
+  } | null;
 }
 
 export interface ModelAgentManagerEvents {
@@ -1002,9 +1008,11 @@ export class ModelAgentManager {
   }
 
   /**
-   * Get message options for current selection (includes workspace context)
+   * Get message options for current selection (includes workspace context).
+   * @param query - The user's message text; when provided, semantic vault context is injected
+   *   if connectionsAutoInjectContext is enabled in settings.
    */
-  async getMessageOptions(): Promise<{
+  async getMessageOptions(query?: string): Promise<{
     provider?: string;
     model?: string;
     systemPrompt?: string;
@@ -1019,7 +1027,7 @@ export class ModelAgentManager {
     return {
       provider: this.selectedModel?.providerId,
       model: this.selectedModel?.modelId,
-      systemPrompt: await this.buildSystemPromptWithWorkspace() || undefined,
+      systemPrompt: await this.buildSystemPromptWithWorkspace(query) || undefined,
       workspaceId: this.selectedWorkspaceId || undefined,
       sessionId: sessionId,
       enableThinking: this.thinkingSettings.enabled,
@@ -1029,10 +1037,12 @@ export class ModelAgentManager {
   }
 
   /**
-   * Build system prompt with workspace context and dynamic context
-   * Dynamic context (vault structure, workspaces, agents) is always fetched fresh
+   * Build system prompt with workspace context and dynamic context.
+   * Dynamic context (vault structure, workspaces, agents) is always fetched fresh.
+   * @param query - When provided and connectionsAutoInjectContext is on, semantically
+   *   related vault notes are fetched and injected as a vault_context block.
    */
-  private async buildSystemPromptWithWorkspace(): Promise<string | null> {
+  private async buildSystemPromptWithWorkspace(query?: string): Promise<string | null> {
     const sessionId = await this.getCurrentSessionId();
 
     // Fetch dynamic context (always fresh)
@@ -1057,6 +1067,9 @@ export class ModelAgentManager {
       };
     }
 
+    // Vault context injection — only when a query is present and the setting is enabled
+    const vaultContext = await this.buildVaultContextBlock(query);
+
     return await this.systemPromptBuilder.build({
       sessionId,
       workspaceId: this.selectedWorkspaceId || undefined,
@@ -1076,8 +1089,69 @@ export class ModelAgentManager {
       contextStatus,
       // Active compaction frontier (if any), plus legacy single-record fallback for older callers
       compactionFrontier: this.compactionFrontier,
-      legacyCompactionRecord: this.getLatestCompactionRecord()
+      legacyCompactionRecord: this.getLatestCompactionRecord(),
+      // Semantic vault context (null when disabled or no query)
+      vaultContext,
     });
+  }
+
+  /**
+   * Fetch semantically related vault notes for the given query and format them as
+   * a <vault_context> XML block for injection into the system prompt.
+   * Returns null when the feature is disabled, the query is empty, or the
+   * embedding service is unavailable.
+   */
+  private async buildVaultContextBlock(query: string | undefined): Promise<string | null> {
+    if (!query?.trim()) return null;
+
+    const plugin = this.getNexusPlugin();
+    const settings = (plugin as PluginWithSettings | null)?.settings?.settings;
+    if (!settings?.connectionsAutoInjectContext) return null;
+
+    try {
+      const noteService = (plugin as PluginWithSettings | null)
+        ?.getEmbeddingManager?.()
+        ?.getService?.()
+        ?.getNoteEmbeddingService?.() ?? null;
+      if (!noteService) return null;
+
+      const { ConnectionsService } = await import('../../../ui/semanticPanel/ConnectionsService');
+      const { DEFAULT_CONNECTIONS_SETTINGS } = await import('../../../ui/semanticPanel/ConnectionsSettings');
+
+      const connectionsSettings = {
+        ...DEFAULT_CONNECTIONS_SETTINGS,
+        ...(settings.connections ?? {}),
+      };
+      const limit = settings.connectionsContextLimit ?? 5;
+      const service = new ConnectionsService(this.app, noteService, () => connectionsSettings);
+      const results = await service.semanticSearch(query, { limit });
+
+      if (results.length === 0) return null;
+
+      const noteLines = results
+        .map(r => {
+          const title = r.notePath.split('/').pop()?.replace(/\.md$/, '') ?? r.notePath;
+          const scoreStr = r.score.toFixed(3);
+          return `  <note path="${r.notePath}" score="${scoreStr}">${title}</note>`;
+        })
+        .join('\n');
+
+      return `<vault_context>\n<related_notes count="${results.length}">\n${noteLines}\n</related_notes>\n</vault_context>`;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Resolve the Nexus plugin instance from the Obsidian app registry.
+   */
+  private getNexusPlugin(): NexusPlugin | null {
+    const plugins = (this.app as AppWithPlugins).plugins?.plugins;
+    if (!plugins) return null;
+    // Try direct ID lookup first, fall back to manifest scan
+    return (plugins['claudesidian-mcp'] as NexusPlugin | undefined)
+      ?? (Object.values(plugins).find((p: any) => p?.manifest?.id === 'claudesidian-mcp') as NexusPlugin | undefined)
+      ?? null;
   }
 
   /**
