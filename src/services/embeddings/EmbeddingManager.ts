@@ -49,21 +49,28 @@ export class EmbeddingManager {
 
   private isEnabled: boolean;
   private isInitialized: boolean = false;
+  private hfToken: string | null = null;
 
   constructor(
     app: App,
     plugin: Plugin,
     db: SQLiteCacheManager,
     enableEmbeddings: boolean = true,
-    messageRepository?: MessageRepository
+    messageRepository?: MessageRepository,
+    huggingFaceToken?: string
   ) {
     this.app = app;
     this.plugin = plugin;
     this.db = db;
     this.messageRepository = messageRepository ?? null;
+    this.hfToken = huggingFaceToken ?? null;
 
     // Disable on mobile or if user disabled embeddings
     this.isEnabled = !Platform.isMobile && enableEmbeddings;
+  }
+
+  setHuggingFaceToken(token: string | undefined): void {
+    this.hfToken = token ?? null;
   }
 
   /**
@@ -82,7 +89,7 @@ export class EmbeddingManager {
 
       // Create components
       this.engine = new EmbeddingEngine();
-      this.runtime = new EmbeddingRuntime(savedModelId);
+      this.runtime = new EmbeddingRuntime(savedModelId, this.app, this.hfToken);
       this.wireProgressCallback();
       this.service = new EmbeddingService(this.app, this.db, this.engine, this.runtime);
 
@@ -192,6 +199,13 @@ export class EmbeddingManager {
 
     const noteService = this.service.getNoteEmbeddingService();
 
+    // If dimensions changed, drop and recreate the vec0 tables (sqlite-vec float[N]
+    // columns cannot be altered — dimension mismatch causes immediate insert failure).
+    const currentState = await noteService.getIndexState();
+    if (currentState.activeDimension !== null && currentState.activeDimension !== dimensions) {
+      await noteService.recreateEmbeddingTables(dimensions);
+    }
+
     // Persist new model selection
     await noteService.setConfigValue('activeModel', modelId);
     await noteService.setConfigValue('activeDimension', String(dimensions));
@@ -203,7 +217,7 @@ export class EmbeddingManager {
     }
 
     // Create and wire new runtime
-    this.runtime = new EmbeddingRuntime(modelId);
+    this.runtime = new EmbeddingRuntime(modelId, this.app, this.hfToken);
     this.wireProgressCallback();
     this.service.switchRuntime(this.runtime);
 

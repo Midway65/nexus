@@ -73,7 +73,7 @@ export interface MigratableDatabase {
 // Alias for backward compatibility
 type Database = MigratableDatabase;
 
-export const CURRENT_SCHEMA_VERSION = 13;
+export const CURRENT_SCHEMA_VERSION = 14;
 
 export interface Migration {
   version: number;
@@ -478,6 +478,7 @@ export const MIGRATIONS: Migration[] = [
   // Version 12 -> 13: Plan 05 — Semantic panel pin/hide feedback table.
   {
     version: 13,
+
     description: 'Plan 05: Add semantic_feedback table for pin/hide curation in the semantic panel',
     sql: [
       `CREATE TABLE IF NOT EXISTS semantic_feedback (
@@ -489,6 +490,28 @@ export const MIGRATIONS: Migration[] = [
       )`,
       `CREATE INDEX IF NOT EXISTS idx_semantic_feedback_source ON semantic_feedback(sourceNotePath)`,
       `CREATE INDEX IF NOT EXISTS idx_semantic_feedback_state ON semantic_feedback(sourceNotePath, state)`,
+    ]
+  },
+
+  // Version 13 -> 14: Switch default embedding model from nomic-embed-text-v1.5 (768-dim, gated)
+  // to all-MiniLM-L6-v2 (384-dim, fully public). Existing vec0 tables must be dropped and
+  // recreated because sqlite-vec float[N] dimensions cannot be changed via ALTER TABLE.
+  {
+    version: 14,
+    description: 'Switch default embedding model to MiniLM-L6-v2 (384-dim, public)',
+    sql: [
+      // Recreate vec0 tables at 384-dim
+      'DROP TABLE IF EXISTS note_embeddings',
+      `CREATE VIRTUAL TABLE note_embeddings USING vec0(embedding float[384])`,
+      'DROP TABLE IF EXISTS block_embeddings',
+      `CREATE VIRTUAL TABLE block_embeddings USING vec0(embedding float[384])`,
+      // Clear metadata (rowid links to now-dropped vec0 rows)
+      'DELETE FROM embedding_metadata',
+      'DELETE FROM block_embedding_metadata',
+      // Update config to MiniLM defaults
+      `UPDATE embedding_config SET value = 'Xenova/all-MiniLM-L6-v2' WHERE key = 'activeModel'`,
+      `UPDATE embedding_config SET value = '384' WHERE key = 'activeDimension'`,
+      `UPDATE embedding_config SET value = 'false' WHERE key = 'blockIndexStale'`,
     ]
   },
 ];

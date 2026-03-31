@@ -240,11 +240,11 @@ CREATE TABLE IF NOT EXISTS applied_events (
 
 CREATE INDEX IF NOT EXISTS idx_applied_events_time ON applied_events(appliedAt);
 
--- ==================== NOTE EMBEDDINGS (Plan 04 — v12, 768-dim Nomic default) ====================
+-- ==================== NOTE EMBEDDINGS (Plan 04 — v12/v14, 384-dim MiniLM default) ====================
 
--- Vector storage (vec0 virtual table) — 768-dim for nomic-embed-text-v1.5
+-- Vector storage (vec0 virtual table) — 384-dim for all-MiniLM-L6-v2 (default)
 CREATE VIRTUAL TABLE IF NOT EXISTS note_embeddings USING vec0(
-  embedding float[768]
+  embedding float[384]
 );
 
 -- Metadata linked to vec0 by rowid — includes dimension column for multi-model support
@@ -263,7 +263,7 @@ CREATE INDEX IF NOT EXISTS idx_embed_meta_updated ON embedding_metadata(updated)
 
 -- Block-level embeddings (optional — enabled via embedding_config.blockIndexingEnabled)
 CREATE VIRTUAL TABLE IF NOT EXISTS block_embeddings USING vec0(
-  embedding float[768]
+  embedding float[384]
 );
 
 CREATE TABLE IF NOT EXISTS block_embedding_metadata (
@@ -290,8 +290,8 @@ CREATE TABLE IF NOT EXISTS embedding_config (
   value TEXT NOT NULL
 );
 
-INSERT OR IGNORE INTO embedding_config(key, value) VALUES ('activeModel', 'Xenova/nomic-embed-text-v1.5');
-INSERT OR IGNORE INTO embedding_config(key, value) VALUES ('activeDimension', '768');
+INSERT OR IGNORE INTO embedding_config(key, value) VALUES ('activeModel', 'Xenova/all-MiniLM-L6-v2');
+INSERT OR IGNORE INTO embedding_config(key, value) VALUES ('activeDimension', '384');
 INSERT OR IGNORE INTO embedding_config(key, value) VALUES ('blockIndexingEnabled', 'false');
 INSERT OR IGNORE INTO embedding_config(key, value) VALUES ('blockIndexStale', 'false');
 

@@ -337,12 +337,14 @@ export class PluginLifecycleManager {
     private async initializeEmbeddingsWhenReady(storageAdapter: HybridStorageAdapter): Promise<void> {
         try {
             const enableEmbeddings = this.config.settings.settings.enableEmbeddings ?? true;
+            const huggingFaceToken = this.config.settings.settings.huggingFaceToken;
             this.embeddingManager = new EmbeddingManager(
                 this.config.app,
                 this.config.plugin,
                 storageAdapter.cache,
                 enableEmbeddings,
-                storageAdapter.messages
+                storageAdapter.messages,
+                huggingFaceToken
             );
             this.embeddingManager.initialize();
             (this.config.plugin as PluginWithServices).embeddingManager = this.embeddingManager;

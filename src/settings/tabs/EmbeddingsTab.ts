@@ -98,6 +98,22 @@ export class EmbeddingsTab {
             new Notice(`Semantic indexing ${value ? 'enabled' : 'disabled'}. Restart Obsidian to apply.`);
           });
       });
+
+    new Setting(section)
+      .setName('HuggingFace access token')
+      .setDesc('Required for gated models like Nomic Embed Text v1.5. Create a read token at huggingface.co/settings/tokens.')
+      .addText(text => {
+        text
+          .setPlaceholder('hf_...')
+          .setValue(this.config.settings.settings.huggingFaceToken ?? '')
+          .onChange(async (value) => {
+            const token = value.trim() || undefined;
+            this.config.settings.settings.huggingFaceToken = token;
+            await this.config.settings.saveSettings();
+            this.config.embeddingManager?.setHuggingFaceToken(token);
+          });
+        text.inputEl.type = 'password';
+      });
   }
 
   // ---------------------------------------------------------------------------

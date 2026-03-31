@@ -524,6 +524,26 @@ export class NoteEmbeddingService {
     }
   }
 
+  /**
+   * Drop and recreate the vec0 embedding tables at a new dimension.
+   * sqlite-vec float[N] columns cannot be changed via ALTER TABLE — this is the
+   * only safe path when switching between models with different output dimensions.
+   * All existing embeddings and metadata are wiped (rebuild required after).
+   */
+  async recreateEmbeddingTables(dimension: number): Promise<void> {
+    try {
+      await this.db.run('DROP TABLE IF EXISTS note_embeddings');
+      await this.db.run(`CREATE VIRTUAL TABLE note_embeddings USING vec0(embedding float[${dimension}])`);
+      await this.db.run('DROP TABLE IF EXISTS block_embeddings');
+      await this.db.run(`CREATE VIRTUAL TABLE block_embeddings USING vec0(embedding float[${dimension}])`);
+      await this.db.run('DELETE FROM embedding_metadata');
+      await this.db.run('DELETE FROM block_embedding_metadata');
+    } catch (error) {
+      console.error('[NoteEmbeddingService] recreateEmbeddingTables failed:', error);
+      throw error;
+    }
+  }
+
   // ---------------------------------------------------------------------------
   // embedding_config helpers
   // ---------------------------------------------------------------------------
