@@ -71,7 +71,7 @@ export class FilePickerRenderer {
     const leftSection = header.createDiv('nexus-file-picker-left');
     if (this.showBackButton) {
       new ButtonComponent(leftSection)
-        .setButtonText('Back')
+        .setButtonText('← Back')
         .onClick(() => this.onCancel());
     }
     leftSection.createEl('h3', { text: this.title });
@@ -268,29 +268,44 @@ export class FilePickerRenderer {
   }
 
   /**
-   * Render a folder row with expand/collapse
+   * Render a folder row with expand/collapse and selection checkbox
    */
   private renderFolderRow(folder: TFolder, container: HTMLElement, depth: number): void {
     const isExpanded = this.expandedFolders.has(folder.path);
+    const isSelected = this.selectedFiles.has(folder.path);
 
     const row = container.createDiv({ cls: 'nexus-tree-row nexus-tree-folder' });
     row.dataset.depth = String(depth);
 
-    // Folder icon (changes based on expanded state)
+    // Checkbox for selection (same as file rows)
+    const checkbox = row.createEl('input', { type: 'checkbox', cls: 'nexus-tree-checkbox' });
+    checkbox.checked = isSelected;
+    const checkboxHandler = (e: Event) => {
+      e.stopPropagation();
+      if (checkbox.checked) {
+        this.selectedFiles.add(folder.path);
+      } else {
+        this.selectedFiles.delete(folder.path);
+      }
+    };
+    this.safeRegisterDomEvent(checkbox, 'change', checkboxHandler);
+
+    // Folder icon (changes based on expanded state) — clicking icon/name expands
     const iconEl = row.createSpan({ cls: 'nexus-tree-icon' });
     setIcon(iconEl, isExpanded ? 'folder-open' : 'folder');
 
     // Folder name
     row.createSpan({ text: folder.name, cls: 'nexus-tree-name' });
 
-    // Click to expand/collapse
-    const clickHandler = () => {
+    // Click row (not checkbox) to expand/collapse
+    const clickHandler = (e: MouseEvent) => {
+      if (e.target === checkbox) return;
       if (isExpanded) {
         this.expandedFolders.delete(folder.path);
       } else {
         this.expandedFolders.add(folder.path);
       }
-      this.renderRoot(); // Re-render tree
+      this.renderRoot();
     };
     this.safeRegisterDomEvent(row, 'click', clickHandler);
 
