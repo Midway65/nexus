@@ -48,6 +48,16 @@ export interface IndexState {
 }
 
 export class NoteEmbeddingService {
+  // Cached embedding_config rows — invalidated on every setConfigValue() write.
+  // Eliminates ~1 full table scan per note during indexing (1000-note vault = 1000 reads → 1).
+  private configCache: {
+    activeModel: string | null;
+    activeDimension: number | null;
+    blockIndexingEnabled: boolean;
+    blockIndexStale: boolean;
+    lastRebuildAt: number | null;
+  } | null = null;
+
   constructor(
     private app: App,
     private db: SQLiteCacheManager,
@@ -116,6 +126,9 @@ export class NoteEmbeddingService {
 
       const contentHash = hashContent(processedContent);
 
+      // Load config once for this note (result is cached across all notes in a run)
+      const config = await this.loadConfig();
+
       const existing = await this.db.queryOne<{ rowid: number; contentHash: string }>(
         'SELECT rowid, contentHash FROM embedding_metadata WHERE notePath = ?',
         [notePath]
@@ -124,7 +137,6 @@ export class NoteEmbeddingService {
       if (existing && existing.contentHash === contentHash) {
         // Note content unchanged — skip re-embedding
         // But still update blocks if block indexing is enabled (block count may change)
-        const config = await this.loadConfig();
         if (config.blockIndexingEnabled && !config.blockIndexStale) {
           await this.embedNoteBlocks(notePath, content, file.basename);
         }
@@ -159,8 +171,7 @@ export class NoteEmbeddingService {
         );
       }
 
-      // Optionally embed blocks
-      const config = await this.loadConfig();
+      // Optionally embed blocks (reuse config loaded above)
       if (config.blockIndexingEnabled && !config.blockIndexStale) {
         await this.embedNoteBlocks(notePath, content, file.basename);
       }
@@ -180,11 +191,16 @@ export class NoteEmbeddingService {
       const modelInfo = { id: this.runtime.currentModelId, dimensions: this.runtime.dimensions };
       const now = Date.now();
 
+      // Batch-fetch all existing block rows for this note in a single query
+      // instead of one queryOne() per chunk (N queries → 1).
+      const existingRows = await this.db.query<{ rowid: number; chunkIndex: number; contentHash: string }>(
+        'SELECT rowid, chunkIndex, contentHash FROM block_embedding_metadata WHERE notePath = ?',
+        [notePath]
+      );
+      const existingByChunk = new Map(existingRows.map(r => [r.chunkIndex, r]));
+
       for (const chunk of chunks) {
-        const existing = await this.db.queryOne<{ rowid: number; contentHash: string }>(
-          'SELECT rowid, contentHash FROM block_embedding_metadata WHERE notePath = ? AND chunkIndex = ?',
-          [notePath, chunk.chunkIndex]
-        );
+        const existing = existingByChunk.get(chunk.chunkIndex);
 
         if (existing && existing.contentHash === chunk.contentHash) {
           continue; // Block content unchanged
@@ -253,14 +269,13 @@ export class NoteEmbeddingService {
         await this.db.run('DELETE FROM embedding_metadata WHERE rowid = ?', [existing.rowid]);
       }
 
-      // Remove all block rows for this note
-      const blockRows = await this.db.query<{ rowid: number }>(
-        'SELECT rowid FROM block_embedding_metadata WHERE notePath = ?',
+      // Remove all block rows for this note in two statements (no N+1 loop)
+      await this.db.run(
+        `DELETE FROM block_embeddings WHERE rowid IN (
+           SELECT rowid FROM block_embedding_metadata WHERE notePath = ?
+         )`,
         [notePath]
       );
-      for (const row of blockRows) {
-        await this.db.run('DELETE FROM block_embeddings WHERE rowid = ?', [row.rowid]);
-      }
       await this.db.run('DELETE FROM block_embedding_metadata WHERE notePath = ?', [notePath]);
     } catch (error) {
       console.error(`[NoteEmbeddingService] Failed to remove note ${notePath}:`, error);
@@ -555,18 +570,20 @@ export class NoteEmbeddingService {
     blockIndexStale: boolean;
     lastRebuildAt: number | null;
   }> {
+    if (this.configCache) return this.configCache;
     try {
       const rows = await this.db.query<{ key: string; value: string }>(
         'SELECT key, value FROM embedding_config'
       );
       const map = new Map(rows.map(r => [r.key, r.value]));
-      return {
+      this.configCache = {
         activeModel: map.get('activeModel') ?? null,
         activeDimension: map.has('activeDimension') ? Number(map.get('activeDimension')) : null,
         blockIndexingEnabled: map.get('blockIndexingEnabled') === 'true',
         blockIndexStale: map.get('blockIndexStale') === 'true',
         lastRebuildAt: map.has('lastRebuildAt') ? Number(map.get('lastRebuildAt')) : null,
       };
+      return this.configCache;
     } catch {
       return {
         activeModel: null,
@@ -584,6 +601,7 @@ export class NoteEmbeddingService {
         'INSERT OR REPLACE INTO embedding_config(key, value) VALUES (?, ?)',
         [key, value]
       );
+      this.configCache = null; // Invalidate cache so next read reflects the new value
     } catch (error) {
       console.error(`[NoteEmbeddingService] setConfigValue(${key}) failed:`, error);
     }

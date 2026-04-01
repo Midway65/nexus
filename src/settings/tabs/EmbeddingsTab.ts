@@ -92,7 +92,7 @@ export class EmbeddingsTab {
     this.renderEnableSection();
     await this.renderStatusSection();
     this.renderModelSection();
-    this.renderBlockIndexingSection();
+    await this.renderBlockIndexingSection();
     this.renderMaintenanceSection();
     this.renderDiagnosticsSection();
   }
@@ -265,25 +265,29 @@ export class EmbeddingsTab {
   // Block indexing toggle
   // ---------------------------------------------------------------------------
 
-  private renderBlockIndexingSection(): void {
+  private async renderBlockIndexingSection(): Promise<void> {
     const section = this.container.createDiv('nexus-settings-section');
     section.createEl('h4', { text: 'Block indexing' });
 
     const noteService = this.config.embeddingManager?.getService()?.getNoteEmbeddingService();
+    const indexState = noteService ? await noteService.getIndexState() : null;
+    const currentEnabled = indexState?.blockIndexingEnabled ?? false;
 
     new Setting(section)
       .setName('Enable block-level indexing')
       .setDesc('Index note sections and paragraphs for higher-precision retrieval in the Semantic Panel. Increases index size and build time.')
       .addToggle(toggle => {
-        toggle.onChange(async (enabled) => {
-          if (!noteService) return;
-          await noteService.setConfigValue('blockIndexingEnabled', enabled ? 'true' : 'false');
-          await noteService.setConfigValue('blockIndexStale', 'true');
-          new Notice(enabled
-            ? 'Block indexing enabled. Use Rebuild index to index blocks.'
-            : 'Block indexing disabled. Use Rebuild index to remove existing block rows.'
-          );
-        });
+        toggle
+          .setValue(currentEnabled)
+          .onChange(async (enabled) => {
+            if (!noteService) return;
+            await noteService.setConfigValue('blockIndexingEnabled', enabled ? 'true' : 'false');
+            await noteService.setConfigValue('blockIndexStale', 'true');
+            new Notice(enabled
+              ? 'Block indexing enabled. Use Rebuild index to index blocks.'
+              : 'Block indexing disabled. Use Rebuild index to remove existing block rows.'
+            );
+          });
       });
   }
 

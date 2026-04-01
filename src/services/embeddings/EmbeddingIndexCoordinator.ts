@@ -39,6 +39,8 @@ export type IndexEventType =
 
 export class EmbeddingIndexCoordinator extends Component {
   private queue: EmbeddingJob[] = [];
+  // Set of paths already in the queue as 'upsert' jobs — O(1) dedup vs O(n) findIndex.
+  private queuedUpsertPaths = new Set<string>();
   private isProcessing = false;
   private debounceTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private eventListeners = new Map<IndexEventType, Array<(data: unknown) => void>>();
@@ -112,9 +114,12 @@ export class EmbeddingIndexCoordinator extends Component {
       this.debounceTimers.delete(file.path);
     }
 
-    // Remove any pending upsert from queue
-    const idx = this.queue.findIndex(j => j.type === 'upsert' && j.path === file.path);
-    if (idx !== -1) this.queue.splice(idx, 1);
+    // Remove any pending upsert from queue and dedup set
+    if (this.queuedUpsertPaths.has(file.path)) {
+      this.queuedUpsertPaths.delete(file.path);
+      const idx = this.queue.findIndex(j => j.type === 'upsert' && j.path === file.path);
+      if (idx !== -1) this.queue.splice(idx, 1);
+    }
 
     this.enqueue({ type: 'delete', path: file.path });
   }
@@ -138,12 +143,10 @@ export class EmbeddingIndexCoordinator extends Component {
   private enqueue(job: EmbeddingJob): void {
     if (this.isShuttingDown) return;
 
-    // Coalesce: multiple upserts for the same path collapse to one
+    // Coalesce: multiple upserts for the same path collapse to one (O(1) Set lookup)
     if (job.type === 'upsert') {
-      const existing = this.queue.findIndex(
-        j => j.type === 'upsert' && j.path === job.path
-      );
-      if (existing !== -1) return; // Already queued
+      if (this.queuedUpsertPaths.has(job.path)) return;
+      this.queuedUpsertPaths.add(job.path);
     }
 
     this.queue.push(job);
@@ -157,6 +160,11 @@ export class EmbeddingIndexCoordinator extends Component {
 
     while (this.queue.length > 0 && !this.isShuttingDown) {
       const job = this.queue.shift()!;
+
+      // Remove from dedup set now that the job is being executed
+      if (job.type === 'upsert') {
+        this.queuedUpsertPaths.delete(job.path);
+      }
 
       try {
         await this.executeJob(job);
@@ -214,8 +222,8 @@ export class EmbeddingIndexCoordinator extends Component {
         }
       }
 
-      // Yield to event loop every 10 files
-      if (i % 10 === 0) {
+      // Yield to event loop every 50 files (each note takes 10–100 ms; yielding every 10 was excessive)
+      if (i % 50 === 0) {
         await new Promise(r => setTimeout(r, 0));
       }
 
@@ -265,7 +273,7 @@ export class EmbeddingIndexCoordinator extends Component {
             console.error(`[EmbeddingIndexCoordinator] Failed to embed ${files[i].path}:`, err);
           }
         }
-        if (i % 10 === 0) await new Promise(r => setTimeout(r, 0));
+        if (i % 50 === 0) await new Promise(r => setTimeout(r, 0));
         this.emit('embedding:reconcile-progress', {
           current: i + 1,
           total: files.length,
@@ -304,7 +312,7 @@ export class EmbeddingIndexCoordinator extends Component {
             console.error(`[EmbeddingIndexCoordinator] Failed to embed ${files[i].path}:`, err);
           }
         }
-        if (i % 10 === 0) await new Promise(r => setTimeout(r, 0));
+        if (i % 50 === 0) await new Promise(r => setTimeout(r, 0));
         this.emit('embedding:reconcile-progress', {
           current: i + 1,
           total: files.length,
@@ -438,6 +446,7 @@ export class EmbeddingIndexCoordinator extends Component {
     }
     this.debounceTimers.clear();
     this.queue = [];
+    this.queuedUpsertPaths.clear();
     this.eventListeners.clear();
   }
 }
