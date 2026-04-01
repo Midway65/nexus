@@ -168,4 +168,23 @@ export default class NexusPlugin extends Plugin {
     public getServiceContainer(): ServiceManager {
         return this.serviceManager;
     }
+
+    /**
+     * Expose EmbeddingManager for the semantic panel and other UI components.
+     * Delegates to PluginLifecycleManager which owns the embedding system.
+     */
+    public getEmbeddingManager() {
+        return this.lifecycleManager?.getEmbeddingManager() ?? null;
+    }
+
+    /**
+     * Open the plugin settings modal, navigating to the plugin's settings tab.
+     * Used by SemanticPanelView's 'Open Embeddings settings' action link.
+     */
+    public openSettings(_tab?: string): void {
+        const setting = (this.app as unknown as { setting?: { open(): void; openTabById(id: string): void } }).setting;
+        if (!setting) return;
+        setting.open();
+        setting.openTabById(this.manifest.id);
+    }
 }
