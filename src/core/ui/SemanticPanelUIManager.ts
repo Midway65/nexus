@@ -47,7 +47,11 @@ export class SemanticPanelUIManager {
       const self = this;
 
       plugin.registerView(SEMANTIC_PANEL_VIEW_TYPE, (leaf) => {
-        return new SemanticPanelView(leaf, plugin as NexusPlugin, self.onSendToChat);
+        // Always pass a forwarding function so the button renders immediately.
+        // The inner callback may be wired later (e.g. after ChatView opens).
+        return new SemanticPanelView(leaf, plugin as NexusPlugin, (payload) => {
+          self.onSendToChat?.(payload);
+        });
       });
 
       this.viewRegistered = true;

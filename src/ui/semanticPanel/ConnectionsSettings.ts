@@ -28,6 +28,12 @@ export interface ConnectionsSettings {
   exclude_outlinks: boolean;
   /** Hide block results whose chunk is the frontmatter block. Default true. */
   exclude_frontmatter_blocks: boolean;
+  /** Boost results sharing frontmatter keys (tags, type, status) with active note. +0.03 per match. */
+  frontmatter_scoring: boolean;
+  /** Boost results that share outlinks with the active note. +0.02 per shared link. */
+  co_citation_scoring: boolean;
+  /** Boost results in the same folder as the active note. +0.01. */
+  path_proximity_scoring: boolean;
 }
 
 export const DEFAULT_CONNECTIONS_SETTINGS: ConnectionsSettings = {
@@ -40,4 +46,7 @@ export const DEFAULT_CONNECTIONS_SETTINGS: ConnectionsSettings = {
   exclude_inlinks: false,
   exclude_outlinks: false,
   exclude_frontmatter_blocks: true,
+  frontmatter_scoring: true,
+  co_citation_scoring: true,
+  path_proximity_scoring: true,
 };

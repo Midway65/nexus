@@ -295,6 +295,7 @@ INSERT OR IGNORE INTO embedding_config(key, value) VALUES ('activeModel', 'Xenov
 INSERT OR IGNORE INTO embedding_config(key, value) VALUES ('activeDimension', '384');
 INSERT OR IGNORE INTO embedding_config(key, value) VALUES ('blockIndexingEnabled', 'false');
 INSERT OR IGNORE INTO embedding_config(key, value) VALUES ('blockIndexStale', 'false');
+INSERT OR IGNORE INTO embedding_config(key, value) VALUES ('minIndexLength', '50');
 
 -- ==================== TRACE EMBEDDINGS ====================
 

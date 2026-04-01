@@ -73,7 +73,7 @@ export interface MigratableDatabase {
 // Alias for backward compatibility
 type Database = MigratableDatabase;
 
-export const CURRENT_SCHEMA_VERSION = 15;
+export const CURRENT_SCHEMA_VERSION = 16;
 
 export interface Migration {
   version: number;
@@ -525,6 +525,13 @@ export const MIGRATIONS: Migration[] = [
     description: 'Add mtime column to embedding_metadata for mtime-based early exit in embedNote()',
     sql: [
       'ALTER TABLE embedding_metadata ADD COLUMN mtime INTEGER NOT NULL DEFAULT 0',
+    ]
+  },
+  {
+    version: 16,
+    description: 'Add minIndexLength config key for minimum content length threshold',
+    sql: [
+      `INSERT OR IGNORE INTO embedding_config(key, value) VALUES ('minIndexLength', '50')`,
     ]
   },
 ];

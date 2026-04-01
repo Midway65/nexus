@@ -16,7 +16,7 @@
  * Feedback: context menu for pin/hide.
  */
 
-import { App, setIcon, TFile } from 'obsidian';
+import { App, Menu, setIcon, TFile } from 'obsidian';
 import type { SimilarNote, SimilarBlock } from '../../services/embeddings/NoteEmbeddingService';
 import type { SemanticContextPayload } from './SemanticPanelView';
 import type { SemanticFeedbackService } from './SemanticFeedbackService';
@@ -40,6 +40,8 @@ export interface SemanticResultRowOptions {
   feedbackService: SemanticFeedbackService | null;
   onSendToChat: ((payload: SemanticContextPayload) => void) | null;
   onExpand?: () => void; // called when this row expands (for single-expand enforcement)
+  isPinned?: boolean;
+  onSelectionChange: ((path: string, selected: boolean) => void) | null;
 }
 
 export class SemanticResultRow {
@@ -48,6 +50,7 @@ export class SemanticResultRow {
   private previewEl: HTMLElement | null = null;
   private previewLoaded = false;
   private actionBar: HTMLElement | null = null;
+  private checkboxEl: HTMLInputElement | null = null;
 
   constructor(private opts: SemanticResultRowOptions) {
     this.el = document.createElement('div');
@@ -69,9 +72,26 @@ export class SemanticResultRow {
   private buildHeader(): void {
     const header = this.el.createDiv('semantic-result-header');
 
+    // Checkbox for multi-select (hidden until hover or selection active)
+    if (this.opts.onSelectionChange) {
+      this.checkboxEl = header.createEl('input', { cls: 'semantic-result-checkbox' });
+      this.checkboxEl.type = 'checkbox';
+      this.checkboxEl.setAttribute('aria-label', 'Select for bulk link');
+      this.checkboxEl.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this.opts.onSelectionChange?.(this.opts.result.notePath, (e.currentTarget as HTMLInputElement).checked);
+      });
+    }
+
     // Disclosure chevron
     const chevron = header.createEl('span', { cls: 'semantic-result-chevron' });
     setIcon(chevron, 'chevron-right');
+
+    // Pin indicator (shown when result is pinned)
+    if (this.opts.isPinned) {
+      const pinEl = header.createEl('span', { cls: 'semantic-result-pin-indicator' });
+      setIcon(pinEl, 'pin');
+    }
 
     // Title
     const titleEl = header.createEl('span', { cls: 'semantic-result-title' });
@@ -90,6 +110,17 @@ export class SemanticResultRow {
     if (this.opts.showScore) {
       const scoreEl = header.createEl('span', { cls: 'semantic-result-score' });
       scoreEl.textContent = `${Math.round(this.opts.result.score * 100)}%`;
+    }
+
+    // Add to chat context button (only when a chat callback is wired)
+    if (this.opts.onSendToChat) {
+      const chatBtn = header.createEl('button', { cls: 'semantic-result-menu-btn' });
+      chatBtn.setAttribute('aria-label', 'Add to chat context');
+      setIcon(chatBtn, 'send');
+      chatBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        void this.sendToChat();
+      });
     }
 
     // Context menu button
@@ -234,8 +265,8 @@ export class SemanticResultRow {
 
     const preview = this.opts.result.contentPreview ?? '';
     if (preview) {
-      this.previewEl.textContent = preview.length > 300
-        ? preview.slice(0, 300) + '…'
+      this.previewEl.textContent = preview.length > 2000
+        ? preview.slice(0, 2000) + '…'
         : preview;
       return;
     }
@@ -245,9 +276,9 @@ export class SemanticResultRow {
       const file = this.opts.app.vault.getFileByPath(this.opts.result.notePath);
       if (!file) return;
       const content = await this.opts.app.vault.cachedRead(file);
-      // Strip frontmatter and take first 600 chars
+      // Strip frontmatter and show a generous excerpt (scrollable in the panel)
       const body = content.replace(/^---[\s\S]*?---\n?/, '').trim();
-      const truncated = body.length > 600 ? body.slice(0, 600) + '…' : body;
+      const truncated = body.length > 3000 ? body.slice(0, 3000) + '…' : body;
       this.previewEl.textContent = truncated;
     } catch {
       this.previewEl.textContent = 'Preview unavailable.';
@@ -304,23 +335,31 @@ export class SemanticResultRow {
     const basename = notePath.split('/').pop()?.replace(/\.md$/, '') ?? notePath;
     const wikilink = `[[${basename}]]`;
 
-    // Use EditorInsertService pattern: iterate all leaves to find a markdown editor
-    // even when the semantic panel has focus
+    // Append to end of the active note so the link doesn't land at an arbitrary
+    // cursor position (which is often position 0 when focus is in the panel).
+    type EditorLike = {
+      lastLine(): number;
+      getLine(n: number): string;
+      replaceRange(text: string, from: { line: number; ch: number }): void;
+    };
     let inserted = false;
     this.opts.app.workspace.iterateAllLeaves((leaf) => {
       if (inserted) return;
-      const view = leaf.view as unknown as { editor?: { replaceSelection(text: string): void } };
+      const view = leaf.view as unknown as { editor?: EditorLike };
       if (view?.editor) {
-        view.editor.replaceSelection(wikilink);
+        const editor = view.editor;
+        const lastLine = editor.lastLine();
+        const lastCh = editor.getLine(lastLine).length;
+        // Add a newline separator only when the file doesn't end with one.
+        const separator = lastCh > 0 ? '\n' : '';
+        editor.replaceRange(separator + wikilink, { line: lastLine, ch: lastCh });
         inserted = true;
       }
     });
   }
 
   private showContextMenu(anchor: HTMLElement): void {
-    type MenuItem = { setTitle(t: string): MenuItem; setIcon(i: string): MenuItem; onClick(fn: () => void): MenuItem };
-    type MenuLike = { addItem(fn: (item: MenuItem) => void): void; showAtMouseEvent(e: MouseEvent): void };
-    const menu = new (window as unknown as { Menu: new () => MenuLike }).Menu();
+    const menu = new Menu();
 
     menu.addItem(item => {
       item.setTitle('Pin result').setIcon('pin').onClick(() => {
@@ -352,5 +391,13 @@ export class SemanticResultRow {
 
   focus(): void {
     this.el.focus();
+  }
+
+  setSelected(selected: boolean): void {
+    if (this.checkboxEl) this.checkboxEl.checked = selected;
+  }
+
+  get result(): RowResult {
+    return this.opts.result;
   }
 }

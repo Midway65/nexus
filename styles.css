@@ -8233,6 +8233,9 @@ body.is-mobile .nexus-task-board-shell {
 
 /* Footer */
 .semantic-panel-footer {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
     padding: 4px 10px 6px;
     font-size: var(--font-ui-smaller);
     color: var(--text-faint);
@@ -8342,6 +8345,8 @@ body.is-mobile .nexus-task-board-shell {
     line-height: 1.5;
     white-space: pre-wrap;
     word-break: break-word;
+    max-height: 240px;
+    overflow-y: auto;
 }
 
 /* Action bar */
@@ -8367,6 +8372,105 @@ body.is-mobile .nexus-task-board-shell {
     background: var(--background-modifier-hover);
     color: var(--text-normal);
     border-color: var(--text-muted);
+}
+
+/* Footer rail */
+.semantic-footer-stats {
+    color: var(--text-faint);
+    font-size: var(--font-ui-smaller);
+}
+
+.semantic-footer-filter-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 3px;
+}
+
+.semantic-footer-filter-chip {
+    background: var(--background-modifier-hover);
+    border-radius: 3px;
+    padding: 1px 5px;
+    font-size: var(--font-ui-smaller);
+    color: var(--text-muted);
+}
+
+.semantic-footer-actions {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    flex-wrap: wrap;
+}
+
+.semantic-footer-action-btn {
+    background: none;
+    border: 1px solid var(--background-modifier-border);
+    border-radius: var(--radius-s);
+    color: var(--text-muted);
+    cursor: pointer;
+    padding: 2px 8px;
+    font-size: var(--font-ui-smaller);
+    transition: all 0.15s;
+}
+
+.semantic-footer-action-btn:hover {
+    background: var(--background-modifier-hover);
+    color: var(--text-normal);
+}
+
+.semantic-footer-icon-btn {
+    background: none;
+    border: none;
+    color: var(--text-faint);
+    cursor: pointer;
+    padding: 2px;
+    border-radius: var(--radius-s);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.15s;
+}
+
+.semantic-footer-icon-btn:hover {
+    background: var(--background-modifier-hover);
+    color: var(--text-normal);
+}
+
+/* Pin indicator */
+.semantic-result-pin-indicator {
+    color: var(--interactive-accent);
+    flex-shrink: 0;
+    width: 14px;
+    height: 14px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+/* Section divider between pinned and normal results */
+.semantic-result-section-divider {
+    font-size: var(--font-ui-smaller);
+    color: var(--text-faint);
+    padding: 4px 10px 2px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+/* Multi-select checkbox */
+.semantic-result-checkbox {
+    width: 14px;
+    height: 14px;
+    flex-shrink: 0;
+    opacity: 0;
+    transition: opacity 0.15s;
+    cursor: pointer;
+    accent-color: var(--interactive-accent);
+    margin-right: 2px;
+}
+
+.semantic-result-row:hover .semantic-result-checkbox,
+.semantic-result-checkbox:focus,
+.semantic-panel-results.has-selection .semantic-result-checkbox {
+    opacity: 1;
 }
 
 /* ==========================================================================

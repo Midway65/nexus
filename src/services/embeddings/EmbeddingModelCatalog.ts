@@ -66,7 +66,7 @@ export const EMBEDDING_MODELS: EmbeddingModelEntry[] = [
     dimensions: 768,
     quantizedSize: '~140 MB',
     description: 'High-quality 768-dim model. Best semantic quality. Requires HuggingFace account, license acceptance, and an access token.',
-    documentPrefix: 'search_document: ',
+    documentPrefix: 'clustering: ',
     queryPrefix: 'search_query: ',
     requiresMeanPool: true,
     normalizeInPipeline: true,

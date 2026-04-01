@@ -56,6 +56,7 @@ export class NoteEmbeddingService {
     blockIndexingEnabled: boolean;
     blockIndexStale: boolean;
     lastRebuildAt: number | null;
+    minIndexLength: number;
   } | null = null;
 
   constructor(
@@ -140,6 +141,8 @@ export class NoteEmbeddingService {
       const content = await this.app.vault.read(file);
       const processedContent = preprocessContent(content);
       if (!processedContent) return;
+
+      if (processedContent.length < config.minIndexLength) return;
 
       const contentHash = hashContent(processedContent);
 
@@ -584,6 +587,7 @@ export class NoteEmbeddingService {
     blockIndexingEnabled: boolean;
     blockIndexStale: boolean;
     lastRebuildAt: number | null;
+    minIndexLength: number;
   }> {
     if (this.configCache) return this.configCache;
     try {
@@ -597,6 +601,7 @@ export class NoteEmbeddingService {
         blockIndexingEnabled: map.get('blockIndexingEnabled') === 'true',
         blockIndexStale: map.get('blockIndexStale') === 'true',
         lastRebuildAt: map.has('lastRebuildAt') ? Number(map.get('lastRebuildAt')) : null,
+        minIndexLength: map.has('minIndexLength') ? Number(map.get('minIndexLength')) : 50,
       };
       return this.configCache;
     } catch {
@@ -606,8 +611,14 @@ export class NoteEmbeddingService {
         blockIndexingEnabled: false,
         blockIndexStale: false,
         lastRebuildAt: null,
+        minIndexLength: 50,
       };
     }
+  }
+
+  async getMinIndexLength(): Promise<number> {
+    const config = await this.loadConfig();
+    return config.minIndexLength;
   }
 
   async setConfigValue(key: string, value: string): Promise<void> {

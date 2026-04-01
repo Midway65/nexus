@@ -17,7 +17,7 @@
  * (wired from ChatView.addSemanticContext) is forwarded to each result row.
  */
 
-import { ItemView, MarkdownView, Menu, setIcon, type WorkspaceLeaf } from 'obsidian';
+import { ItemView, MarkdownView, Menu, Notice, setIcon, TFile, type WorkspaceLeaf } from 'obsidian';
 import type NexusPlugin from '../../main';
 import { SEMANTIC_PANEL_VIEW_TYPE } from '../../constants/branding';
 import type { NoteEmbeddingService, SimilarNote, SimilarBlock } from '../../services/embeddings/NoteEmbeddingService';
@@ -97,9 +97,16 @@ export class SemanticPanelView extends ItemView {
   // ---- timers ----
   private refreshTimer: ReturnType<typeof setTimeout> | null = null;
   private searchDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+  private warmupRetryTimer: ReturnType<typeof setTimeout> | null = null;
 
   // ---- rendered rows ----
   private rows: SemanticResultRow[] = [];
+
+  // ---- feedback / scoring state ----
+  private lastPinnedSet: Set<string> = new Set();
+
+  // ---- multi-select state ----
+  private selectedPaths: Set<string> = new Set();
 
   // ---- block availability (cached per refresh) ----
   private blocksAvailable = false;
@@ -147,6 +154,7 @@ export class SemanticPanelView extends ItemView {
   async onClose(): Promise<void> {
     if (this.refreshTimer !== null) clearTimeout(this.refreshTimer);
     if (this.searchDebounceTimer !== null) clearTimeout(this.searchDebounceTimer);
+    if (this.warmupRetryTimer !== null) clearTimeout(this.warmupRetryTimer);
     this.rows = [];
   }
 
@@ -287,7 +295,7 @@ export class SemanticPanelView extends ItemView {
       this.searchInputEl = inputWrapper.createEl('input', {
         cls: 'semantic-panel-search-input',
         type: 'text',
-        placeholder: 'Semantic search…',
+        placeholder: 'Search all notes (vault-wide)…',
       } as unknown as { cls: string; type: string; placeholder: string });
       this.searchInputEl.value = this.searchQuery;
       this.searchInputEl.setAttribute('aria-label', 'Semantic search query');
@@ -385,6 +393,7 @@ export class SemanticPanelView extends ItemView {
   // ---- active file tracking ----
 
   async onActiveFileChange(): Promise<void> {
+    const previousPath = this.activeNotePath;
     const view = this.app.workspace.getActiveViewOfType(MarkdownView);
     const file = view?.file ?? null;
 
@@ -408,6 +417,15 @@ export class SemanticPanelView extends ItemView {
 
     if (this.modeBarEl) this.buildModeBar(this.modeBarEl);
 
+    // File actually changed — clear stale results immediately so the old note's
+    // relationships don't linger while the new ones are loading.
+    if (this.activeNotePath !== previousPath && this.activeNotePath) {
+      this.rows = [];
+      if (this.resultsEl) this.resultsEl.empty();
+      if (this.footerEl) this.footerEl.empty();
+      if (this.statusEl) { this.statusEl.empty(); this.statusEl.style.display = 'none'; }
+    }
+
     if (!this.activeNotePath) {
       this.renderEmptyState('no-file');
       return;
@@ -425,6 +443,17 @@ export class SemanticPanelView extends ItemView {
     }
     if (!this.noteEmbeddingService) {
       this.renderEmptyState('index-not-ready');
+      // Embedding system has a ~3s startup warmup. Schedule one automatic retry
+      // so the panel self-heals without requiring a manual refresh click.
+      if (this.warmupRetryTimer === null) {
+        this.warmupRetryTimer = setTimeout(async () => {
+          this.warmupRetryTimer = null;
+          this.resolveServices();
+          if (this.noteEmbeddingService && this.activeNotePath) {
+            await this.refresh();
+          }
+        }, 3500);
+      }
       return;
     }
 
@@ -482,7 +511,11 @@ export class SemanticPanelView extends ItemView {
     } catch {
       if (requestId !== this.requestId) return;
       this.setLoading(false);
-      this.renderEmptyState('error');
+      // Only show error state when there are no existing results to fall back on.
+      // Transient failures (db hiccup, index busy) should not wipe a working panel.
+      if (this.rows.length === 0) {
+        this.renderEmptyState('error');
+      }
     }
   }
 
@@ -551,10 +584,11 @@ export class SemanticPanelView extends ItemView {
     };
   }
 
-  // ---- feedback filtering ----
+  // ---- feedback filtering + scoring pipeline ----
 
   private async applyFeedback(results: RowResult[]): Promise<RowResult[]> {
     if (!this.feedbackService || !this.activeNotePath || this.panelMode !== 'browse') {
+      this.lastPinnedSet = new Set();
       return results;
     }
     try {
@@ -563,13 +597,106 @@ export class SemanticPanelView extends ItemView {
         this.feedbackService.getHidden(this.activeNotePath),
       ]);
 
+      this.lastPinnedSet = pinned;
+
+      // 1. Filter hidden
       const visible = results.filter(r => !hidden.has(r.notePath));
-      const pinnedResults = visible.filter(r => pinned.has(r.notePath));
-      const normalResults = visible.filter(r => !pinned.has(r.notePath));
+
+      // 2. Normalize raw cosine scores before any boosts
+      const normalized = this.normalizeScores(visible);
+
+      // 3. Apply contextual score boosts
+      const boosted = this.applyScoreBoosts(normalized, pinned);
+
+      // 4. Sort by score desc; hard-partition pinned to top
+      boosted.sort((a, b) => b.score - a.score);
+      const pinnedResults = boosted.filter(r => pinned.has(r.notePath));
+      const normalResults = boosted.filter(r => !pinned.has(r.notePath));
       return [...pinnedResults, ...normalResults];
     } catch {
       return results;
     }
+  }
+
+  private normalizeScores(results: RowResult[]): RowResult[] {
+    if (results.length === 0) return results;
+    const maxScore = Math.max(...results.map(r => r.score));
+    if (maxScore > 0 && maxScore < 0.5) {
+      const scale = 1 / maxScore;
+      return results.map(r => ({ ...r, score: Math.min(r.score * scale, 1) }));
+    }
+    return results;
+  }
+
+  private applyScoreBoosts(results: RowResult[], pinned: Set<string>): RowResult[] {
+    const cs = this.getConnectionsSettings();
+    const doFrontmatter = cs.frontmatter_scoring !== false;
+    const doCoCitation = cs.co_citation_scoring !== false;
+    const doPathProximity = cs.path_proximity_scoring !== false;
+
+    if (!doFrontmatter && !doCoCitation && !doPathProximity) return results;
+    if (!this.activeNotePath) return results;
+
+    const activeFrontmatter = doFrontmatter ? this.getActiveFrontmatter() : {};
+    const activeOutlinks = doCoCitation ? this.getActiveOutlinks() : new Set<string>();
+    const activeFolder = this.activeNotePath.includes('/')
+      ? this.activeNotePath.slice(0, this.activeNotePath.lastIndexOf('/'))
+      : '';
+
+    return results.map(r => {
+      if (pinned.has(r.notePath)) return r; // pinned results are hard-partitioned, no boost needed
+
+      let boost = 0;
+
+      if (doFrontmatter) {
+        const file = this.app.vault.getFileByPath(r.notePath);
+        if (file) {
+          const fm = this.app.metadataCache.getFileCache(file)?.frontmatter ?? {};
+          const keys = ['tags', 'type', 'status'] as const;
+          let matches = 0;
+          for (const key of keys) {
+            if (activeFrontmatter[key] !== undefined && fm[key] !== undefined) {
+              matches++;
+            }
+          }
+          boost += Math.min(matches * 0.03, 0.09);
+        }
+      }
+
+      if (doCoCitation && activeOutlinks.size > 0) {
+        const file = this.app.vault.getFileByPath(r.notePath);
+        if (file) {
+          const links = this.app.metadataCache.getFileCache(file)?.links ?? [];
+          const hasShared = links.some(l => activeOutlinks.has(l.link));
+          if (hasShared) boost += 0.02;
+        }
+      }
+
+      if (doPathProximity) {
+        const resultFolder = r.notePath.includes('/')
+          ? r.notePath.slice(0, r.notePath.lastIndexOf('/'))
+          : '';
+        if (activeFolder === resultFolder) boost += 0.01;
+      }
+
+      if (boost === 0) return r;
+      return { ...r, score: Math.min(r.score + boost, 1) };
+    });
+  }
+
+  private getActiveFrontmatter(): Record<string, unknown> {
+    if (!this.activeNotePath) return {};
+    const file = this.app.vault.getFileByPath(this.activeNotePath);
+    if (!(file instanceof TFile)) return {};
+    return this.app.metadataCache.getFileCache(file)?.frontmatter ?? {};
+  }
+
+  private getActiveOutlinks(): Set<string> {
+    if (!this.activeNotePath) return new Set();
+    const file = this.app.vault.getFileByPath(this.activeNotePath);
+    if (!(file instanceof TFile)) return new Set();
+    const links = this.app.metadataCache.getFileCache(file)?.links ?? [];
+    return new Set(links.map(l => l.link));
   }
 
   // ---- render ----
@@ -580,6 +707,8 @@ export class SemanticPanelView extends ItemView {
     this.statusEl.empty();
     this.resultsEl.empty();
     this.rows = [];
+    this.selectedPaths.clear();
+    this.resultsEl?.removeClass('has-selection');
 
     if (results.length === 0) {
       this.renderEmptyState(this.panelMode === 'browse' ? 'no-results-browse' : 'no-results-search');
@@ -590,8 +719,18 @@ export class SemanticPanelView extends ItemView {
     this.statusEl.style.display = 'none';
 
     let expandedRow: SemanticResultRow | null = null;
+    let dividerInserted = false;
 
     for (const result of results) {
+      const isPinned = this.lastPinnedSet.has(result.notePath);
+
+      // Insert "Other matches" divider before first non-pinned result that follows pinned ones
+      if (!isPinned && !dividerInserted && this.lastPinnedSet.size > 0) {
+        dividerInserted = true;
+        const divider = this.resultsEl.createDiv('semantic-result-section-divider');
+        divider.textContent = 'Other matches';
+      }
+
       const row = new SemanticResultRow({
         app: this.app,
         result,
@@ -600,6 +739,13 @@ export class SemanticPanelView extends ItemView {
         showFullPath: this.settings.showFullPath,
         feedbackService: this.feedbackService,
         onSendToChat: this.onSendToChat,
+        isPinned,
+        onSelectionChange: (path, selected) => {
+          if (selected) this.selectedPaths.add(path);
+          else this.selectedPaths.delete(path);
+          this.resultsEl?.toggleClass('has-selection', this.selectedPaths.size > 0);
+          this.renderFooterRail(results);
+        },
         onExpand: () => {
           if (expandedRow && expandedRow !== row) {
             expandedRow.collapse();
@@ -615,9 +761,8 @@ export class SemanticPanelView extends ItemView {
     // Arrow-key navigation between rows
     this.wireRowNavigation();
 
-    // Footer count
-    this.footerEl.empty();
-    this.footerEl.textContent = `Showing ${results.length} result${results.length === 1 ? '' : 's'}`;
+    // Footer rail
+    this.renderFooterRail(results);
 
     // Silence unused requestId warning — used by caller for stale check
     void requestId;
@@ -636,6 +781,144 @@ export class SemanticPanelView extends ItemView {
         }
       });
     }
+  }
+
+  // ---- footer rail (Layer 3) ----
+
+  private renderFooterRail(results: RowResult[]): void {
+    if (!this.footerEl) return;
+    this.footerEl.empty();
+
+    // Stats line
+    const statsEl = this.footerEl.createDiv('semantic-footer-stats');
+    if (results.length > 0) {
+      const scores = results.map(r => r.score);
+      const minPct = Math.round(Math.min(...scores) * 100);
+      const maxPct = Math.round(Math.max(...scores) * 100);
+      const range = minPct === maxPct ? `${maxPct}%` : `${minPct}%–${maxPct}%`;
+      statsEl.textContent = `Showing ${results.length} result${results.length === 1 ? '' : 's'} · ${range}`;
+    } else {
+      statsEl.textContent = 'No results';
+    }
+
+    // Active filter chips
+    const chips = this.buildActiveFilterSummary();
+    if (chips.length > 0) {
+      const chipsEl = this.footerEl.createDiv('semantic-footer-filter-chips');
+      for (const chip of chips) {
+        chipsEl.createEl('span', { cls: 'semantic-footer-filter-chip', text: chip });
+      }
+    }
+
+    // Actions
+    const actionsEl = this.footerEl.createDiv('semantic-footer-actions');
+
+    // "Link N selected" text button
+    if (this.selectedPaths.size > 0) {
+      const linkBtn = actionsEl.createEl('button', {
+        cls: 'semantic-footer-action-btn',
+        text: `Link ${this.selectedPaths.size} selected`,
+      });
+      linkBtn.addEventListener('click', () => { void this.insertSelectedLinks(); });
+    }
+
+    // Send all to chat (only when callback wired)
+    if (this.onSendToChat) {
+      const sendBtn = actionsEl.createEl('button', { cls: 'semantic-footer-icon-btn' });
+      sendBtn.setAttribute('aria-label', 'Send all to chat');
+      setIcon(sendBtn, 'send');
+      sendBtn.addEventListener('click', () => { void this.sendAllToChat(results); });
+    }
+
+    // Copy as markdown
+    const copyBtn = actionsEl.createEl('button', { cls: 'semantic-footer-icon-btn' });
+    copyBtn.setAttribute('aria-label', 'Copy as markdown');
+    setIcon(copyBtn, 'clipboard-copy');
+    copyBtn.addEventListener('click', () => { void this.copyAsMarkdown(results); });
+  }
+
+  private buildActiveFilterSummary(): string[] {
+    const cs = this.getConnectionsSettings();
+    const chips: string[] = [];
+    if (cs.include_filter?.trim()) chips.push(`include: ${cs.include_filter.trim()}`);
+    if (cs.exclude_filter?.trim()) chips.push(`exclude: ${cs.exclude_filter.trim()}`);
+    if (cs.exclude_inlinks) chips.push('no backlinks');
+    if (cs.exclude_outlinks) chips.push('no outlinks');
+    if (cs.frontmatter_filter_include?.trim()) chips.push('fm-include');
+    if (cs.frontmatter_filter_exclude?.trim()) chips.push('fm-exclude');
+    return chips;
+  }
+
+  // ---- bulk link insertion (Layer 2b) ----
+
+  private async insertSelectedLinks(): Promise<void> {
+    const activeFile = this.app.workspace.getActiveFile();
+    if (!activeFile) {
+      new Notice('No active note to insert links into.');
+      return;
+    }
+    const links = [...this.selectedPaths]
+      .map(p => `[[${p.split('/').pop()?.replace(/\.md$/, '') ?? p}]]`)
+      .join('\n');
+    const count = this.selectedPaths.size;
+    await this.app.vault.process(activeFile, content =>
+      content + (content.endsWith('\n') ? '' : '\n') + links + '\n'
+    );
+    new Notice(`Inserted ${count} link${count === 1 ? '' : 's'}`, 2000);
+    this.selectedPaths.clear();
+    this.resultsEl?.removeClass('has-selection');
+    for (const row of this.rows) row.setSelected(false);
+    this.renderFooterRail(this.rows.map(r => r.result));
+  }
+
+  // ---- bulk context actions (Layer 4) ----
+
+  private async sendAllToChat(results: RowResult[]): Promise<void> {
+    if (!this.onSendToChat) return;
+    let sent = 0;
+    for (const result of results) {
+      try {
+        const file = this.app.vault.getFileByPath(result.notePath);
+        let content = result.contentPreview ?? '';
+        if (file) {
+          const raw = await this.app.vault.cachedRead(file);
+          content = raw.slice(0, 32000);
+        }
+        this.onSendToChat({
+          kind: 'semantic-note',
+          path: result.notePath,
+          title: result.title,
+          score: result.score,
+          content,
+        });
+        sent++;
+      } catch { /* skip inaccessible notes */ }
+    }
+    new Notice(`Sent ${sent} connection${sent === 1 ? '' : 's'} to chat`, 2000);
+  }
+
+  private async copyAsMarkdown(results: RowResult[]): Promise<void> {
+    if (results.length === 0) return;
+    const activeTitle = this.activeNotePath
+      ? this.activeNotePath.split('/').pop()?.replace(/\.md$/, '') ?? ''
+      : 'Note';
+    const lines: string[] = [`# Connections for [[${activeTitle}]]`, ''];
+    for (const result of results) {
+      const pct = Math.round(result.score * 100);
+      lines.push(`## [[${result.title}]] (${pct}% match)`);
+      try {
+        const file = this.app.vault.getFileByPath(result.notePath);
+        if (file) {
+          const raw = await this.app.vault.cachedRead(file);
+          const body = raw.replace(/^---[\s\S]*?---\n?/, '').trim();
+          const excerpt = body.slice(0, 200);
+          if (excerpt) lines.push(`> ${excerpt.replace(/\n/g, '\n> ')}`);
+        }
+      } catch { /* skip */ }
+      lines.push('');
+    }
+    await navigator.clipboard.writeText(lines.join('\n'));
+    new Notice('Copied connections to clipboard', 2500);
   }
 
   // ---- empty / error states ----

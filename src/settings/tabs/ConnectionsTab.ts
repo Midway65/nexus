@@ -320,6 +320,46 @@ export class ConnectionsTab {
             await saveConnections({ exclude_frontmatter_blocks: value });
           });
       });
+
+    // Scoring signals
+    section.createEl('h5', { text: 'Scoring signals' });
+    section.createEl('p', {
+      text: 'These signals adjust result scores based on context. Changes take effect on the next panel refresh.',
+      cls: 'nexus-settings-desc'
+    });
+
+    new Setting(section)
+      .setName('Frontmatter-aware scoring')
+      .setDesc('Boost results that share frontmatter values (tags, type, status) with the current note. +0.03 per match, up to +0.09.')
+      .addToggle(toggle => {
+        toggle
+          .setValue(cs().frontmatter_scoring ?? DEFAULT_CONNECTIONS_SETTINGS.frontmatter_scoring)
+          .onChange(async (value) => {
+            await saveConnections({ frontmatter_scoring: value });
+          });
+      });
+
+    new Setting(section)
+      .setName('Co-citation scoring')
+      .setDesc('Boost results that link to the same notes as the current note. +0.02 per shared outlink.')
+      .addToggle(toggle => {
+        toggle
+          .setValue(cs().co_citation_scoring ?? DEFAULT_CONNECTIONS_SETTINGS.co_citation_scoring)
+          .onChange(async (value) => {
+            await saveConnections({ co_citation_scoring: value });
+          });
+      });
+
+    new Setting(section)
+      .setName('Path proximity scoring')
+      .setDesc('Boost results in the same folder as the current note. +0.01.')
+      .addToggle(toggle => {
+        toggle
+          .setValue(cs().path_proximity_scoring ?? DEFAULT_CONNECTIONS_SETTINGS.path_proximity_scoring)
+          .onChange(async (value) => {
+            await saveConnections({ path_proximity_scoring: value });
+          });
+      });
   }
 
   destroy(): void {
