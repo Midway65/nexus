@@ -14,7 +14,7 @@
  * Registered with plugin.addChild(coordinator) by PluginLifecycleManager.
  */
 
-import { Component, TFile, TAbstractFile } from 'obsidian';
+import { Component, Notice, TFile, TAbstractFile } from 'obsidian';
 import type { NoteEmbeddingService } from './NoteEmbeddingService';
 import type { EmbeddingExclusionService } from './EmbeddingExclusionService';
 
@@ -198,7 +198,15 @@ export class EmbeddingIndexCoordinator extends Component {
       if (!this.exclusions.shouldIndex(path)) {
         await this.noteEmbeddingService.removeNote(path);
       } else {
-        await this.noteEmbeddingService.embedNote(path);
+        try {
+          await this.noteEmbeddingService.embedNote(path);
+        } catch (err) {
+          if (this.isModelError(err)) {
+            new Notice(this.modelErrorMessage(err), 10000);
+            return; // Abort — all remaining notes would fail the same way
+          }
+          console.error(`[EmbeddingIndexCoordinator] Failed to embed ${path}:`, err);
+        }
       }
 
       // Yield to event loop every 10 files
@@ -240,7 +248,12 @@ export class EmbeddingIndexCoordinator extends Component {
       for (let i = 0; i < files.length; i++) {
         if (this.isShuttingDown) return;
         if (this.exclusions.shouldIndex(files[i].path)) {
-          await this.noteEmbeddingService.embedNote(files[i].path);
+          try {
+            await this.noteEmbeddingService.embedNote(files[i].path);
+          } catch (err) {
+            if (this.isModelError(err)) throw err; // Let button handler surface it
+            console.error(`[EmbeddingIndexCoordinator] Failed to embed ${files[i].path}:`, err);
+          }
         }
         if (i % 10 === 0) await new Promise(r => setTimeout(r, 0));
         this.emit('embedding:reconcile-progress', {
@@ -266,7 +279,12 @@ export class EmbeddingIndexCoordinator extends Component {
       for (let i = 0; i < files.length; i++) {
         if (this.isShuttingDown) return;
         if (this.exclusions.shouldIndex(files[i].path)) {
-          await this.noteEmbeddingService.embedNote(files[i].path);
+          try {
+            await this.noteEmbeddingService.embedNote(files[i].path);
+          } catch (err) {
+            if (this.isModelError(err)) throw err; // Let button handler surface it
+            console.error(`[EmbeddingIndexCoordinator] Failed to embed ${files[i].path}:`, err);
+          }
         }
         if (i % 10 === 0) await new Promise(r => setTimeout(r, 0));
         this.emit('embedding:reconcile-progress', {
@@ -329,6 +347,31 @@ export class EmbeddingIndexCoordinator extends Component {
         console.error('[EmbeddingIndexCoordinator] Event listener error:', err);
       }
     }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Model error detection
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Returns true when an error is caused by a model download or auth failure
+   * (i.e. all subsequent notes would fail identically — abort is the right call).
+   */
+  private isModelError(err: unknown): boolean {
+    const msg = err instanceof Error ? err.message : String(err);
+    return (
+      msg.includes('Cannot download') ||
+      msg.includes('HuggingFace token') ||
+      msg.includes('initialization previously failed') ||
+      msg.includes('initialization timeout')
+    );
+  }
+
+  /** Strip the technical detail from a model error for display in a Notice. */
+  private modelErrorMessage(err: unknown): string {
+    const msg = err instanceof Error ? err.message : String(err);
+    // The error already contains user-friendly steps — return it directly.
+    return `Embedding model error: ${msg}`;
   }
 
   // ---------------------------------------------------------------------------
