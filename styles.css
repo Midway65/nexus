@@ -4445,6 +4445,78 @@ a:hover {
     color: var(--text-error);
 }
 
+/* Frontmatter chip label — monospace so key:value reads clearly */
+.nexus-fm-chip-label {
+    font-family: var(--font-monospace);
+}
+
+/* Inline key:value add form for frontmatter filter chips */
+.nexus-fm-add-form {
+    display: flex;
+    align-items: center;
+    gap: var(--space-s);
+    flex-wrap: wrap;
+    margin-top: var(--space-s);
+    padding: var(--space-s);
+    background: var(--background-secondary);
+    border: 1px solid var(--background-modifier-border);
+    border-radius: var(--radius-s);
+}
+
+.nexus-fm-key-input,
+.nexus-fm-val-input {
+    background: var(--background-primary);
+    border: 1px solid var(--background-modifier-border);
+    border-radius: var(--radius-s);
+    color: var(--text-normal);
+    font-size: 12px;
+    font-family: var(--font-monospace);
+    padding: 2px 6px;
+    width: 130px;
+}
+
+.nexus-fm-key-input:focus,
+.nexus-fm-val-input:focus {
+    border-color: var(--interactive-accent);
+    outline: none;
+}
+
+.nexus-fm-sep {
+    color: var(--text-muted);
+    font-size: 13px;
+    font-family: var(--font-monospace);
+    user-select: none;
+}
+
+.nexus-fm-confirm-btn {
+    background: var(--interactive-accent);
+    border: none;
+    border-radius: var(--radius-s);
+    color: var(--text-on-accent);
+    cursor: pointer;
+    font-size: 12px;
+    padding: 2px 10px;
+}
+
+.nexus-fm-confirm-btn:hover {
+    background: var(--interactive-accent-hover);
+}
+
+.nexus-fm-cancel-btn {
+    background: transparent;
+    border: 1px solid var(--background-modifier-border);
+    border-radius: var(--radius-s);
+    color: var(--text-muted);
+    cursor: pointer;
+    font-size: 12px;
+    padding: 2px 8px;
+}
+
+.nexus-fm-cancel-btn:hover {
+    background: var(--background-modifier-hover);
+    color: var(--text-normal);
+}
+
 /* ===========================================
    Nexus Settings UI - Tab-Based Navigation
    =========================================== */

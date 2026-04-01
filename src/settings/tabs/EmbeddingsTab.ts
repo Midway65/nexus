@@ -312,24 +312,6 @@ export class EmbeddingsTab {
           });
       });
 
-    const currentMinLength = noteService ? await noteService.getMinIndexLength() : 50;
-
-    new Setting(section)
-      .setName('Minimum content length')
-      .setDesc('Skip notes shorter than this many characters. Short notes (stubs, templates) add noise to results. Requires rebuild to take effect on existing notes.')
-      .addText(text => {
-        text
-          .setValue(String(currentMinLength))
-          .onChange(async (value) => {
-            const parsed = parseInt(value, 10);
-            if (!isNaN(parsed) && parsed > 0 && noteService) {
-              await noteService.setConfigValue('minIndexLength', String(parsed));
-            }
-          });
-        text.inputEl.type = 'number';
-        text.inputEl.min = '1';
-        text.inputEl.style.width = '80px';
-      });
   }
 
   // ---------------------------------------------------------------------------

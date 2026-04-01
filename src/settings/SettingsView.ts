@@ -550,7 +550,7 @@ export class SettingsView extends PluginSettingTab {
                 ? this.pluginLifecycleManager.getEmbeddingManager()
                 : null;
 
-        this.connectionsTab = new ConnectionsTab(container, this.router, { embeddingManager, settings: this.settingsManager });
+        this.connectionsTab = new ConnectionsTab(container, this.router, { app: this.app, embeddingManager, settings: this.settingsManager });
     }
 
     // TODO: Re-enable when Data tab is ready

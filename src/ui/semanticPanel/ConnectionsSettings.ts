@@ -14,14 +14,18 @@ export interface ConnectionsSettings {
   results_limit: number;
   /** Which sidebar the panel opens in. Default 'right'. */
   connections_view_location: 'left' | 'right';
-  /** Comma-separated path fragments that MUST appear in a result path. Empty = no restriction. */
+  /** Specific note paths that MUST appear in results (picked via file picker). */
+  include_paths: string[];
+  /** Specific note paths that are hidden from results (picked via file picker). */
+  exclude_paths: string[];
+  /** Newline-separated path fragments that MUST appear in a result path. Empty = no restriction. */
   include_filter: string;
-  /** Comma-separated path fragments that remove a result. Exclude wins over include. */
+  /** Newline-separated path fragments that remove a result. Exclude wins over include. */
   exclude_filter: string;
-  /** Newline-delimited `key` or `key:value` frontmatter matchers. Result kept only if matched. */
-  frontmatter_filter_include: string;
-  /** Newline-delimited matchers. Result removed if matched. Exclude wins. */
-  frontmatter_filter_exclude: string;
+  /** Array of `key` or `key:value` frontmatter matchers. Result kept only if at least one matches. */
+  frontmatter_include_rules: string[];
+  /** Array of `key` or `key:value` matchers. Result removed if any matches. Exclude wins. */
+  frontmatter_exclude_rules: string[];
   /** Remove results that already link TO the current note (inlinks / backlinks). */
   exclude_inlinks: boolean;
   /** Remove results that the current note already links TO (outlinks). */
@@ -39,10 +43,12 @@ export interface ConnectionsSettings {
 export const DEFAULT_CONNECTIONS_SETTINGS: ConnectionsSettings = {
   results_limit: 20,
   connections_view_location: 'right',
+  include_paths: [],
+  exclude_paths: [],
   include_filter: '',
   exclude_filter: '',
-  frontmatter_filter_include: '',
-  frontmatter_filter_exclude: '',
+  frontmatter_include_rules: [],
+  frontmatter_exclude_rules: [],
   exclude_inlinks: false,
   exclude_outlinks: false,
   exclude_frontmatter_blocks: true,

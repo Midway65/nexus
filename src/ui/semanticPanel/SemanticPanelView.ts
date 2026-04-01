@@ -194,9 +194,16 @@ export class SemanticPanelView extends ItemView {
 
   private loadSettings(): void {
     try {
-      const saved = (this.plugin as unknown as { settings?: { semanticPanel?: Partial<PanelSettings> } }).settings?.semanticPanel;
+      const p = this.plugin as unknown as { settings?: { semanticPanel?: Partial<PanelSettings>; connections?: { results_limit?: number } } };
+      const saved = p.settings?.semanticPanel;
       if (saved) {
         this.settings = { ...DEFAULT_SETTINGS, ...saved };
+      }
+      // connections.results_limit is the authoritative control for result count —
+      // always override the panel-local value so the Connections settings tab is respected.
+      const connectionsLimit = p.settings?.connections?.results_limit;
+      if (connectionsLimit !== undefined && connectionsLimit > 0) {
+        this.settings.resultCount = connectionsLimit;
       }
     } catch { /* use defaults */ }
     this.resultMode = this.settings.resultMode;
@@ -844,8 +851,8 @@ export class SemanticPanelView extends ItemView {
     if (cs.exclude_filter?.trim()) chips.push(`exclude: ${cs.exclude_filter.trim()}`);
     if (cs.exclude_inlinks) chips.push('no backlinks');
     if (cs.exclude_outlinks) chips.push('no outlinks');
-    if (cs.frontmatter_filter_include?.trim()) chips.push('fm-include');
-    if (cs.frontmatter_filter_exclude?.trim()) chips.push('fm-exclude');
+    if (cs.frontmatter_include_rules?.length) chips.push('fm-include');
+    if (cs.frontmatter_exclude_rules?.length) chips.push('fm-exclude');
     return chips;
   }
 

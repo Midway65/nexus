@@ -70,6 +70,7 @@ export interface MCPSettings {
   enableIngestion?: boolean; // Enable/disable PDF/audio ingestion UI and ingest-only model settings
   autoIngestion?: boolean; // Automatically convert newly added supported binary files to Markdown
   indexingExcludedPatterns?: string[]; // Glob/prefix patterns to exclude from semantic index (one per entry)
+  indexingExcludedPaths?: string[];    // Specific note paths excluded via file picker
   configFilePath?: string;
   memory?: MemorySettings;
   customPrompts?: CustomPromptsSettings;

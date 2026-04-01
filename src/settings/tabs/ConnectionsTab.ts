@@ -2,8 +2,9 @@
  * Location: src/settings/tabs/ConnectionsTab.ts
  * Purpose: Connections settings tab — Tier 1 ingestion exclusions and Tier 2 result filters.
  *
- * Group A (Tier 1) — Indexing exclusions: paths/patterns excluded from the semantic index.
- *   Changes call coordinator.reconcileIndex() to purge/add notes without a full rebuild.
+ * Group A (Tier 1) — Indexing exclusions: paths/patterns and minimum content length
+ *   excluded from the semantic index. Changes call coordinator.reconcileIndex() to
+ *   purge/add notes without a full rebuild.
  *
  * Group B (Tier 2) — Result filters: applied inside SemanticPanelView after retrieval.
  *   No re-indexing required — changes take effect on the next panel refresh.
@@ -11,13 +12,14 @@
  * Group C — Panel UX: sidebar location and results limit.
  */
 
-import { Setting, Notice, Platform } from 'obsidian';
+import { App, Setting, Notice, Platform } from 'obsidian';
 import type { SettingsRouter } from '../SettingsRouter';
 import type { EmbeddingManager } from '../../services/embeddings/EmbeddingManager';
 import type { Settings } from '../../settings';
 import { DEFAULT_CONNECTIONS_SETTINGS } from '../../ui/semanticPanel/ConnectionsSettings';
 
 export interface ConnectionsTabConfig {
+  app: App;
   embeddingManager: EmbeddingManager | null;
   settings: Settings;
 }
@@ -42,61 +44,14 @@ export class ConnectionsTab {
       cls: 'nexus-settings-desc'
     });
 
-    this.renderAutoInjectSection();
     this.renderPanelSection();
-    this.renderTier1Section();
+    await this.renderTier1Section();
     this.renderTier2Section();
 
     if (!Platform.isDesktop) {
       const warn = this.container.createEl('p', { cls: 'nexus-settings-desc' });
       warn.textContent = 'Semantic indexing and the connections panel are only available on the desktop app.';
     }
-  }
-
-  // ---------------------------------------------------------------------------
-  // Group D — Auto-inject vault context into chat system prompt
-  // ---------------------------------------------------------------------------
-
-  private renderAutoInjectSection(): void {
-    const section = this.container.createDiv('nexus-settings-section');
-    section.createEl('h4', { text: 'Chat context injection' });
-    section.createEl('p', {
-      text: 'When enabled, Nexus searches your vault for notes related to each message and shares them with the AI before it replies. The result filters below also apply.',
-      cls: 'nexus-settings-desc'
-    });
-
-    const s = this.config.settings.settings;
-
-    new Setting(section)
-      .setName('Auto-inject related notes')
-      .setDesc('Find vault notes related to your message and include them as context for the AI.')
-      .addToggle(toggle => {
-        toggle
-          .setValue(s.connectionsAutoInjectContext ?? false)
-          .onChange(async (value) => {
-            s.connectionsAutoInjectContext = value;
-            await this.config.settings.saveSettings();
-          });
-      });
-
-    new Setting(section)
-      .setName('Notes to inject')
-      .setDesc('Number of related notes to include per message. Higher values give richer context but increase prompt length.')
-      .addText(text => {
-        text
-          .setValue(String(s.connectionsContextLimit ?? 5))
-          .onChange(async (value) => {
-            const parsed = parseInt(value, 10);
-            if (!isNaN(parsed) && parsed > 0) {
-              s.connectionsContextLimit = parsed;
-              await this.config.settings.saveSettings();
-            }
-          });
-        text.inputEl.type = 'number';
-        text.inputEl.min = '1';
-        text.inputEl.max = '20';
-        text.inputEl.style.width = '80px';
-      });
   }
 
   // ---------------------------------------------------------------------------
@@ -150,41 +105,104 @@ export class ConnectionsTab {
   // Group A — Tier 1: ingestion exclusions
   // ---------------------------------------------------------------------------
 
-  private renderTier1Section(): void {
+  private async renderTier1Section(): Promise<void> {
     const section = this.container.createDiv('nexus-settings-section');
     section.createEl('h4', { text: 'Indexing exclusions' });
-
-    const tipEl = section.createEl('p', { cls: 'nexus-settings-desc' });
-    tipEl.textContent =
-      'Notes in excluded folders or matching excluded patterns will not be embedded. ' +
-      'Enter one pattern per line — folder paths end with / (e.g. Templates/), ' +
-      'wildcards use * (e.g. Daily/2024/**). ' +
-      'Hidden folders such as .nexus/ and .obsidian/ are always excluded. ' +
-      'After changing patterns, click Apply below to update the index.';
+    section.createEl('p', {
+      text: 'Hidden folders (.nexus/, .obsidian/) and Obsidian\'s own excluded files are always skipped. Everything else is indexed by default — use the controls below to exclude what you don\'t want. Click Reconcile after making changes.',
+      cls: 'nexus-settings-desc'
+    });
 
     const s = this.config.settings.settings;
+    const noteService = this.config.embeddingManager?.getService?.()?.getNoteEmbeddingService?.();
+    const currentMinLength = noteService ? await noteService.getMinIndexLength() : 50;
 
+    // ---- Minimum content length ----
     new Setting(section)
-      .setName('Excluded patterns')
-      .setDesc('Notes matching these patterns will not be embedded.')
+      .setName('Minimum content length')
+      .setDesc('Skip notes shorter than this many characters (after stripping frontmatter). Excludes stubs and empty templates. Requires Reconcile to apply to already-indexed notes.')
+      .addText(text => {
+        text
+          .setValue(String(currentMinLength))
+          .onChange(async (value) => {
+            const parsed = parseInt(value, 10);
+            if (!isNaN(parsed) && parsed > 0 && noteService) {
+              await noteService.setConfigValue('minIndexLength', String(parsed));
+            }
+          });
+        text.inputEl.type = 'number';
+        text.inputEl.min = '1';
+        text.inputEl.style.width = '80px';
+      });
+
+    // ---- Excluded notes (file picker) ----
+    const notesHeader = section.createDiv('csr-notes-header');
+    notesHeader.createEl('span', { text: 'Excluded notes' });
+    const addBtn = notesHeader.createEl('button', { cls: 'csr-add-btn', text: '+ Add' });
+    addBtn.setAttribute('aria-label', 'Add note to exclusion list');
+
+    section.createEl('p', {
+      text: 'Specific notes to exclude. Use folder & pattern rules below for bulk exclusions.',
+      cls: 'nexus-settings-desc'
+    });
+
+    const listEl = section.createDiv('csr-notes-list');
+
+    const renderExcludedList = () => {
+      listEl.empty();
+      const paths = s.indexingExcludedPaths ?? [];
+      if (paths.length === 0) {
+        listEl.createDiv({ cls: 'csr-notes-empty', text: 'No notes excluded' });
+        return;
+      }
+      paths.forEach((path, i) => {
+        const item = listEl.createDiv('csr-note-item');
+        item.createSpan({ cls: 'csr-note-path', text: path });
+        const removeBtn = item.createEl('button', { cls: 'csr-note-remove', text: '×' });
+        removeBtn.setAttribute('aria-label', `Remove ${path} from exclusions`);
+        removeBtn.addEventListener('click', async () => {
+          s.indexingExcludedPaths = (s.indexingExcludedPaths ?? []).filter((_, idx) => idx !== i);
+          await this.config.settings.saveSettings();
+          renderExcludedList();
+        });
+      });
+    };
+    renderExcludedList();
+
+    addBtn.addEventListener('click', async () => {
+      const { FilePickerRenderer } = await import('../../components/workspace/FilePickerRenderer');
+      const selected = await FilePickerRenderer.openModal(this.config.app, {
+        title: 'Exclude notes from index',
+        excludePaths: s.indexingExcludedPaths ?? []
+      });
+      if (selected.length > 0) {
+        s.indexingExcludedPaths = [...(s.indexingExcludedPaths ?? []), ...selected];
+        await this.config.settings.saveSettings();
+        renderExcludedList();
+      }
+    });
+
+    // ---- Folder & pattern rules ----
+    new Setting(section)
+      .setName('Folder & pattern rules')
+      .setDesc('One rule per line. Folder paths end with / · Wildcards use * · Plain text matches any path containing it. Examples: Templates/  ·  Daily/2024/**  ·  .excalidraw')
       .addTextArea(area => {
         area
+          .setPlaceholder('Templates/\nDaily/\nArchive/2024/**')
           .setValue((s.indexingExcludedPatterns ?? []).join('\n'))
           .onChange(async (value) => {
-            const patterns = value
-              .split('\n')
-              .map(l => l.trim())
-              .filter(Boolean);
+            const patterns = value.split('\n').map(l => l.trim()).filter(Boolean);
             s.indexingExcludedPatterns = patterns.length > 0 ? patterns : undefined;
             await this.config.settings.saveSettings();
           });
-        area.inputEl.rows = 6;
+        area.inputEl.rows = 4;
         area.inputEl.cols = 40;
         area.inputEl.style.fontFamily = 'var(--font-monospace)';
       });
 
+    // ---- Reconcile ----
     new Setting(section)
-      .setName('Re-index vault')
+      .setName('Apply changes')
       .setDesc('Removes newly-excluded notes from the index and adds any notes that now qualify.')
       .addButton(btn => {
         btn
@@ -217,12 +235,10 @@ export class ConnectionsTab {
   private renderTier2Section(): void {
     const section = this.container.createDiv('nexus-settings-section');
     section.createEl('h4', { text: 'Result filters' });
-
-    const tipEl = section.createEl('p', { cls: 'nexus-settings-desc' });
-    tipEl.textContent =
-      'These filters hide results in the Semantic Panel without removing notes from the index. ' +
-      'Changes take effect on the next panel refresh. ' +
-      'When a path appears in both include and exclude, exclude always wins.';
+    section.createEl('p', {
+      text: 'These filters hide results in the panel without removing notes from the index. Changes take effect on the next panel refresh. Exclude always wins over include.',
+      cls: 'nexus-settings-desc'
+    });
 
     const s = this.config.settings.settings;
     const cs = () => (s.connections ?? {});
@@ -231,61 +247,148 @@ export class ConnectionsTab {
       await this.config.settings.saveSettings();
     };
 
-    // Path-fragment filters
+    // ---- Include paths (file picker + pattern rules) ----
+    const includeHeader = section.createDiv('csr-notes-header');
+    includeHeader.createEl('span', { text: 'Show only — notes' });
+    const includeAddBtn = includeHeader.createEl('button', { cls: 'csr-add-btn', text: '+ Add' });
+    includeAddBtn.setAttribute('aria-label', 'Add note to include filter');
+
+    section.createEl('p', {
+      text: 'Only these specific notes will appear in results. Leave empty to show all.',
+      cls: 'nexus-settings-desc'
+    });
+
+    const includeListEl = section.createDiv('csr-notes-list');
+
+    const renderIncludeList = () => {
+      includeListEl.empty();
+      const paths = cs().include_paths ?? [];
+      if (paths.length === 0) {
+        includeListEl.createDiv({ cls: 'csr-notes-empty', text: 'No notes added' });
+        return;
+      }
+      paths.forEach((path, i) => {
+        const item = includeListEl.createDiv('csr-note-item');
+        item.createSpan({ cls: 'csr-note-path', text: path });
+        const removeBtn = item.createEl('button', { cls: 'csr-note-remove', text: '×' });
+        removeBtn.setAttribute('aria-label', `Remove ${path} from include filter`);
+        removeBtn.addEventListener('click', async () => {
+          const updated = (cs().include_paths ?? []).filter((_, idx) => idx !== i);
+          await saveConnections({ include_paths: updated });
+          renderIncludeList();
+        });
+      });
+    };
+    renderIncludeList();
+
+    includeAddBtn.addEventListener('click', async () => {
+      const { FilePickerRenderer } = await import('../../components/workspace/FilePickerRenderer');
+      const selected = await FilePickerRenderer.openModal(this.config.app, {
+        title: 'Include notes in results',
+        excludePaths: cs().include_paths ?? []
+      });
+      if (selected.length > 0) {
+        await saveConnections({ include_paths: [...(cs().include_paths ?? []), ...selected] });
+        renderIncludeList();
+      }
+    });
+
     new Setting(section)
-      .setName('Include filter')
-      .setDesc('Only show results whose file path contains one of these fragments (comma-separated). Leave blank to show all. Example: Projects/ shows only notes inside a Projects folder.')
-      .addText(text => {
-        text
-          .setPlaceholder('Projects/Clients, Archive/')
+      .setName('Show only — folder & pattern rules')
+      .setDesc('One rule per line. Only results whose path matches at least one rule are shown. Folder paths end with / · Plain text is a substring match. Leave blank to show all.')
+      .addTextArea(area => {
+        area
+          .setPlaceholder('Projects/\nResearch/')
           .setValue(cs().include_filter ?? DEFAULT_CONNECTIONS_SETTINGS.include_filter)
           .onChange(async (value) => {
             await saveConnections({ include_filter: value });
           });
-        text.inputEl.style.width = '260px';
+        area.inputEl.rows = 3;
+        area.inputEl.cols = 40;
+        area.inputEl.style.fontFamily = 'var(--font-monospace)';
       });
 
+    // ---- Exclude paths (file picker + pattern rules) ----
+    const excludeHeader = section.createDiv('csr-notes-header');
+    excludeHeader.createEl('span', { text: 'Hide — notes' });
+    const excludeAddBtn = excludeHeader.createEl('button', { cls: 'csr-add-btn', text: '+ Add' });
+    excludeAddBtn.setAttribute('aria-label', 'Add note to exclude filter');
+
+    section.createEl('p', {
+      text: 'These specific notes will never appear in results.',
+      cls: 'nexus-settings-desc'
+    });
+
+    const excludeListEl = section.createDiv('csr-notes-list');
+
+    const renderExcludeList = () => {
+      excludeListEl.empty();
+      const paths = cs().exclude_paths ?? [];
+      if (paths.length === 0) {
+        excludeListEl.createDiv({ cls: 'csr-notes-empty', text: 'No notes added' });
+        return;
+      }
+      paths.forEach((path, i) => {
+        const item = excludeListEl.createDiv('csr-note-item');
+        item.createSpan({ cls: 'csr-note-path', text: path });
+        const removeBtn = item.createEl('button', { cls: 'csr-note-remove', text: '×' });
+        removeBtn.setAttribute('aria-label', `Remove ${path} from exclude filter`);
+        removeBtn.addEventListener('click', async () => {
+          const updated = (cs().exclude_paths ?? []).filter((_, idx) => idx !== i);
+          await saveConnections({ exclude_paths: updated });
+          renderExcludeList();
+        });
+      });
+    };
+    renderExcludeList();
+
+    excludeAddBtn.addEventListener('click', async () => {
+      const { FilePickerRenderer } = await import('../../components/workspace/FilePickerRenderer');
+      const selected = await FilePickerRenderer.openModal(this.config.app, {
+        title: 'Hide notes from results',
+        excludePaths: cs().exclude_paths ?? []
+      });
+      if (selected.length > 0) {
+        await saveConnections({ exclude_paths: [...(cs().exclude_paths ?? []), ...selected] });
+        renderExcludeList();
+      }
+    });
+
     new Setting(section)
-      .setName('Exclude filter')
-      .setDesc('Hide results whose file path contains any of these fragments (comma-separated). Example: Daily/, Templates/ hides daily notes and templates.')
-      .addText(text => {
-        text
-          .setPlaceholder('Daily/, Templates/')
+      .setName('Hide — folder & pattern rules')
+      .setDesc('One rule per line. Results whose path matches any rule are hidden. Folder paths end with / · Plain text is a substring match. Overrides the include list.')
+      .addTextArea(area => {
+        area
+          .setPlaceholder('Daily/\nTemplates/')
           .setValue(cs().exclude_filter ?? DEFAULT_CONNECTIONS_SETTINGS.exclude_filter)
           .onChange(async (value) => {
             await saveConnections({ exclude_filter: value });
           });
-        text.inputEl.style.width = '260px';
-      });
-
-    // Frontmatter filters
-    new Setting(section)
-      .setName('Frontmatter include filter')
-      .setDesc('Only show results whose frontmatter matches at least one entry. One per line — use key to match any value (e.g. type) or key:value to match exactly (e.g. type:article). Leave blank to show all.')
-      .addTextArea(area => {
-        area
-          .setPlaceholder('type:article\nstatus:published')
-          .setValue(cs().frontmatter_filter_include ?? DEFAULT_CONNECTIONS_SETTINGS.frontmatter_filter_include)
-          .onChange(async (value) => {
-            await saveConnections({ frontmatter_filter_include: value });
-          });
-        area.inputEl.rows = 4;
+        area.inputEl.rows = 3;
+        area.inputEl.cols = 40;
         area.inputEl.style.fontFamily = 'var(--font-monospace)';
       });
 
-    new Setting(section)
-      .setName('Frontmatter exclude filter')
-      .setDesc('Hide results whose frontmatter matches any entry. One per line — use key or key:value. Example: draft:true hides all notes where draft is set to true.')
-      .addTextArea(area => {
-        area
-          .setPlaceholder('draft:true\narchived')
-          .setValue(cs().frontmatter_filter_exclude ?? DEFAULT_CONNECTIONS_SETTINGS.frontmatter_filter_exclude)
-          .onChange(async (value) => {
-            await saveConnections({ frontmatter_filter_exclude: value });
-          });
-        area.inputEl.rows = 4;
-        area.inputEl.style.fontFamily = 'var(--font-monospace)';
-      });
+    // Frontmatter filters — chip UI backed by vault-enumerated keys/values
+    const vaultProps = this.collectVaultProperties();
+
+    this.renderFrontmatterChipSection(section, {
+      label: 'Show only — properties',
+      hint: 'Only show results that have at least one matching property. Leave empty to show all.',
+      rules: cs().frontmatter_include_rules ?? [],
+      formId: 'fm-include',
+      vaultProps,
+      onSave: async (rules) => { await saveConnections({ frontmatter_include_rules: rules }); },
+    });
+
+    this.renderFrontmatterChipSection(section, {
+      label: 'Hide — properties',
+      hint: 'Hide results that have any matching property.',
+      rules: cs().frontmatter_exclude_rules ?? [],
+      formId: 'fm-exclude',
+      vaultProps,
+      onSave: async (rules) => { await saveConnections({ frontmatter_exclude_rules: rules }); },
+    });
 
     // Link filters
     new Setting(section)
@@ -360,6 +463,164 @@ export class ConnectionsTab {
             await saveConnections({ path_proximity_scoring: value });
           });
       });
+  }
+
+  // ---------------------------------------------------------------------------
+  // Vault property enumeration (public Obsidian API only)
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Enumerate all frontmatter keys and their known values across the vault
+   * using metadataCache.getFileCache() — reads from the already-in-memory cache,
+   * no disk I/O. Called once at settings-tab render time.
+   */
+  private collectVaultProperties(): Map<string, Set<string>> {
+    const props = new Map<string, Set<string>>();
+    try {
+      for (const file of this.config.app.vault.getMarkdownFiles()) {
+        const fm = this.config.app.metadataCache.getFileCache(file)?.frontmatter;
+        if (!fm) continue;
+        for (const [key, val] of Object.entries(fm)) {
+          if (key === 'position') continue; // Obsidian internal field
+          if (!props.has(key)) props.set(key, new Set());
+          const values = Array.isArray(val) ? val : [val];
+          for (const v of values) {
+            if (v != null && v !== '') props.get(key)!.add(String(v));
+          }
+        }
+      }
+    } catch { /* metadataCache not ready — return empty map */ }
+    return props;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Frontmatter chip section renderer
+  // ---------------------------------------------------------------------------
+
+  private renderFrontmatterChipSection(
+    parent: HTMLElement,
+    opts: {
+      label: string;
+      hint: string;
+      rules: string[];
+      formId: string;
+      vaultProps: Map<string, Set<string>>;
+      onSave: (rules: string[]) => Promise<void>;
+    },
+  ): void {
+    // Mutable working copy so the form can read current state without re-reading settings
+    let current = [...opts.rules];
+
+    // Header row
+    const header = parent.createDiv('csr-notes-header');
+    header.createEl('span', { text: opts.label });
+    const addBtn = header.createEl('button', { cls: 'csr-add-btn', text: '+ Add' });
+    addBtn.setAttribute('aria-label', `Add property rule to ${opts.label}`);
+
+    parent.createEl('p', { text: opts.hint, cls: 'nexus-settings-desc' });
+
+    // Chip list
+    const listEl = parent.createDiv('csr-notes-list');
+
+    const renderChips = () => {
+      listEl.empty();
+      if (current.length === 0) {
+        listEl.createDiv({ cls: 'csr-notes-empty', text: 'No rules added' });
+        return;
+      }
+      current.forEach((rule, i) => {
+        const item = listEl.createDiv('csr-note-item');
+        item.createSpan({ cls: 'csr-note-path nexus-fm-chip-label', text: rule });
+        const removeBtn = item.createEl('button', { cls: 'csr-note-remove', text: '×' });
+        removeBtn.setAttribute('aria-label', `Remove rule ${rule}`);
+        removeBtn.addEventListener('click', async () => {
+          current = current.filter((_, idx) => idx !== i);
+          await opts.onSave(current);
+          renderChips();
+        });
+      });
+    };
+    renderChips();
+
+    // Inline add form (hidden until + Add is clicked)
+    const form = parent.createDiv({ cls: 'nexus-fm-add-form' });
+    form.style.display = 'none';
+
+    const keyListId = `${opts.formId}-keys`;
+    const valListId = `${opts.formId}-vals`;
+
+    const keyInput = form.createEl('input', { cls: 'nexus-fm-key-input' });
+    keyInput.type = 'text';
+    keyInput.placeholder = 'property key';
+    keyInput.setAttribute('list', keyListId);
+
+    const keyDatalist = form.createEl('datalist');
+    keyDatalist.id = keyListId;
+    for (const key of Array.from(opts.vaultProps.keys()).sort()) {
+      keyDatalist.createEl('option', { attr: { value: key } });
+    }
+
+    form.createEl('span', { cls: 'nexus-fm-sep', text: ':' });
+
+    const valInput = form.createEl('input', { cls: 'nexus-fm-val-input' });
+    valInput.type = 'text';
+    valInput.placeholder = 'value (optional)';
+    valInput.setAttribute('list', valListId);
+
+    const valDatalist = form.createEl('datalist');
+    valDatalist.id = valListId;
+
+    // Repopulate value datalist when the key changes
+    keyInput.addEventListener('input', () => {
+      valDatalist.empty();
+      const known = opts.vaultProps.get(keyInput.value);
+      if (known) {
+        for (const v of Array.from(known).sort()) {
+          valDatalist.createEl('option', { attr: { value: v } });
+        }
+      }
+      valInput.value = '';
+    });
+
+    const confirmBtn = form.createEl('button', { cls: 'nexus-fm-confirm-btn', text: 'Add' });
+    const cancelBtn = form.createEl('button', { cls: 'nexus-fm-cancel-btn', text: 'Cancel' });
+
+    const closeForm = () => {
+      form.style.display = 'none';
+      keyInput.value = '';
+      valInput.value = '';
+      valDatalist.empty();
+    };
+
+    confirmBtn.addEventListener('click', async () => {
+      const key = keyInput.value.trim();
+      if (!key) return;
+      const val = valInput.value.trim();
+      const rule = val ? `${key}:${val}` : key;
+      if (!current.includes(rule)) {
+        current = [...current, rule];
+        await opts.onSave(current);
+        renderChips();
+      }
+      closeForm();
+    });
+
+    cancelBtn.addEventListener('click', () => closeForm());
+
+    // Enter in key input advances to value; Escape cancels
+    keyInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); valInput.focus(); }
+      if (e.key === 'Escape') closeForm();
+    });
+    valInput.addEventListener('keydown', async (e) => {
+      if (e.key === 'Enter') confirmBtn.click();
+      if (e.key === 'Escape') closeForm();
+    });
+
+    addBtn.addEventListener('click', () => {
+      form.style.display = form.style.display === 'none' ? 'flex' : 'none';
+      if (form.style.display === 'flex') keyInput.focus();
+    });
   }
 
   destroy(): void {

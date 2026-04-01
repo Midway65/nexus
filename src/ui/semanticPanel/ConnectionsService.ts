@@ -97,9 +97,16 @@ export class ConnectionsService {
   ): SimilarNote[] {
     let filtered = results;
 
-    // Path-fragment filters: exclude wins over include
-    const excludeFragments = parseCommaSeparated(settings.exclude_filter);
-    const includeFragments = parseCommaSeparated(settings.include_filter);
+    // Path filters: combine file-picker paths with pattern fragments.
+    // Exclude wins over include. parseFilterFragments handles both comma and newline delimiters.
+    const excludeFragments = [
+      ...(settings.exclude_paths ?? []),
+      ...parseFilterFragments(settings.exclude_filter),
+    ];
+    const includeFragments = [
+      ...(settings.include_paths ?? []),
+      ...parseFilterFragments(settings.include_filter),
+    ];
 
     if (excludeFragments.length > 0) {
       filtered = filtered.filter(r => !excludeFragments.some(f => r.notePath.includes(f)));
@@ -131,9 +138,11 @@ export class ConnectionsService {
     }
 
     // Frontmatter filters
-    if (settings.frontmatter_filter_include || settings.frontmatter_filter_exclude) {
-      const includeMatchers = parseFrontmatterFilterLines(settings.frontmatter_filter_include);
-      const excludeMatchers = parseFrontmatterFilterLines(settings.frontmatter_filter_exclude);
+    const includeRules = settings.frontmatter_include_rules ?? [];
+    const excludeRules = settings.frontmatter_exclude_rules ?? [];
+    if (includeRules.length > 0 || excludeRules.length > 0) {
+      const includeMatchers = parseFrontmatterFilterLines(includeRules);
+      const excludeMatchers = parseFrontmatterFilterLines(excludeRules);
       filtered = filtered.filter(r => {
         const file = this.app.vault.getAbstractFileByPath(r.notePath);
         if (!(file instanceof TFile)) return true;
@@ -179,16 +188,22 @@ export function parseCommaSeparated(value: string | undefined): string[] {
 }
 
 /**
- * Parse newline-delimited frontmatter filter lines.
- * Each line is `key` or `key:value`. Returns parsed matchers.
- * Vendored from smart-entities logic — ~20 lines, no external deps.
+ * Parse path filter fragments from either newline-delimited (new) or
+ * comma-delimited (legacy) text. Handles both so saved settings are never broken.
+ */
+export function parseFilterFragments(value: string | undefined): string[] {
+  if (!value?.trim()) return [];
+  return value.split(/[\n,]/).map(s => s.trim()).filter(Boolean);
+}
+
+/**
+ * Parse an array of `key` or `key:value` frontmatter rule strings into matchers.
+ * Each entry is trimmed; empty entries are skipped.
  */
 export function parseFrontmatterFilterLines(
-  lines: string | undefined,
+  rules: string[],
 ): Array<{ key: string; value: string | null }> {
-  if (!lines?.trim()) return [];
-  return lines
-    .split('\n')
+  return rules
     .map(l => l.trim())
     .filter(Boolean)
     .map(l => {
@@ -210,7 +225,9 @@ export function matchesFrontmatterFilters(
     const fmVal = frontmatter[m.key];
     if (fmVal === undefined) continue;
     if (m.value === null) return true; // key-only match
-    if (String(fmVal).toLowerCase() === m.value) return true;
+    if (Array.isArray(fmVal)) {
+      if (fmVal.some(v => String(v).toLowerCase() === m.value)) return true;
+    } else if (String(fmVal).toLowerCase() === m.value) return true;
   }
   return false;
 }
