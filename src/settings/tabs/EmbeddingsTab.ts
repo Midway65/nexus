@@ -512,6 +512,12 @@ export class EmbeddingsTab {
     const diagGrid = section.createDiv('nexus-embed-status-grid');
     this.addStatusRow(diagGrid, 'Runtime health', runtime?.currentHealth ?? 'unavailable');
     this.addStatusRow(diagGrid, 'Desktop', Platform.isDesktop ? 'Yes' : 'No');
+
+    const backendLabel = runtime?.backend === 'webgpu' ? 'WebGPU (GPU)'
+      : runtime?.backend === 'wasm' ? 'WASM (CPU)'
+      : runtime?.currentHealth === 'ready' ? 'WASM (CPU)'
+      : '—';
+    this.addStatusRow(diagGrid, 'Runtime backend', backendLabel);
   }
 
   destroy(): void {

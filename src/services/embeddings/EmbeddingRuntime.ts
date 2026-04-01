@@ -59,6 +59,7 @@ interface EmbeddingResponse {
   error?: string;
   ready?: boolean;
   progress?: number;
+  device?: 'webgpu' | 'wasm';
 }
 
 export class EmbeddingRuntime {
@@ -68,6 +69,7 @@ export class EmbeddingRuntime {
   private modelEntry: EmbeddingModelEntry;
   private app: App | null = null;
   private hfToken: string | null = null;
+  private activeBackend: 'webgpu' | 'wasm' | null = null;
 
   private iframe: HTMLIFrameElement | null = null;
   private blobUrl: string | null = null;
@@ -108,6 +110,11 @@ export class EmbeddingRuntime {
 
   get unavailableReason(): string | null {
     return this.errorMessage;
+  }
+
+  /** Returns which compute backend is active after initialization, or null if not yet initialized. */
+  get backend(): 'webgpu' | 'wasm' | null {
+    return this.activeBackend;
   }
 
   /** Update the HuggingFace token used for future download attempts. */
@@ -201,6 +208,7 @@ export class EmbeddingRuntime {
       if (pending) {
         this.pendingRequests.delete(-1);
         if (ready && success) {
+          if (data.device) this.activeBackend = data.device;
           pending.resolve(undefined);
         } else {
           pending.reject(new Error(error ?? 'EmbeddingRuntime: iframe init failed'));
@@ -477,21 +485,52 @@ export class EmbeddingRuntime {
     })();
   <\/script>` : ''}
   <script type="module">
-    import { pipeline, env } from 'https://cdn.jsdelivr.net/npm/@xenova/transformers@2.17.2';
+    import { pipeline, env } from 'https://cdn.jsdelivr.net/npm/@huggingface/transformers@3';
 
     env.useBrowserCache = false;
     env.allowLocalModels = false;
     env.allowRemoteModels = true;
-    env.backends.onnx.wasm.numThreads = 1;
 
     const MODEL_ID = '${modelId}';
     const NORMALIZE = ${normalizeFlag};
     const MEAN_POOL = ${requiresMeanPool};
 
     let extractor = null;
+    let activeDevice = 'wasm';
 
     async function initModel() {
-      extractor = await pipeline('feature-extraction', MODEL_ID, { quantized: true });
+      // Try WebGPU first; fall back to WASM if unavailable or if pipeline creation fails.
+      let useWebGPU = false;
+      try {
+        if (typeof navigator !== 'undefined' && navigator.gpu) {
+          const adapter = await navigator.gpu.requestAdapter();
+          useWebGPU = adapter !== null;
+        }
+      } catch (e) {
+        useWebGPU = false;
+      }
+
+      if (useWebGPU) {
+        try {
+          extractor = await pipeline('feature-extraction', MODEL_ID, {
+            dtype: 'q8',
+            device: 'webgpu',
+          });
+          activeDevice = 'webgpu';
+          return;
+        } catch (e) {
+          // WebGPU pipeline failed — fall through to WASM
+          extractor = null;
+        }
+      }
+
+      // WASM path (single-threaded to stay within Electron iframe constraints)
+      env.backends.onnx.wasm.numThreads = 1;
+      extractor = await pipeline('feature-extraction', MODEL_ID, {
+        dtype: 'q8',
+        device: 'wasm',
+      });
+      activeDevice = 'wasm';
     }
 
     async function embed(text) {
@@ -542,7 +581,7 @@ export class EmbeddingRuntime {
     });
 
     initModel()
-      .then(() => parent.postMessage({ id: -1, ready: true, success: true }, '*'))
+      .then(() => parent.postMessage({ id: -1, ready: true, success: true, device: activeDevice }, '*'))
       .catch(err => parent.postMessage({ id: -1, ready: false, success: false, error: err.message }, '*'));
   </script>
 </head>
