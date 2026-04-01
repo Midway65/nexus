@@ -17,7 +17,7 @@
  * (wired from ChatView.addSemanticContext) is forwarded to each result row.
  */
 
-import { ItemView, MarkdownView, setIcon, type WorkspaceLeaf } from 'obsidian';
+import { ItemView, MarkdownView, Menu, setIcon, type WorkspaceLeaf } from 'obsidian';
 import type NexusPlugin from '../../main';
 import { SEMANTIC_PANEL_VIEW_TYPE } from '../../constants/branding';
 import type { NoteEmbeddingService, SimilarNote, SimilarBlock } from '../../services/embeddings/NoteEmbeddingService';
@@ -302,6 +302,17 @@ export class SemanticPanelView extends ItemView {
           }
         }, 300);
       });
+      this.registerDomEvent(this.searchInputEl, 'keydown', (e: KeyboardEvent) => {
+        if (e.key === 'Enter') {
+          if (this.searchDebounceTimer !== null) clearTimeout(this.searchDebounceTimer);
+          this.searchQuery = this.searchInputEl?.value ?? '';
+          if (!this.searchQuery.trim()) {
+            this.setPanelMode('browse');
+          } else {
+            void this.refresh();
+          }
+        }
+      });
       // Focus on switch to search mode
       setTimeout(() => this.searchInputEl?.focus(), 0);
     }
@@ -381,14 +392,18 @@ export class SemanticPanelView extends ItemView {
       // A markdown file is genuinely in focus — track it.
       this.activeNotePath = file.path;
     } else {
-      // Focus moved to a non-markdown view (modal, sidebar, settings, etc.).
-      // Only clear activeNotePath if there are no open markdown files at all;
-      // otherwise keep showing the last active note's connections.
-      const hasOpenMarkdown = this.app.workspace.getLeavesOfType('markdown')
-        .some(leaf => (leaf.view as MarkdownView)?.file != null);
-      if (!hasOpenMarkdown) {
+      // No markdown view is currently active (panel opened, modal showed, etc.)
+      const mdLeaves = this.app.workspace.getLeavesOfType('markdown')
+        .filter(leaf => (leaf.view as MarkdownView)?.file != null);
+
+      if (!this.activeNotePath) {
+        // First load with no tracked file — pick up any already-open markdown file.
+        this.activeNotePath = (mdLeaves[0]?.view as MarkdownView)?.file?.path ?? null;
+      } else if (mdLeaves.length === 0) {
+        // All markdown files were closed — clear the active note.
         this.activeNotePath = null;
       }
+      // Otherwise keep the last known activeNotePath (focus moved away temporarily).
     }
 
     if (this.modeBarEl) this.buildModeBar(this.modeBarEl);
@@ -771,9 +786,7 @@ export class SemanticPanelView extends ItemView {
   // ---- settings popover ----
 
   private showSettingsPopover(anchor: HTMLElement): void {
-    type MenuItem = { setTitle(t: string): MenuItem; setChecked(c: boolean): MenuItem; onClick(fn: () => void): MenuItem };
-    type MenuLike = { addItem(fn: (item: MenuItem) => void): void; showAtMouseEvent(e: MouseEvent): void };
-    const menu = new (window as unknown as { Menu: new () => MenuLike }).Menu();
+    const menu = new Menu();
 
     menu.addItem(item => {
       item.setTitle(`Auto-refresh: ${this.settings.autoRefresh ? 'On' : 'Off'}`)
