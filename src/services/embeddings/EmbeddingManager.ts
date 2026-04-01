@@ -72,6 +72,8 @@ export class EmbeddingManager {
 
   setHuggingFaceToken(token: string | undefined): void {
     this.hfToken = token ?? null;
+    // Propagate to the live runtime so the next download attempt uses the new token
+    this.runtime?.setHuggingFaceToken(this.hfToken);
   }
 
   /**

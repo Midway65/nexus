@@ -110,6 +110,11 @@ export class EmbeddingRuntime {
     return this.errorMessage;
   }
 
+  /** Update the HuggingFace token used for future download attempts. */
+  setHuggingFaceToken(token: string | null): void {
+    this.hfToken = token;
+  }
+
   isRuntimeReady(): boolean {
     return this.health === 'ready';
   }
