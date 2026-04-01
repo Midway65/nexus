@@ -61,7 +61,7 @@ export class ConnectionsTab {
     const section = this.container.createDiv('nexus-settings-section');
     section.createEl('h4', { text: 'Chat context injection' });
     section.createEl('p', {
-      text: 'When enabled, Nexus automatically finds vault notes related to your message and injects them into the system prompt before each reply. Result filters from the panel (Tier 2) are also applied.',
+      text: 'When enabled, Nexus searches your vault for notes related to each message and shares them with the AI before it replies. The result filters below also apply.',
       cls: 'nexus-settings-desc'
     });
 
@@ -69,7 +69,7 @@ export class ConnectionsTab {
 
     new Setting(section)
       .setName('Auto-inject related notes')
-      .setDesc('Semantically search the vault for each message and add the top results to the system prompt.')
+      .setDesc('Find vault notes related to your message and include them as context for the AI.')
       .addToggle(toggle => {
         toggle
           .setValue(s.connectionsAutoInjectContext ?? false)
@@ -81,7 +81,7 @@ export class ConnectionsTab {
 
     new Setting(section)
       .setName('Notes to inject')
-      .setDesc('How many related notes to include per message. More notes = richer context but longer prompts.')
+      .setDesc('Number of related notes to include per message. Higher values give richer context but increase prompt length.')
       .addText(text => {
         text
           .setValue(String(s.connectionsContextLimit ?? 5))
@@ -152,14 +152,15 @@ export class ConnectionsTab {
 
   private renderTier1Section(): void {
     const section = this.container.createDiv('nexus-settings-section');
-    section.createEl('h4', { text: 'Indexing exclusions (Tier 1)' });
+    section.createEl('h4', { text: 'Indexing exclusions' });
 
     const tipEl = section.createEl('p', { cls: 'nexus-settings-desc' });
     tipEl.textContent =
-      'Enter folder paths (end with /) or glob patterns (use *), one per line. ' +
-      'Example: Templates/ or Daily/202[0-2]/**. ' +
-      'Hidden folders (.nexus/, .obsidian/) are always excluded. ' +
-      'Changing these calls reconcileIndex() to purge removed paths and re-queue new ones.';
+      'Notes in excluded folders or matching excluded patterns will not be embedded. ' +
+      'Enter one pattern per line — folder paths end with / (e.g. Templates/), ' +
+      'wildcards use * (e.g. Daily/2024/**). ' +
+      'Hidden folders such as .nexus/ and .obsidian/ are always excluded. ' +
+      'After changing patterns, click Apply below to update the index.';
 
     const s = this.config.settings.settings;
 
@@ -184,7 +185,7 @@ export class ConnectionsTab {
 
     new Setting(section)
       .setName('Re-index vault')
-      .setDesc('Apply changed exclusion patterns: purges newly-excluded notes and queues newly-eligible ones.')
+      .setDesc('Removes newly-excluded notes from the index and adds any notes that now qualify.')
       .addButton(btn => {
         btn
           .setButtonText('Reconcile index')
@@ -215,13 +216,13 @@ export class ConnectionsTab {
 
   private renderTier2Section(): void {
     const section = this.container.createDiv('nexus-settings-section');
-    section.createEl('h4', { text: 'Result filters (Tier 2)' });
+    section.createEl('h4', { text: 'Result filters' });
 
     const tipEl = section.createEl('p', { cls: 'nexus-settings-desc' });
     tipEl.textContent =
-      'These filters hide results in the panel without changing which notes are indexed. ' +
-      'Exclude entries always win when they conflict with include entries. ' +
-      'Changes take effect on the next panel refresh.';
+      'These filters hide results in the Semantic Panel without removing notes from the index. ' +
+      'Changes take effect on the next panel refresh. ' +
+      'When a path appears in both include and exclude, exclude always wins.';
 
     const s = this.config.settings.settings;
     const cs = () => (s.connections ?? {});
@@ -233,7 +234,7 @@ export class ConnectionsTab {
     // Path-fragment filters
     new Setting(section)
       .setName('Include filter')
-      .setDesc('Comma-separated path fragments. Only results whose path contains at least one fragment are shown. Empty = no restriction.')
+      .setDesc('Only show results whose file path contains one of these fragments (comma-separated). Leave blank to show all. Example: Projects/ shows only notes inside a Projects folder.')
       .addText(text => {
         text
           .setPlaceholder('Projects/Clients, Archive/')
@@ -246,7 +247,7 @@ export class ConnectionsTab {
 
     new Setting(section)
       .setName('Exclude filter')
-      .setDesc('Comma-separated path fragments. Results whose path contains any fragment are hidden. Exclude wins over include.')
+      .setDesc('Hide results whose file path contains any of these fragments (comma-separated). Example: Daily/, Templates/ hides daily notes and templates.')
       .addText(text => {
         text
           .setPlaceholder('Daily/, Templates/')
@@ -260,7 +261,7 @@ export class ConnectionsTab {
     // Frontmatter filters
     new Setting(section)
       .setName('Frontmatter include filter')
-      .setDesc('Newline-delimited key or key:value pairs. Results are kept only when their frontmatter matches at least one entry. Empty = no restriction.')
+      .setDesc('Only show results whose frontmatter matches at least one entry. One per line — use key to match any value (e.g. type) or key:value to match exactly (e.g. type:article). Leave blank to show all.')
       .addTextArea(area => {
         area
           .setPlaceholder('type:article\nstatus:published')
@@ -274,7 +275,7 @@ export class ConnectionsTab {
 
     new Setting(section)
       .setName('Frontmatter exclude filter')
-      .setDesc('Newline-delimited key or key:value pairs. Results are hidden when their frontmatter matches any entry. Exclude wins.')
+      .setDesc('Hide results whose frontmatter matches any entry. One per line — use key or key:value. Example: draft:true hides all notes where draft is set to true.')
       .addTextArea(area => {
         area
           .setPlaceholder('draft:true\narchived')
@@ -289,7 +290,7 @@ export class ConnectionsTab {
     // Link filters
     new Setting(section)
       .setName('Exclude backlinks')
-      .setDesc('Hide results that already link to the current note (notes you are already discoverable from).')
+      .setDesc('Hide notes that already have a link pointing to the current note.')
       .addToggle(toggle => {
         toggle
           .setValue(cs().exclude_inlinks ?? DEFAULT_CONNECTIONS_SETTINGS.exclude_inlinks)
@@ -300,7 +301,7 @@ export class ConnectionsTab {
 
     new Setting(section)
       .setName('Exclude outlinks')
-      .setDesc('Hide results that the current note already links to (notes you have already connected).')
+      .setDesc('Hide notes that the current note already links to.')
       .addToggle(toggle => {
         toggle
           .setValue(cs().exclude_outlinks ?? DEFAULT_CONNECTIONS_SETTINGS.exclude_outlinks)
@@ -311,7 +312,7 @@ export class ConnectionsTab {
 
     new Setting(section)
       .setName('Hide frontmatter blocks')
-      .setDesc('In block mode, hide results where the matching block is the frontmatter section.')
+      .setDesc('In block mode, skip results where the only matching content is the note\'s frontmatter (properties, tags, title).')
       .addToggle(toggle => {
         toggle
           .setValue(cs().exclude_frontmatter_blocks ?? DEFAULT_CONNECTIONS_SETTINGS.exclude_frontmatter_blocks)
