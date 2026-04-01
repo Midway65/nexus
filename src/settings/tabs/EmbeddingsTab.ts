@@ -56,6 +56,10 @@ export class EmbeddingsTab {
   private pauseButton: ButtonComponent | null = null;
   private stopButton: ButtonComponent | null = null;
 
+  // Live diagnostics spans — updated when runtime becomes ready
+  private diagHealthSpan: HTMLElement | null = null;
+  private diagBackendSpan: HTMLElement | null = null;
+
   constructor(container: HTMLElement, router: SettingsRouter, config: EmbeddingsTabConfig) {
     this.container = container;
     this.router = router;
@@ -70,6 +74,23 @@ export class EmbeddingsTab {
     manager.onDownloadProgress = (percent) => {
       this.updateDownloadProgress(percent);
     };
+    manager.onRuntimeReady = () => {
+      this.updateDiagnosticsValues();
+    };
+  }
+
+  private updateDiagnosticsValues(): void {
+    const runtime = this.config.embeddingManager?.getService()?.getRuntime();
+    if (this.diagHealthSpan) {
+      this.diagHealthSpan.textContent = runtime?.currentHealth ?? 'unavailable';
+    }
+    if (this.diagBackendSpan) {
+      const backendLabel = runtime?.backend === 'webgpu' ? 'WebGPU (GPU)'
+        : runtime?.backend === 'wasm' ? 'WASM (CPU)'
+        : runtime?.currentHealth === 'ready' ? 'WASM (CPU)'
+        : '—';
+      this.diagBackendSpan.textContent = backendLabel;
+    }
   }
 
   private async render(): Promise<void> {
@@ -522,17 +543,22 @@ export class EmbeddingsTab {
     const section = this.container.createDiv('nexus-settings-section');
     section.createEl('h4', { text: 'Diagnostics' });
 
-    const runtime = this.config.embeddingManager?.getService()?.getRuntime();
-
     const diagGrid = section.createDiv('nexus-embed-status-grid');
-    this.addStatusRow(diagGrid, 'Runtime health', runtime?.currentHealth ?? 'unavailable');
+
+    // Health row — keep a live reference so it can be updated when runtime warms up
+    const healthRow = diagGrid.createDiv('nexus-embed-status-row');
+    healthRow.createEl('span', { text: 'Runtime health', cls: 'nexus-embed-status-label' });
+    this.diagHealthSpan = healthRow.createEl('span', { cls: 'nexus-embed-status-value' });
+
     this.addStatusRow(diagGrid, 'Desktop', Platform.isDesktop ? 'Yes' : 'No');
 
-    const backendLabel = runtime?.backend === 'webgpu' ? 'WebGPU (GPU)'
-      : runtime?.backend === 'wasm' ? 'WASM (CPU)'
-      : runtime?.currentHealth === 'ready' ? 'WASM (CPU)'
-      : '—';
-    this.addStatusRow(diagGrid, 'Runtime backend', backendLabel);
+    // Backend row — keep a live reference so it updates after warmup
+    const backendRow = diagGrid.createDiv('nexus-embed-status-row');
+    backendRow.createEl('span', { text: 'Runtime backend', cls: 'nexus-embed-status-label' });
+    this.diagBackendSpan = backendRow.createEl('span', { cls: 'nexus-embed-status-value' });
+
+    // Populate with current values (may be 'uninitialized'/'—' if warmup not yet done)
+    this.updateDiagnosticsValues();
   }
 
   destroy(): void {
@@ -540,10 +566,13 @@ export class EmbeddingsTab {
       clearInterval(this.refreshInterval);
       this.refreshInterval = null;
     }
-    // Detach progress callback so a stale tab can't update a destroyed DOM
+    // Detach callbacks so a stale tab can't update a destroyed DOM
     if (this.config.embeddingManager) {
       this.config.embeddingManager.onDownloadProgress = null;
+      this.config.embeddingManager.onRuntimeReady = null;
     }
+    this.diagHealthSpan = null;
+    this.diagBackendSpan = null;
     // Detach coordinator listener so the next tab instance can subscribe cleanly
     this.detachCoordinatorListener();
   }

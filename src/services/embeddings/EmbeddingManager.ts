@@ -127,6 +127,15 @@ export class EmbeddingManager {
       // Start background indexing after a brief delay
       // This ensures the plugin is fully loaded before we start heavy processing
       setTimeout(async () => {
+        // Warm up the runtime so the WebGPU/WASM backend is detected even
+        // when no notes need re-indexing (fully up-to-date vault).
+        // Model files are already cached so this is just iframe startup.
+        if (this.runtime) {
+          this.runtime.initialize().catch(err => {
+            console.error('[EmbeddingManager] Runtime warm-up failed:', err);
+          });
+        }
+
         if (this.coordinator) {
           try {
             // Phase 1: Startup reconciliation via EmbeddingIndexCoordinator
@@ -176,10 +185,16 @@ export class EmbeddingManager {
   /** Optional callback — fired with 0–100 while the note model downloads. */
   onDownloadProgress: ((percent: number) => void) | null = null;
 
+  /** Optional callback — fired once when the runtime becomes ready. */
+  onRuntimeReady: (() => void) | null = null;
+
   private wireProgressCallback(): void {
     if (this.runtime) {
       this.runtime.onProgress = (percent) => {
         this.onDownloadProgress?.(percent);
+      };
+      this.runtime.onReady = () => {
+        this.onRuntimeReady?.();
       };
     }
   }

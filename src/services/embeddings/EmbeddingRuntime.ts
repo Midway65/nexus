@@ -85,6 +85,9 @@ export class EmbeddingRuntime {
   /** Called whenever a model download progress event arrives (0–100). */
   onProgress: ((percent: number) => void) | null = null;
 
+  /** Called once when the runtime transitions to the 'ready' state. */
+  onReady: (() => void) | null = null;
+
   constructor(modelId: string = DEFAULT_EMBEDDING_MODEL_ID, app: App | null = null, hfToken: string | null = null) {
     if (!Platform.isDesktop) {
       this.health = 'unavailable';
@@ -146,6 +149,7 @@ export class EmbeddingRuntime {
     try {
       await this.initPromise;
       this.health = 'ready';
+      this.onReady?.();
     } catch (error) {
       this.health = 'error';
       this.errorMessage = error instanceof Error ? error.message : String(error);
