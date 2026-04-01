@@ -73,7 +73,7 @@ export interface MigratableDatabase {
 // Alias for backward compatibility
 type Database = MigratableDatabase;
 
-export const CURRENT_SCHEMA_VERSION = 14;
+export const CURRENT_SCHEMA_VERSION = 15;
 
 export interface Migration {
   version: number;
@@ -512,6 +512,19 @@ export const MIGRATIONS: Migration[] = [
       `UPDATE embedding_config SET value = 'Xenova/all-MiniLM-L6-v2' WHERE key = 'activeModel'`,
       `UPDATE embedding_config SET value = '384' WHERE key = 'activeDimension'`,
       `UPDATE embedding_config SET value = 'false' WHERE key = 'blockIndexStale'`,
+    ]
+  },
+
+  // Version 14 -> 15: Add mtime column to embedding_metadata for fast startup reconciliation.
+  // Storing the file's last-modified timestamp allows embedNote() to skip vault.read() + hash
+  // computation + model inference for notes whose mtime hasn't changed since the last index run.
+  // Existing rows get mtime=0 (never matches a real mtime), so they re-embed once on next
+  // reconcile and populate the real mtime for all future runs.
+  {
+    version: 15,
+    description: 'Add mtime column to embedding_metadata for mtime-based early exit in embedNote()',
+    sql: [
+      'ALTER TABLE embedding_metadata ADD COLUMN mtime INTEGER NOT NULL DEFAULT 0',
     ]
   },
 ];

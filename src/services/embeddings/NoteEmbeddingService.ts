@@ -120,29 +120,44 @@ export class NoteEmbeddingService {
         return;
       }
 
+      const fileMtime = file.stat.mtime;
+
+      // Load config once for this note (result is cached across all notes in a run)
+      const config = await this.loadConfig();
+
+      const existing = await this.db.queryOne<{ rowid: number; contentHash: string; mtime: number }>(
+        'SELECT rowid, contentHash, mtime FROM embedding_metadata WHERE notePath = ?',
+        [notePath]
+      );
+
+      // Fast path: mtime unchanged means the file hasn't been modified — skip everything.
+      // This eliminates vault.read(), hash computation, and model inference for the vast
+      // majority of notes during startup reconcile and refresh runs.
+      if (existing && existing.mtime === fileMtime) {
+        return;
+      }
+
       const content = await this.app.vault.read(file);
       const processedContent = preprocessContent(content);
       if (!processedContent) return;
 
       const contentHash = hashContent(processedContent);
 
-      // Load config once for this note (result is cached across all notes in a run)
-      const config = await this.loadConfig();
-
-      const existing = await this.db.queryOne<{ rowid: number; contentHash: string }>(
-        'SELECT rowid, contentHash FROM embedding_metadata WHERE notePath = ?',
-        [notePath]
-      );
-
       if (existing && existing.contentHash === contentHash) {
-        // Note content unchanged — skip re-embedding
-        // But still update blocks if block indexing is enabled (block count may change)
+        // mtime changed but content is the same (e.g. touch, metadata-only save).
+        // Update mtime so the fast path fires next time; no re-embedding needed.
+        const now = Date.now();
+        await this.db.run(
+          'UPDATE embedding_metadata SET mtime = ?, updated = ? WHERE rowid = ?',
+          [fileMtime, now, existing.rowid]
+        );
         if (config.blockIndexingEnabled && !config.blockIndexStale) {
           await this.embedNoteBlocks(notePath, content, file.basename);
         }
         return;
       }
 
+      // Content changed — full re-embed
       const embedding = await this.runtime.embedDocument(processedContent);
       const embeddingBuffer = Buffer.from(embedding.buffer);
       const now = Date.now();
@@ -154,8 +169,8 @@ export class NoteEmbeddingService {
           [embeddingBuffer, existing.rowid]
         );
         await this.db.run(
-          'UPDATE embedding_metadata SET contentHash = ?, updated = ?, model = ?, dimension = ? WHERE rowid = ?',
-          [contentHash, now, modelInfo.id, modelInfo.dimensions, existing.rowid]
+          'UPDATE embedding_metadata SET contentHash = ?, mtime = ?, updated = ?, model = ?, dimension = ? WHERE rowid = ?',
+          [contentHash, fileMtime, now, modelInfo.id, modelInfo.dimensions, existing.rowid]
         );
       } else {
         await this.db.run(
@@ -165,9 +180,9 @@ export class NoteEmbeddingService {
         const result = await this.db.queryOne<{ id: number }>('SELECT last_insert_rowid() as id');
         const rowid = result?.id ?? 0;
         await this.db.run(
-          `INSERT INTO embedding_metadata(rowid, notePath, model, dimension, contentHash, created, updated)
-           VALUES (?, ?, ?, ?, ?, ?, ?)`,
-          [rowid, notePath, modelInfo.id, modelInfo.dimensions, contentHash, now, now]
+          `INSERT INTO embedding_metadata(rowid, notePath, model, dimension, contentHash, mtime, created, updated)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+          [rowid, notePath, modelInfo.id, modelInfo.dimensions, contentHash, fileMtime, now, now]
         );
       }
 

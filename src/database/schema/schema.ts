@@ -252,6 +252,7 @@ CREATE TABLE IF NOT EXISTS embedding_metadata (
   rowid       INTEGER PRIMARY KEY,
   notePath    TEXT NOT NULL UNIQUE,
   contentHash TEXT NOT NULL,
+  mtime       INTEGER NOT NULL DEFAULT 0,
   model       TEXT NOT NULL,
   dimension   INTEGER NOT NULL,
   created     INTEGER NOT NULL,
