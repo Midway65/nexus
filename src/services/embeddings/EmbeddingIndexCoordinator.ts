@@ -50,7 +50,10 @@ export class EmbeddingIndexCoordinator extends Component {
   private runningOperation: 'refresh' | 'rebuild' | null = null;
   private lastProgressData: IndexProgressEvent | null = null;
 
-  // Pause / abort signals
+  // Startup reconciliation state — separate from manual operations
+  private isReconciling = false;
+
+  // Pause / abort signals (shared by reconcile, refresh, and rebuild)
   private isPaused = false;
   private abortRequested = false;
   private lastOperationAborted = false;
@@ -201,60 +204,84 @@ export class EmbeddingIndexCoordinator extends Component {
   // ---------------------------------------------------------------------------
 
   async reconcileIndex(): Promise<void> {
-    const files = this.app.vault.getMarkdownFiles();
-    const livePaths = new Set(files.map(f => f.path));
-
-    for (let i = 0; i < files.length; i++) {
-      if (this.isShuttingDown) return;
-      const path = files[i].path;
-
-      if (!this.exclusions.shouldIndex(path)) {
-        await this.noteEmbeddingService.removeNote(path);
-      } else {
-        try {
-          await this.noteEmbeddingService.embedNote(path);
-        } catch (err) {
-          if (this.isModelError(err)) {
-            new Notice(this.modelErrorMessage(err), 10000);
-            return; // Abort — all remaining notes would fail the same way
-          }
-          console.error(`[EmbeddingIndexCoordinator] Failed to embed ${path}:`, err);
-        }
-      }
-
-      // Yield to event loop every 50 files (each note takes 10–100 ms; yielding every 10 was excessive)
-      if (i % 50 === 0) {
-        await new Promise(r => setTimeout(r, 0));
-      }
-
-      this.emit('embedding:reconcile-progress', {
-        current: i + 1,
-        total: files.length,
-        phase: 'reconcile',
-      });
-    }
-
-    // Remove stale rows: files deleted while Obsidian was closed, or newly excluded
+    this.isReconciling = true;
     try {
-      const indexedPaths = await this.noteEmbeddingService.getIndexedPaths();
-      for (const indexedPath of indexedPaths) {
-        if (!livePaths.has(indexedPath) || !this.exclusions.shouldIndex(indexedPath)) {
-          await this.noteEmbeddingService.removeNote(indexedPath);
-        }
-      }
-    } catch (err) {
-      console.error('[EmbeddingIndexCoordinator] Stale path cleanup failed:', err);
-    }
+      const files = this.app.vault.getMarkdownFiles();
+      const livePaths = new Set(files.map(f => f.path));
 
-    this.emit('embedding:reconcile-complete', undefined);
+      for (let i = 0; i < files.length; i++) {
+        // Abort if shutdown or if a manual refresh/rebuild has taken over
+        if (this.isShuttingDown || this.abortRequested) return;
+        const path = files[i].path;
+
+        if (!this.exclusions.shouldIndex(path)) {
+          await this.noteEmbeddingService.removeNote(path);
+        } else {
+          try {
+            await this.noteEmbeddingService.embedNote(path);
+          } catch (err) {
+            if (this.isModelError(err)) {
+              new Notice(this.modelErrorMessage(err), 10000);
+              return; // Abort — all remaining notes would fail the same way
+            }
+            console.error(`[EmbeddingIndexCoordinator] Failed to embed ${path}:`, err);
+          }
+        }
+
+        // Yield to event loop every 50 files (each note takes 10–100 ms; yielding every 10 was excessive)
+        if (i % 50 === 0) {
+          await new Promise(r => setTimeout(r, 0));
+        }
+
+        this.emit('embedding:reconcile-progress', {
+          current: i + 1,
+          total: files.length,
+          phase: 'reconcile',
+        });
+      }
+
+      if (this.abortRequested) return;
+
+      // Remove stale rows: files deleted while Obsidian was closed, or newly excluded
+      try {
+        const indexedPaths = await this.noteEmbeddingService.getIndexedPaths();
+        for (const indexedPath of indexedPaths) {
+          if (!livePaths.has(indexedPath) || !this.exclusions.shouldIndex(indexedPath)) {
+            await this.noteEmbeddingService.removeNote(indexedPath);
+          }
+        }
+      } catch (err) {
+        console.error('[EmbeddingIndexCoordinator] Stale path cleanup failed:', err);
+      }
+
+      this.emit('embedding:reconcile-complete', undefined);
+    } finally {
+      this.isReconciling = false;
+    }
   }
 
   // ---------------------------------------------------------------------------
   // Maintenance actions
   // ---------------------------------------------------------------------------
 
+  /**
+   * If startup reconciliation is running, signal it to stop and wait for it to
+   * exit before the caller proceeds. This prevents reconcile and a manual
+   * refresh/rebuild from racing on the same DB tables.
+   */
+  private async abortReconcileIfRunning(): Promise<void> {
+    if (!this.isReconciling) return;
+    this.abortRequested = true;
+    while (this.isReconciling) {
+      await new Promise(r => setTimeout(r, 50));
+    }
+    // Reset abort flag — the caller will set it again for its own use
+    this.abortRequested = false;
+  }
+
   /** Re-embed all indexed notes (respects hash — skips unchanged). */
   async refreshAll(): Promise<void> {
+    await this.abortReconcileIfRunning();
     this.runningOperation = 'refresh';
     this.abortRequested = false;
     this.lastOperationAborted = false;
@@ -292,6 +319,7 @@ export class EmbeddingIndexCoordinator extends Component {
 
   /** Drop all embeddings and rebuild from scratch. */
   async rebuildAll(): Promise<void> {
+    await this.abortReconcileIfRunning();
     this.runningOperation = 'rebuild';
     this.abortRequested = false;
     this.lastOperationAborted = false;
@@ -332,6 +360,11 @@ export class EmbeddingIndexCoordinator extends Component {
   /** Whether a refresh or rebuild is currently running. */
   isOperationRunning(): boolean {
     return this.runningOperation !== null;
+  }
+
+  /** Whether startup reconciliation is currently running. */
+  isReconcileRunning(): boolean {
+    return this.isReconciling;
   }
 
   /** Human-readable label for the current running operation. */
