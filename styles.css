@@ -8457,6 +8457,12 @@ body.is-mobile .nexus-task-board-shell {
     color: var(--text-muted);
 }
 
+.nexus-embed-index-controls {
+    display: flex;
+    gap: var(--size-4-2);
+    margin-top: var(--size-4-2);
+}
+
 /* Shared is-hidden utility for download progress bar */
 .nexus-embed-download-progress.is-hidden {
     display: none;

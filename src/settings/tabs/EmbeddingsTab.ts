@@ -15,7 +15,7 @@
  * - Provider/model config for LLM (those are in Providers tab)
  */
 
-import { Setting, Notice, Platform } from 'obsidian';
+import { Setting, Notice, Platform, ButtonComponent } from 'obsidian';
 import type { SettingsRouter } from '../SettingsRouter';
 import type { EmbeddingManager } from '../../services/embeddings/EmbeddingManager';
 import type { EmbeddingIndexCoordinator } from '../../services/embeddings/EmbeddingIndexCoordinator';
@@ -46,6 +46,14 @@ export class EmbeddingsTab {
   // Persistent coordinator listener — survives tab re-renders
   private coordinatorProgressListener: ((data: unknown) => void) | null = null;
   private boundCoordinator: EmbeddingIndexCoordinator | null = null;
+
+  // Main action buttons — needed to disable both while one is running
+  private refreshButton: ButtonComponent | null = null;
+  private rebuildButton: ButtonComponent | null = null;
+
+  // In-progress controls
+  private pauseButton: ButtonComponent | null = null;
+  private stopButton: ButtonComponent | null = null;
 
   constructor(container: HTMLElement, router: SettingsRouter, config: EmbeddingsTabConfig) {
     this.container = container;
@@ -290,7 +298,7 @@ export class EmbeddingsTab {
     const coordinator = this.config.embeddingManager?.getCoordinator();
     const noteService = this.config.embeddingManager?.getService()?.getNoteEmbeddingService();
 
-    // Progress bar for refresh / rebuild operations
+    // Progress bar + controls for refresh / rebuild operations
     const indexProgress = section.createDiv('nexus-embed-index-progress');
     indexProgress.addClass('is-hidden');
     const indexProgressHeader = indexProgress.createDiv('nexus-embed-index-header');
@@ -300,11 +308,38 @@ export class EmbeddingsTab {
     });
     this.indexProgressBar = indexProgress.createDiv('nexus-embed-download-bar-track')
       .createDiv('nexus-embed-download-bar-fill');
+
+    // Pause / Stop controls inside the progress area
+    const controlsRow = indexProgress.createDiv('nexus-embed-index-controls');
+    this.pauseButton = new ButtonComponent(controlsRow);
+    this.pauseButton.setButtonText('Pause');
+    this.pauseButton.onClick(() => {
+      const c = this.config.embeddingManager?.getCoordinator();
+      if (!c) return;
+      if (c.isOperationPaused()) {
+        c.resumeOperation();
+        this.pauseButton?.setButtonText('Pause');
+        const last = c.getLastProgress();
+        if (last) this.setIndexProgress(`${last.current} / ${last.total} notes`, last.total > 0 ? last.current / last.total : 0);
+      } else {
+        c.pauseOperation();
+        this.pauseButton?.setButtonText('Resume');
+        if (this.indexProgressText) this.indexProgressText.textContent = 'Paused';
+      }
+    });
+
+    this.stopButton = new ButtonComponent(controlsRow);
+    this.stopButton.setButtonText('Stop').setWarning();
+    this.stopButton.onClick(() => {
+      this.config.embeddingManager?.getCoordinator()?.abortOperation();
+    });
+
     this.indexProgressEl = indexProgress;
 
     // Re-connect if a rebuild/refresh was already running when this tab was re-rendered
     if (coordinator?.isOperationRunning()) {
-      this.showIndexProgress(coordinator.getOperationLabel() ?? 'Processing…');
+      const label = coordinator.isOperationPaused() ? 'Paused' : (coordinator.getOperationLabel() ?? 'Processing…');
+      this.showIndexProgress(label);
       const last = coordinator.getLastProgress();
       if (last) {
         this.setIndexProgress(
@@ -312,6 +347,7 @@ export class EmbeddingsTab {
           last.total > 0 ? last.current / last.total : 0
         );
       }
+      if (coordinator.isOperationPaused()) this.pauseButton?.setButtonText('Resume');
       this.attachCoordinatorListener(coordinator);
     }
 
@@ -319,21 +355,23 @@ export class EmbeddingsTab {
       .setName('Refresh index')
       .setDesc('Re-embed all notes. Skips unchanged notes (uses content hash).')
       .addButton(button => {
+        this.refreshButton = button;
         button.setButtonText('Refresh');
         button.onClick(async () => {
           if (!coordinator) { new Notice('Embedding system not ready.'); return; }
-          button.setButtonText('Refreshing…').setDisabled(true);
+          if (coordinator.isOperationRunning()) { new Notice('An indexing operation is already running.'); return; }
+          this.lockMaintenanceButtons();
           this.showIndexProgress('Refreshing…');
           this.attachCoordinatorListener(coordinator);
           try {
             await coordinator.refreshAll();
-            new Notice('Index refresh complete.');
+            if (!coordinator.wasLastOperationAborted()) new Notice('Index refresh complete.');
           } catch (err) {
             new Notice(`Refresh failed: ${err instanceof Error ? err.message : String(err)}`);
           } finally {
             this.detachCoordinatorListener();
             this.hideIndexProgress();
-            button.setButtonText('Refresh').setDisabled(false);
+            this.unlockMaintenanceButtons();
           }
         });
       });
@@ -342,25 +380,29 @@ export class EmbeddingsTab {
       .setName('Rebuild index')
       .setDesc('Clear all embeddings and re-embed from scratch. Required after switching models.')
       .addButton(button => {
+        this.rebuildButton = button;
         button.setButtonText('Rebuild').setCta();
         button.onClick(async () => {
           if (!coordinator) { new Notice('Embedding system not ready.'); return; }
-          button.setButtonText('Rebuilding…').setDisabled(true);
+          if (coordinator.isOperationRunning()) { new Notice('An indexing operation is already running.'); return; }
+          this.lockMaintenanceButtons();
           this.showIndexProgress('Rebuilding…');
           this.attachCoordinatorListener(coordinator);
           try {
             await coordinator.rebuildAll();
-            if (noteService) {
-              await noteService.setConfigValue('lastRebuildAt', String(Date.now()));
-              await noteService.setConfigValue('blockIndexStale', 'false');
+            if (!coordinator.wasLastOperationAborted()) {
+              if (noteService) {
+                await noteService.setConfigValue('lastRebuildAt', String(Date.now()));
+                await noteService.setConfigValue('blockIndexStale', 'false');
+              }
+              new Notice('Index rebuild complete.');
             }
-            new Notice('Index rebuild complete.');
           } catch (err) {
             new Notice(`Rebuild failed: ${err instanceof Error ? err.message : String(err)}`);
           } finally {
             this.detachCoordinatorListener();
             this.hideIndexProgress();
-            button.setButtonText('Rebuild').setDisabled(false);
+            this.unlockMaintenanceButtons();
           }
         });
       });
@@ -400,15 +442,27 @@ export class EmbeddingsTab {
       });
   }
 
+  private lockMaintenanceButtons(): void {
+    this.refreshButton?.setDisabled(true);
+    this.rebuildButton?.setDisabled(true);
+  }
+
+  private unlockMaintenanceButtons(): void {
+    this.refreshButton?.setDisabled(false);
+    this.rebuildButton?.setDisabled(false);
+  }
+
   private showIndexProgress(label: string): void {
     if (!this.indexProgressEl || !this.indexProgressText) return;
     this.indexProgressText.textContent = label;
     this.indexProgressEl.removeClass('is-hidden');
     if (this.indexProgressBar) this.indexProgressBar.style.width = '0%';
+    this.pauseButton?.setButtonText('Pause');
   }
 
   private hideIndexProgress(): void {
     this.indexProgressEl?.addClass('is-hidden');
+    this.pauseButton?.setButtonText('Pause');
   }
 
   private setIndexProgress(label: string, fraction: number): void {

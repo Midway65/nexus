@@ -48,6 +48,11 @@ export class EmbeddingIndexCoordinator extends Component {
   private runningOperation: 'refresh' | 'rebuild' | null = null;
   private lastProgressData: IndexProgressEvent | null = null;
 
+  // Pause / abort signals
+  private isPaused = false;
+  private abortRequested = false;
+  private lastOperationAborted = false;
+
   constructor(
     private app: import('obsidian').App,
     private noteEmbeddingService: NoteEmbeddingService,
@@ -243,10 +248,15 @@ export class EmbeddingIndexCoordinator extends Component {
   /** Re-embed all indexed notes (respects hash — skips unchanged). */
   async refreshAll(): Promise<void> {
     this.runningOperation = 'refresh';
+    this.abortRequested = false;
+    this.lastOperationAborted = false;
     try {
       const files = this.app.vault.getMarkdownFiles();
       for (let i = 0; i < files.length; i++) {
-        if (this.isShuttingDown) return;
+        if (this.isShuttingDown || this.abortRequested) break;
+        await this.waitWhilePaused();
+        if (this.abortRequested) break;
+
         if (this.exclusions.shouldIndex(files[i].path)) {
           try {
             await this.noteEmbeddingService.embedNote(files[i].path);
@@ -262,8 +272,11 @@ export class EmbeddingIndexCoordinator extends Component {
           phase: 'refresh',
         });
       }
-      this.emit('embedding:reconcile-complete', undefined);
+      if (!this.abortRequested) this.emit('embedding:reconcile-complete', undefined);
     } finally {
+      this.lastOperationAborted = this.abortRequested;
+      this.isPaused = false;
+      this.abortRequested = false;
       this.runningOperation = null;
       this.lastProgressData = null;
     }
@@ -272,12 +285,17 @@ export class EmbeddingIndexCoordinator extends Component {
   /** Drop all embeddings and rebuild from scratch. */
   async rebuildAll(): Promise<void> {
     this.runningOperation = 'rebuild';
+    this.abortRequested = false;
+    this.lastOperationAborted = false;
     try {
       this.emit('embedding:rebuild-start', undefined);
       await this.noteEmbeddingService.clearAllEmbeddings();
       const files = this.app.vault.getMarkdownFiles();
       for (let i = 0; i < files.length; i++) {
-        if (this.isShuttingDown) return;
+        if (this.isShuttingDown || this.abortRequested) break;
+        await this.waitWhilePaused();
+        if (this.abortRequested) break;
+
         if (this.exclusions.shouldIndex(files[i].path)) {
           try {
             await this.noteEmbeddingService.embedNote(files[i].path);
@@ -293,8 +311,11 @@ export class EmbeddingIndexCoordinator extends Component {
           phase: 'rebuild',
         });
       }
-      this.emit('embedding:rebuild-complete', undefined);
+      if (!this.abortRequested) this.emit('embedding:rebuild-complete', undefined);
     } finally {
+      this.lastOperationAborted = this.abortRequested;
+      this.isPaused = false;
+      this.abortRequested = false;
       this.runningOperation = null;
       this.lastProgressData = null;
     }
@@ -315,6 +336,38 @@ export class EmbeddingIndexCoordinator extends Component {
   /** Last emitted progress snapshot (null when no operation is running). */
   getLastProgress(): IndexProgressEvent | null {
     return this.lastProgressData;
+  }
+
+  /** Whether the current operation has been paused by the user. */
+  isOperationPaused(): boolean {
+    return this.isPaused;
+  }
+
+  /** Whether the last operation was stopped before it finished. */
+  wasLastOperationAborted(): boolean {
+    return this.lastOperationAborted;
+  }
+
+  /** Pause the running operation between notes. */
+  pauseOperation(): void {
+    if (this.runningOperation) this.isPaused = true;
+  }
+
+  /** Resume a paused operation. */
+  resumeOperation(): void {
+    this.isPaused = false;
+  }
+
+  /** Stop the running operation cleanly (between notes). */
+  abortOperation(): void {
+    this.abortRequested = true;
+    this.isPaused = false; // Unblock waitWhilePaused so the abort is seen
+  }
+
+  private async waitWhilePaused(): Promise<void> {
+    while (this.isPaused && !this.abortRequested && !this.isShuttingDown) {
+      await new Promise(r => setTimeout(r, 100));
+    }
   }
 
   // ---------------------------------------------------------------------------
