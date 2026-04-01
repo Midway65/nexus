@@ -10,6 +10,7 @@
  * Filter precedence: exclude wins over include for both path-fragment and frontmatter.
  */
 
+import { TFile } from 'obsidian';
 import type { App } from 'obsidian';
 import type { NoteEmbeddingService, SimilarNote, SimilarBlock } from '../../services/embeddings/NoteEmbeddingService';
 import { DEFAULT_CONNECTIONS_SETTINGS } from './ConnectionsSettings';
@@ -109,12 +110,11 @@ export class ConnectionsService {
 
     // Inlink / outlink exclusion using Obsidian metadata cache
     if (activeNotePath && (settings.exclude_inlinks || settings.exclude_outlinks)) {
-      const { TFile } = require('obsidian') as typeof import('obsidian');
       const activeFile = this.app.vault.getAbstractFileByPath(activeNotePath);
       if (activeFile instanceof TFile) {
         if (settings.exclude_inlinks) {
           const cache = this.app.metadataCache as unknown as {
-            getBacklinksForFile(file: import('obsidian').TFile): { data: Record<string, unknown> } | undefined;
+            getBacklinksForFile(file: TFile): { data: Record<string, unknown> } | undefined;
           };
           const backlinkData = cache.getBacklinksForFile(activeFile);
           const backlinkSet = new Set(Object.keys(backlinkData?.data ?? {}));
@@ -132,7 +132,6 @@ export class ConnectionsService {
 
     // Frontmatter filters
     if (settings.frontmatter_filter_include || settings.frontmatter_filter_exclude) {
-      const { TFile } = require('obsidian') as typeof import('obsidian');
       const includeMatchers = parseFrontmatterFilterLines(settings.frontmatter_filter_include);
       const excludeMatchers = parseFrontmatterFilterLines(settings.frontmatter_filter_exclude);
       filtered = filtered.filter(r => {
@@ -153,11 +152,19 @@ export class ConnectionsService {
     activeNotePath: string | null,
     settings: ConnectionsSettings,
   ): SimilarBlock[] {
-    // Project blocks to SimilarNote shape, apply note-level filters, then select kept paths
-    const asNotes: SimilarNote[] = results.map(r => ({ notePath: r.notePath, score: r.score }));
-    const filtered = this.applyTier2Filters(asNotes, activeNotePath, settings);
-    const keptPaths = new Set(filtered.map(r => r.notePath));
-    return results.filter(r => keptPaths.has(r.notePath));
+    let filtered = results;
+
+    // Frontmatter blocks have heading === null (NoteChunker marks them that way).
+    // Filter them out when exclude_frontmatter_blocks is on (default true).
+    if (settings.exclude_frontmatter_blocks) {
+      filtered = filtered.filter(r => r.heading !== null);
+    }
+
+    // Apply note-level path/frontmatter/link filters by projecting to SimilarNote shape
+    const asNotes: SimilarNote[] = filtered.map(r => ({ notePath: r.notePath, score: r.score }));
+    const kept = this.applyTier2Filters(asNotes, activeNotePath, settings);
+    const keptPaths = new Set(kept.map(r => r.notePath));
+    return filtered.filter(r => keptPaths.has(r.notePath));
   }
 }
 

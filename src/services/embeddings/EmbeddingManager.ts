@@ -5,7 +5,7 @@
  * Features:
  * - Desktop-only (disabled on mobile)
  * - Lazy initialization (3-second delay on startup)
- * - Coordinates EmbeddingEngine, EmbeddingService, EmbeddingWatcher,
+ * - Coordinates EmbeddingEngine, EmbeddingService, EmbeddingIndexCoordinator,
  *   ConversationEmbeddingWatcher, IndexingQueue, and StatusBar
  * - Graceful shutdown with cleanup
  *
