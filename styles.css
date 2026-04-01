@@ -8435,6 +8435,33 @@ body.is-mobile .nexus-task-board-shell {
     transition: width 0.3s ease;
 }
 
+/* Index maintenance progress bar */
+.nexus-embed-index-progress {
+    margin: 8px 0 12px;
+    padding: 10px 12px;
+    border-radius: var(--radius-m);
+    background: var(--background-secondary);
+    border: 1px solid var(--background-modifier-border);
+}
+
+.nexus-embed-index-progress.is-hidden {
+    display: none;
+}
+
+.nexus-embed-index-header {
+    margin-bottom: 6px;
+}
+
+.nexus-embed-index-label {
+    font-size: var(--font-ui-small);
+    color: var(--text-muted);
+}
+
+/* Shared is-hidden utility for download progress bar */
+.nexus-embed-download-progress.is-hidden {
+    display: none;
+}
+
 /* DefaultsTab redirect note */
 .csr-redirect-note {
     color: var(--text-muted);

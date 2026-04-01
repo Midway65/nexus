@@ -122,7 +122,9 @@ export class EmbeddingRuntime {
     if (this.health === 'unavailable') return;
     if (this.health === 'ready') return;
     if (this.health === 'error') {
-      throw new Error(this.errorMessage ?? 'EmbeddingRuntime: initialization previously failed');
+      // Reset so the caller can retry (e.g. user clicks Refresh after a failed startup).
+      this.health = 'uninitialized';
+      this.errorMessage = null;
     }
     if (this.initPromise) return this.initPromise;
 
@@ -362,9 +364,12 @@ export class EmbeddingRuntime {
       this.iframe?.contentWindow?.postMessage(msg, '*', transfer);
     };
 
+    // Strip query string before path matching (transformers.js may append ?download=true etc.)
+    const urlWithoutQuery = url.split('?')[0];
+
     // Map https://huggingface.co/{owner}/{repo}/resolve/main/{path}
     // → .nexus/models/{owner}/{repo}/{path}
-    const match = url.match(/huggingface\.co\/([^/]+\/[^/]+)\/resolve\/main\/(.+)/);
+    const match = urlWithoutQuery.match(/huggingface\.co\/([^/]+\/[^/]+)\/resolve\/main\/(.+)/);
     if (!match || !this.app) {
       send({ method: 'modelFileResponse', reqId, status: 404, contentType: 'text/plain', error: `Cannot serve: ${url}` });
       return;

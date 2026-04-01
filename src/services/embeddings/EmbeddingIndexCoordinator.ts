@@ -44,6 +44,10 @@ export class EmbeddingIndexCoordinator extends Component {
   private eventListeners = new Map<IndexEventType, Array<(data: unknown) => void>>();
   private isShuttingDown = false;
 
+  // Operation state — queried by EmbeddingsTab when it re-renders mid-operation
+  private runningOperation: 'refresh' | 'rebuild' | null = null;
+  private lastProgressData: IndexProgressEvent | null = null;
+
   constructor(
     private app: import('obsidian').App,
     private noteEmbeddingService: NoteEmbeddingService,
@@ -230,40 +234,69 @@ export class EmbeddingIndexCoordinator extends Component {
 
   /** Re-embed all indexed notes (respects hash — skips unchanged). */
   async refreshAll(): Promise<void> {
-    const files = this.app.vault.getMarkdownFiles();
-    for (let i = 0; i < files.length; i++) {
-      if (this.isShuttingDown) return;
-      if (this.exclusions.shouldIndex(files[i].path)) {
-        await this.noteEmbeddingService.embedNote(files[i].path);
+    this.runningOperation = 'refresh';
+    try {
+      const files = this.app.vault.getMarkdownFiles();
+      for (let i = 0; i < files.length; i++) {
+        if (this.isShuttingDown) return;
+        if (this.exclusions.shouldIndex(files[i].path)) {
+          await this.noteEmbeddingService.embedNote(files[i].path);
+        }
+        if (i % 10 === 0) await new Promise(r => setTimeout(r, 0));
+        this.emit('embedding:reconcile-progress', {
+          current: i + 1,
+          total: files.length,
+          phase: 'refresh',
+        });
       }
-      if (i % 10 === 0) await new Promise(r => setTimeout(r, 0));
-      this.emit('embedding:reconcile-progress', {
-        current: i + 1,
-        total: files.length,
-        phase: 'refresh',
-      });
+      this.emit('embedding:reconcile-complete', undefined);
+    } finally {
+      this.runningOperation = null;
+      this.lastProgressData = null;
     }
-    this.emit('embedding:reconcile-complete', undefined);
   }
 
   /** Drop all embeddings and rebuild from scratch. */
   async rebuildAll(): Promise<void> {
-    this.emit('embedding:rebuild-start', undefined);
-    await this.noteEmbeddingService.clearAllEmbeddings();
-    const files = this.app.vault.getMarkdownFiles();
-    for (let i = 0; i < files.length; i++) {
-      if (this.isShuttingDown) return;
-      if (this.exclusions.shouldIndex(files[i].path)) {
-        await this.noteEmbeddingService.embedNote(files[i].path);
+    this.runningOperation = 'rebuild';
+    try {
+      this.emit('embedding:rebuild-start', undefined);
+      await this.noteEmbeddingService.clearAllEmbeddings();
+      const files = this.app.vault.getMarkdownFiles();
+      for (let i = 0; i < files.length; i++) {
+        if (this.isShuttingDown) return;
+        if (this.exclusions.shouldIndex(files[i].path)) {
+          await this.noteEmbeddingService.embedNote(files[i].path);
+        }
+        if (i % 10 === 0) await new Promise(r => setTimeout(r, 0));
+        this.emit('embedding:reconcile-progress', {
+          current: i + 1,
+          total: files.length,
+          phase: 'rebuild',
+        });
       }
-      if (i % 10 === 0) await new Promise(r => setTimeout(r, 0));
-      this.emit('embedding:reconcile-progress', {
-        current: i + 1,
-        total: files.length,
-        phase: 'rebuild',
-      });
+      this.emit('embedding:rebuild-complete', undefined);
+    } finally {
+      this.runningOperation = null;
+      this.lastProgressData = null;
     }
-    this.emit('embedding:rebuild-complete', undefined);
+  }
+
+  /** Whether a refresh or rebuild is currently running. */
+  isOperationRunning(): boolean {
+    return this.runningOperation !== null;
+  }
+
+  /** Human-readable label for the current running operation. */
+  getOperationLabel(): string | null {
+    if (this.runningOperation === 'refresh') return 'Refreshing…';
+    if (this.runningOperation === 'rebuild') return 'Rebuilding…';
+    return null;
+  }
+
+  /** Last emitted progress snapshot (null when no operation is running). */
+  getLastProgress(): IndexProgressEvent | null {
+    return this.lastProgressData;
   }
 
   // ---------------------------------------------------------------------------
@@ -283,6 +316,10 @@ export class EmbeddingIndexCoordinator extends Component {
   }
 
   private emit(event: IndexEventType, data: unknown): void {
+    // Keep a snapshot of reconcile-progress so a re-rendered tab can catch up
+    if (event === 'embedding:reconcile-progress') {
+      this.lastProgressData = data as IndexProgressEvent;
+    }
     const listeners = this.eventListeners.get(event);
     if (!listeners) return;
     for (const listener of listeners) {

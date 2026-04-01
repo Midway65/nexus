@@ -18,6 +18,7 @@
 import { Setting, Notice, Platform } from 'obsidian';
 import type { SettingsRouter } from '../SettingsRouter';
 import type { EmbeddingManager } from '../../services/embeddings/EmbeddingManager';
+import type { EmbeddingIndexCoordinator } from '../../services/embeddings/EmbeddingIndexCoordinator';
 import type { Settings } from '../../settings';
 import { EMBEDDING_MODELS, DEFAULT_EMBEDDING_MODEL_ID } from '../../services/embeddings/EmbeddingModelCatalog';
 
@@ -36,6 +37,15 @@ export class EmbeddingsTab {
   private downloadProgressEl: HTMLElement | null = null;
   private downloadProgressBar: HTMLElement | null = null;
   private downloadProgressText: HTMLElement | null = null;
+
+  // Index maintenance progress state
+  private indexProgressEl: HTMLElement | null = null;
+  private indexProgressBar: HTMLElement | null = null;
+  private indexProgressText: HTMLElement | null = null;
+
+  // Persistent coordinator listener — survives tab re-renders
+  private coordinatorProgressListener: ((data: unknown) => void) | null = null;
+  private boundCoordinator: EmbeddingIndexCoordinator | null = null;
 
   constructor(container: HTMLElement, router: SettingsRouter, config: EmbeddingsTabConfig) {
     this.container = container;
@@ -169,7 +179,7 @@ export class EmbeddingsTab {
 
     // Download progress bar (hidden until a download starts)
     const progressWrapper = section.createDiv('nexus-embed-download-progress');
-    progressWrapper.style.display = 'none';
+    progressWrapper.addClass('is-hidden');
     const progressHeader = progressWrapper.createDiv('nexus-embed-download-header');
     this.downloadProgressText = progressHeader.createEl('span', {
       text: 'Downloading model…',
@@ -213,13 +223,13 @@ export class EmbeddingsTab {
   private showDownloadProgress(label: string): void {
     if (!this.downloadProgressEl || !this.downloadProgressText) return;
     this.downloadProgressText.textContent = label;
-    this.downloadProgressEl.style.display = '';
+    this.downloadProgressEl.removeClass('is-hidden');
     this.setDownloadBarPercent(0);
   }
 
   private hideDownloadProgress(): void {
     if (!this.downloadProgressEl) return;
-    this.downloadProgressEl.style.display = 'none';
+    this.downloadProgressEl.addClass('is-hidden');
   }
 
   private setDownloadBarPercent(percent: number): void {
@@ -234,7 +244,7 @@ export class EmbeddingsTab {
 
   private updateDownloadProgress(percent: number): void {
     // Show progress bar if it's hidden (model loading at startup)
-    if (this.downloadProgressEl?.style.display === 'none') {
+    if (this.downloadProgressEl?.hasClass('is-hidden')) {
       this.showDownloadProgress('Downloading model…');
     }
     this.setDownloadBarPercent(percent);
@@ -280,6 +290,31 @@ export class EmbeddingsTab {
     const coordinator = this.config.embeddingManager?.getCoordinator();
     const noteService = this.config.embeddingManager?.getService()?.getNoteEmbeddingService();
 
+    // Progress bar for refresh / rebuild operations
+    const indexProgress = section.createDiv('nexus-embed-index-progress');
+    indexProgress.addClass('is-hidden');
+    const indexProgressHeader = indexProgress.createDiv('nexus-embed-index-header');
+    this.indexProgressText = indexProgressHeader.createEl('span', {
+      cls: 'nexus-embed-index-label',
+      text: 'Processing…'
+    });
+    this.indexProgressBar = indexProgress.createDiv('nexus-embed-download-bar-track')
+      .createDiv('nexus-embed-download-bar-fill');
+    this.indexProgressEl = indexProgress;
+
+    // Re-connect if a rebuild/refresh was already running when this tab was re-rendered
+    if (coordinator?.isOperationRunning()) {
+      this.showIndexProgress(coordinator.getOperationLabel() ?? 'Processing…');
+      const last = coordinator.getLastProgress();
+      if (last) {
+        this.setIndexProgress(
+          `${last.current} / ${last.total} notes`,
+          last.total > 0 ? last.current / last.total : 0
+        );
+      }
+      this.attachCoordinatorListener(coordinator);
+    }
+
     new Setting(section)
       .setName('Refresh index')
       .setDesc('Re-embed all notes. Skips unchanged notes (uses content hash).')
@@ -288,11 +323,18 @@ export class EmbeddingsTab {
         button.onClick(async () => {
           if (!coordinator) { new Notice('Embedding system not ready.'); return; }
           button.setButtonText('Refreshing…').setDisabled(true);
+          this.showIndexProgress('Refreshing…');
+          this.attachCoordinatorListener(coordinator);
           try {
             await coordinator.refreshAll();
             new Notice('Index refresh complete.');
-          } catch { new Notice('Refresh failed. Check console for details.'); }
-          finally { button.setButtonText('Refresh').setDisabled(false); }
+          } catch (err) {
+            new Notice(`Refresh failed: ${err instanceof Error ? err.message : String(err)}`);
+          } finally {
+            this.detachCoordinatorListener();
+            this.hideIndexProgress();
+            button.setButtonText('Refresh').setDisabled(false);
+          }
         });
       });
 
@@ -304,6 +346,8 @@ export class EmbeddingsTab {
         button.onClick(async () => {
           if (!coordinator) { new Notice('Embedding system not ready.'); return; }
           button.setButtonText('Rebuilding…').setDisabled(true);
+          this.showIndexProgress('Rebuilding…');
+          this.attachCoordinatorListener(coordinator);
           try {
             await coordinator.rebuildAll();
             if (noteService) {
@@ -311,8 +355,13 @@ export class EmbeddingsTab {
               await noteService.setConfigValue('blockIndexStale', 'false');
             }
             new Notice('Index rebuild complete.');
-          } catch { new Notice('Rebuild failed. Check console for details.'); }
-          finally { button.setButtonText('Rebuild').setDisabled(false); }
+          } catch (err) {
+            new Notice(`Rebuild failed: ${err instanceof Error ? err.message : String(err)}`);
+          } finally {
+            this.detachCoordinatorListener();
+            this.hideIndexProgress();
+            button.setButtonText('Rebuild').setDisabled(false);
+          }
         });
       });
 
@@ -327,8 +376,9 @@ export class EmbeddingsTab {
           try {
             await noteService.cleanIndex();
             new Notice('Index cleaned.');
-          } catch { new Notice('Clean failed.'); }
-          finally { button.setButtonText('Clean').setDisabled(false); }
+          } catch (err) {
+            new Notice(`Clean failed: ${err instanceof Error ? err.message : String(err)}`);
+          } finally { button.setButtonText('Clean').setDisabled(false); }
         });
       });
 
@@ -343,10 +393,52 @@ export class EmbeddingsTab {
           try {
             await noteService.clearAllEmbeddings();
             new Notice('All embeddings cleared.');
-          } catch { new Notice('Clear failed.'); }
-          finally { button.setButtonText('Clear').setDisabled(false); }
+          } catch (err) {
+            new Notice(`Clear failed: ${err instanceof Error ? err.message : String(err)}`);
+          } finally { button.setButtonText('Clear').setDisabled(false); }
         });
       });
+  }
+
+  private showIndexProgress(label: string): void {
+    if (!this.indexProgressEl || !this.indexProgressText) return;
+    this.indexProgressText.textContent = label;
+    this.indexProgressEl.removeClass('is-hidden');
+    if (this.indexProgressBar) this.indexProgressBar.style.width = '0%';
+  }
+
+  private hideIndexProgress(): void {
+    this.indexProgressEl?.addClass('is-hidden');
+  }
+
+  private setIndexProgress(label: string, fraction: number): void {
+    if (this.indexProgressText) this.indexProgressText.textContent = label;
+    if (this.indexProgressBar) {
+      this.indexProgressBar.style.width = `${Math.round(Math.min(1, fraction) * 100)}%`;
+    }
+  }
+
+  /**
+   * Subscribe to coordinator progress events, pointing at the current DOM elements.
+   * Safe to call multiple times — detaches the old listener first.
+   */
+  private attachCoordinatorListener(coordinator: EmbeddingIndexCoordinator): void {
+    this.detachCoordinatorListener();
+    this.boundCoordinator = coordinator;
+    this.coordinatorProgressListener = (data: unknown) => {
+      const { current, total } = data as { current: number; total: number };
+      this.setIndexProgress(`${current} / ${total} notes`, total > 0 ? current / total : 0);
+    };
+    coordinator.on('embedding:reconcile-progress', this.coordinatorProgressListener);
+  }
+
+  /** Remove the active coordinator progress listener. */
+  private detachCoordinatorListener(): void {
+    if (this.boundCoordinator && this.coordinatorProgressListener) {
+      this.boundCoordinator.off('embedding:reconcile-progress', this.coordinatorProgressListener);
+    }
+    this.coordinatorProgressListener = null;
+    this.boundCoordinator = null;
   }
 
   // ---------------------------------------------------------------------------
@@ -373,5 +465,7 @@ export class EmbeddingsTab {
     if (this.config.embeddingManager) {
       this.config.embeddingManager.onDownloadProgress = null;
     }
+    // Detach coordinator listener so the next tab instance can subscribe cleanly
+    this.detachCoordinatorListener();
   }
 }
