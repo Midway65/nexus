@@ -154,8 +154,8 @@ export class SemanticPanelView extends ItemView {
 
   private resolveServices(): void {
     try {
-      const em = (this.plugin as unknown as { getEmbeddingManager?(): { getNoteEmbeddingService?(): NoteEmbeddingService } }).getEmbeddingManager?.();
-      this.noteEmbeddingService = em?.getNoteEmbeddingService?.() ?? null;
+      const em = (this.plugin as unknown as { getEmbeddingManager?(): { getService?(): { getNoteEmbeddingService?(): NoteEmbeddingService } | null } }).getEmbeddingManager?.();
+      this.noteEmbeddingService = em?.getService?.()?.getNoteEmbeddingService?.() ?? null;
     } catch { /* service not yet ready */ }
 
     try {
@@ -376,7 +376,20 @@ export class SemanticPanelView extends ItemView {
   async onActiveFileChange(): Promise<void> {
     const view = this.app.workspace.getActiveViewOfType(MarkdownView);
     const file = view?.file ?? null;
-    this.activeNotePath = file?.path ?? null;
+
+    if (file) {
+      // A markdown file is genuinely in focus — track it.
+      this.activeNotePath = file.path;
+    } else {
+      // Focus moved to a non-markdown view (modal, sidebar, settings, etc.).
+      // Only clear activeNotePath if there are no open markdown files at all;
+      // otherwise keep showing the last active note's connections.
+      const hasOpenMarkdown = this.app.workspace.getLeavesOfType('markdown')
+        .some(leaf => (leaf.view as MarkdownView)?.file != null);
+      if (!hasOpenMarkdown) {
+        this.activeNotePath = null;
+      }
+    }
 
     if (this.modeBarEl) this.buildModeBar(this.modeBarEl);
 
@@ -391,6 +404,10 @@ export class SemanticPanelView extends ItemView {
   // ---- main refresh ----
 
   async refresh(): Promise<void> {
+    // Lazy re-resolve: panel may have opened before the embedding system was ready.
+    if (!this.noteEmbeddingService) {
+      this.resolveServices();
+    }
     if (!this.noteEmbeddingService) {
       this.renderEmptyState('index-not-ready');
       return;
