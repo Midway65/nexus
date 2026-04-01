@@ -43,8 +43,9 @@ export class EmbeddingsTab {
   private indexProgressBar: HTMLElement | null = null;
   private indexProgressText: HTMLElement | null = null;
 
-  // Persistent coordinator listener — survives tab re-renders
+  // Persistent coordinator listeners — survive tab re-renders
   private coordinatorProgressListener: ((data: unknown) => void) | null = null;
+  private coordinatorCompleteListener: (() => void) | null = null;
   private boundCoordinator: EmbeddingIndexCoordinator | null = null;
 
   // Main action buttons — needed to disable both while one is running
@@ -487,15 +488,29 @@ export class EmbeddingsTab {
       const { current, total } = data as { current: number; total: number };
       this.setIndexProgress(`${current} / ${total} notes`, total > 0 ? current / total : 0);
     };
+    // Auto-dismiss the progress bar when the operation completes, even if this tab
+    // instance was not the one that started the operation (e.g. re-rendered mid-run).
+    this.coordinatorCompleteListener = () => {
+      this.detachCoordinatorListener();
+      this.hideIndexProgress();
+      this.unlockMaintenanceButtons();
+    };
     coordinator.on('embedding:reconcile-progress', this.coordinatorProgressListener);
+    coordinator.on('embedding:reconcile-complete', this.coordinatorCompleteListener);
   }
 
   /** Remove the active coordinator progress listener. */
   private detachCoordinatorListener(): void {
-    if (this.boundCoordinator && this.coordinatorProgressListener) {
-      this.boundCoordinator.off('embedding:reconcile-progress', this.coordinatorProgressListener);
+    if (this.boundCoordinator) {
+      if (this.coordinatorProgressListener) {
+        this.boundCoordinator.off('embedding:reconcile-progress', this.coordinatorProgressListener);
+      }
+      if (this.coordinatorCompleteListener) {
+        this.boundCoordinator.off('embedding:reconcile-complete', this.coordinatorCompleteListener);
+      }
     }
     this.coordinatorProgressListener = null;
+    this.coordinatorCompleteListener = null;
     this.boundCoordinator = null;
   }
 
