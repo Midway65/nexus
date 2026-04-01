@@ -539,7 +539,7 @@ export class EmbeddingRuntime {
 
     async function embed(text) {
       if (!extractor) throw new Error('Model not initialized');
-      const truncated = text.length > 4000 ? text.slice(0, 4000) : text;
+      const truncated = text.length > 30000 ? text.slice(0, 30000) : text;
       const output = await extractor(truncated, {
         pooling: MEAN_POOL ? 'mean' : 'cls',
         normalize: NORMALIZE
