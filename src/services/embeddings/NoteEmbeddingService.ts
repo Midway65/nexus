@@ -139,7 +139,7 @@ export class NoteEmbeddingService {
       }
 
       const content = await this.app.vault.read(file);
-      const processedContent = preprocessContent(content);
+      const processedContent = preprocessContent(content, this.runtime.maxChars);
       if (!processedContent) {
         // Content is empty or too short after processing — remove any stale index row.
         await this.removeNote(notePath);

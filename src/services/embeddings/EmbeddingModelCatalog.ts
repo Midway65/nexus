@@ -28,6 +28,12 @@ export interface EmbeddingModelEntry {
   /** Whether the iframe should apply normalize: true in the pipeline options */
   normalizeInPipeline: boolean;
   /**
+   * Maximum characters to feed this model during preprocessing.
+   * Derived from the model's token limit × ~3.7 chars/token.
+   * MiniLM/BGE (512 tokens) → 2000. Nomic (8192 tokens) → 8000.
+   */
+  maxChars: number;
+  /**
    * URL where the user must accept the model's license before downloading.
    * For models hosted by Xenova/onnx-community this is often the original
    * upstream author's repo page, not the Xenova mirror.
@@ -48,6 +54,7 @@ export const EMBEDDING_MODELS: EmbeddingModelEntry[] = [
     queryPrefix: null,
     requiresMeanPool: true,
     normalizeInPipeline: true,
+    maxChars: 2000, // 512 tokens × ~3.9 chars/token
   },
   {
     id: 'Xenova/bge-small-en-v1.5',
@@ -59,6 +66,7 @@ export const EMBEDDING_MODELS: EmbeddingModelEntry[] = [
     queryPrefix: 'Represent this sentence for searching relevant passages: ',
     requiresMeanPool: true,
     normalizeInPipeline: true,
+    maxChars: 2000, // 512 tokens × ~3.9 chars/token
   },
   {
     id: 'Xenova/nomic-embed-text-v1.5',
@@ -70,6 +78,7 @@ export const EMBEDDING_MODELS: EmbeddingModelEntry[] = [
     queryPrefix: 'search_query: ',
     requiresMeanPool: true,
     normalizeInPipeline: true,
+    maxChars: 8000, // 8192 tokens × ~3.7 chars/token (conservative)
     licenseUrl: 'https://huggingface.co/nomic-ai/nomic-embed-text-v1.5',
   },
 ];

@@ -59,7 +59,7 @@ interface EmbeddingResponse {
   error?: string;
   ready?: boolean;
   progress?: number;
-  device?: 'webgpu' | 'wasm';
+  device?: 'webnn' | 'webgpu' | 'wasm';
 }
 
 export class EmbeddingRuntime {
@@ -69,7 +69,7 @@ export class EmbeddingRuntime {
   private modelEntry: EmbeddingModelEntry;
   private app: App | null = null;
   private hfToken: string | null = null;
-  private activeBackend: 'webgpu' | 'wasm' | null = null;
+  private activeBackend: 'webnn' | 'webgpu' | 'wasm' | null = null;
 
   private iframe: HTMLIFrameElement | null = null;
   private blobUrl: string | null = null;
@@ -111,12 +111,16 @@ export class EmbeddingRuntime {
     return this.modelEntry.dimensions;
   }
 
+  get maxChars(): number {
+    return this.modelEntry.maxChars;
+  }
+
   get unavailableReason(): string | null {
     return this.errorMessage;
   }
 
   /** Returns which compute backend is active after initialization, or null if not yet initialized. */
-  get backend(): 'webgpu' | 'wasm' | null {
+  get backend(): 'webnn' | 'webgpu' | 'wasm' | null {
     return this.activeBackend;
   }
 
@@ -503,7 +507,22 @@ export class EmbeddingRuntime {
     let activeDevice = 'wasm';
 
     async function initModel() {
-      // Try WebGPU first; fall back to WASM if unavailable or if pipeline creation fails.
+      // 1. Try WebNN first — routes through DirectML to NPU on supported hardware (e.g. AMD Ryzen AI).
+      try {
+        if (typeof navigator !== 'undefined' && navigator.ml) {
+          extractor = await pipeline('feature-extraction', MODEL_ID, {
+            dtype: 'q8',
+            device: 'webnn',
+          });
+          activeDevice = 'webnn';
+          return;
+        }
+      } catch (e) {
+        // WebNN unavailable or pipeline failed — fall through to WebGPU
+        extractor = null;
+      }
+
+      // 2. Try WebGPU — uses integrated/discrete GPU via the browser graphics stack.
       let useWebGPU = false;
       try {
         if (typeof navigator !== 'undefined' && navigator.gpu) {
@@ -528,7 +547,7 @@ export class EmbeddingRuntime {
         }
       }
 
-      // WASM path (single-threaded to stay within Electron iframe constraints)
+      // 3. WASM path (single-threaded to stay within Electron iframe constraints)
       env.backends.onnx.wasm.numThreads = 1;
       extractor = await pipeline('feature-extraction', MODEL_ID, {
         dtype: 'q8',
