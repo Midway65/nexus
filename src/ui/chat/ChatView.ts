@@ -154,6 +154,16 @@ export class ChatView extends ItemView {
     // Reset disposal flag in case the view is being reopened
     this.isClosing = false;
 
+    // Self-register with SemanticPanelUIManager so Send to Chat works even when
+    // the panel is opened via session restore (not through the chat button).
+    try {
+      const plugin = getNexusPlugin<NexusPlugin>(this.app);
+      const lm = (plugin as unknown as {
+        lifecycleManager?: { getSemanticPanelUIManager?(): { setCurrentChatView(v: unknown): void } | null }
+      }).lifecycleManager;
+      lm?.getSemanticPanelUIManager?.()?.setCurrentChatView(this);
+    } catch { /* best-effort */ }
+
     if (this.chatService) {
       // ChatService already available - initialize immediately
       await this.performFullInitialization();
@@ -334,6 +344,15 @@ export class ChatView extends ItemView {
   async onClose(): Promise<void> {
     // Signal polling loops to stop before any cleanup runs
     this.isClosing = true;
+
+    // Deregister from SemanticPanelUIManager so stale refs don't accumulate.
+    try {
+      const plugin = getNexusPlugin<NexusPlugin>(this.app);
+      const lm = (plugin as unknown as {
+        lifecycleManager?: { getSemanticPanelUIManager?(): { clearCurrentChatView(): void } | null }
+      }).lifecycleManager;
+      lm?.getSemanticPanelUIManager?.()?.clearCurrentChatView();
+    } catch { /* best-effort */ }
 
     // Notify Nexus lifecycle manager that ChatView is closing
     // This starts the idle timer for potential model unloading
@@ -833,17 +852,26 @@ export class ChatView extends ItemView {
    */
   private async openSemanticPanel(): Promise<void> {
     const plugin = getNexusPlugin<NexusPlugin>(this.app);
-    const lifecycleManager = (plugin as unknown as { lifecycleManager?: { getSemanticPanelUIManager?(): { setSendToChatCallback(fn: (p: unknown) => void): void; openSemanticPanel(): Promise<void> } } }).lifecycleManager;
+    const lifecycleManager = (plugin as unknown as {
+      lifecycleManager?: {
+        getSemanticPanelUIManager?(): {
+          setSendToChatCallback(fn: (p: unknown) => void): void;
+          setCurrentChatView(v: unknown): void;
+          openSemanticPanel(): Promise<void>;
+        }
+      }
+    }).lifecycleManager;
     if (!lifecycleManager) return;
     const uiManager = lifecycleManager.getSemanticPanelUIManager?.();
     if (!uiManager) return;
     uiManager.setSendToChatCallback((payload) => this.addSemanticContext(payload as import('../../ui/semanticPanel/SemanticPanelView').SemanticContextPayload));
+    uiManager.setCurrentChatView(this);
     await uiManager.openSemanticPanel();
   }
 
   /**
    * Receive a semantic context payload from the semantic panel and add it to the context tray.
-   * Called via the callback wired in openSemanticPanel().
+   * Shows a transient in-panel event row confirming the addition.
    */
   addSemanticContext(payload: import('../../ui/semanticPanel/SemanticPanelView').SemanticContextPayload): void {
     // For now, add as a context note using the existing context system.
@@ -851,9 +879,45 @@ export class ChatView extends ItemView {
     const path = payload.path;
     if (!path) return;
     try {
-      (this.modelAgentManager as unknown as { addContextNote?(p: string): void }).addContextNote?.(path);
-      new Notice(`Added "${payload.title}" to chat context`, 2000);
-    } catch { /* best-effort */ }
+      const mgr = this.modelAgentManager as unknown as {
+        addContextNote?(p: string): void;
+        getContextNotes?(): string[];
+      };
+      const alreadyAdded = mgr.getContextNotes?.()?.includes(path) ?? false;
+      mgr.addContextNote?.(path);
+      const label = alreadyAdded
+        ? `"${payload.title}" is already in context`
+        : `Context added: "${payload.title}" — visible to AI in this conversation`;
+      this.messageDisplay.showTransientEventRow(label);
+      setTimeout(() => this.messageDisplay.clearTransientEventRow(), 8000);
+    } catch (err) {
+      console.error('[ChatView] addSemanticContext failed:', err);
+    }
+  }
+
+  /**
+   * Create a new conversation pre-loaded with a semantic context note.
+   * Called when the user chooses "New chat" in SemanticSendModal.
+   */
+  async createChatWithContext(payload: import('../../ui/semanticPanel/SemanticPanelView').SemanticContextPayload): Promise<void> {
+    if (!this.conversationManager) {
+      new Notice('Chat is still initializing — please try again in a moment.', 3000);
+      return;
+    }
+    try {
+      await this.conversationManager.createNewConversation(payload.sourceTitle ?? payload.title);
+      this.addSemanticContext(payload);
+    } catch (err) {
+      console.error('[ChatView] createChatWithContext failed:', err);
+      new Notice('Failed to create new chat. See console for details.', 3000);
+    }
+  }
+
+  /**
+   * Return the title of the current conversation (for display in SemanticSendModal).
+   */
+  getCurrentTitle(): string {
+    return this.conversationManager.getCurrentConversation()?.title ?? 'Nexus Chat';
   }
 
   /**

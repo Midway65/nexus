@@ -15,19 +15,28 @@
 import { Notice } from 'obsidian';
 import type { App, Plugin } from 'obsidian';
 import type NexusPlugin from '../../main';
-import { SEMANTIC_PANEL_VIEW_TYPE } from '../../constants/branding';
+import { SEMANTIC_PANEL_VIEW_TYPE, CHAT_VIEW_TYPES } from '../../constants/branding';
 import { openSemanticPanelView } from '../../ui/semanticPanel/SemanticPanelNavigation';
 import type { SemanticContextPayload } from '../../ui/semanticPanel/SemanticPanelView';
+import { SemanticSendModal } from '../../ui/semanticPanel/SemanticSendModal';
 
 export interface SemanticPanelUIManagerConfig {
   plugin: Plugin;
   app: App;
 }
 
+type ChatViewRef = {
+  addSemanticContext?(p: SemanticContextPayload): void;
+  createChatWithContext?(p: SemanticContextPayload): Promise<void>;
+  getCurrentTitle?(): string;
+};
+
 export class SemanticPanelUIManager {
   private viewRegistered = false;
   private commandRegistered = false;
   private onSendToChat: ((payload: SemanticContextPayload) => void) | null = null;
+  /** Direct reference set when ChatView opens the panel via its own button. */
+  private chatViewRef: ChatViewRef | null = null;
 
   constructor(private config: SemanticPanelUIManagerConfig) {}
 
@@ -37,6 +46,18 @@ export class SemanticPanelUIManager {
    */
   setSendToChatCallback(fn: (payload: SemanticContextPayload) => void): void {
     this.onSendToChat = fn;
+  }
+
+  /**
+   * Store a direct reference to the ChatView that opened the panel.
+   * This avoids relying on workspace leaf scanning for the common case.
+   */
+  setCurrentChatView(view: unknown): void {
+    this.chatViewRef = view as ChatViewRef;
+  }
+
+  clearCurrentChatView(): void {
+    this.chatViewRef = null;
   }
 
   async registerViewEarly(): Promise<void> {
@@ -49,13 +70,64 @@ export class SemanticPanelUIManager {
 
       plugin.registerView(SEMANTIC_PANEL_VIEW_TYPE, (leaf) => {
         // Always pass a forwarding function so the button renders immediately.
-        // The inner callback may be wired later (e.g. after ChatView opens).
-        return new SemanticPanelView(leaf, plugin as NexusPlugin, (payload) => {
-          if (self.onSendToChat) {
-            self.onSendToChat(payload);
-          } else {
-            new Notice('Open a Nexus chat conversation first to use Send to Chat.', 3000);
+        // When a chat view is open, show SemanticSendModal so the user can choose
+        // between adding to the active conversation or spawning a new one.
+        // Falls back to a Notice when no chat is open at all.
+        return new SemanticPanelView(leaf, plugin as NexusPlugin, async (payload) => {
+          const openModal = (chatView: ChatViewRef) => {
+            const chatTitle = chatView.getCurrentTitle?.() ?? 'Nexus Chat';
+            new SemanticSendModal(
+              self.config.app,
+              payload,
+              chatTitle,
+              (p) => chatView.addSemanticContext!(p),
+              (p) => { chatView.createChatWithContext?.(p)?.catch(err => console.error('[Nexus] createChatWithContext error:', err)); }
+            ).open();
+          };
+
+          // Tier 1: stored ref — set by ChatView.onOpen() or when panel opened via
+          // the chat button.
+          if (self.chatViewRef && typeof self.chatViewRef.addSemanticContext === 'function') {
+            openModal(self.chatViewRef);
+            return;
           }
+
+          // Tier 2: workspace scan — panel opened via Ctrl+P or session restore.
+          // Use iterateAllLeaves to catch leaves in any split or popup window.
+          let found = false;
+          let deferredLeaf: import('obsidian').WorkspaceLeaf | null = null;
+          self.config.app.workspace.iterateAllLeaves((chatLeaf) => {
+            if (found) return;
+            if (chatLeaf.view?.getViewType?.() !== CHAT_VIEW_TYPES.current) return;
+            const chatView = chatLeaf.view as unknown as ChatViewRef;
+            if (typeof chatView.addSemanticContext === 'function') {
+              found = true;
+              openModal(chatView);
+            } else if (!deferredLeaf) {
+              deferredLeaf = chatLeaf; // Found but not yet instantiated
+            }
+          });
+          if (found) return;
+
+          // Tier 2b: deferred view — chat leaf exists but view is a stub.
+          // Reveal the leaf to trigger ChatView.onOpen(), then wait briefly.
+          if (deferredLeaf) {
+            self.config.app.workspace.revealLeaf(deferredLeaf);
+            await new Promise<void>(resolve => setTimeout(resolve, 300));
+            if (self.chatViewRef && typeof self.chatViewRef.addSemanticContext === 'function') {
+              openModal(self.chatViewRef);
+              return;
+            }
+            // Check the leaf directly in case onOpen registered a different ref
+            const chatView = (deferredLeaf as import('obsidian').WorkspaceLeaf).view as unknown as ChatViewRef;
+            if (typeof chatView.addSemanticContext === 'function') {
+              openModal(chatView);
+              return;
+            }
+          }
+
+          // Tier 3: no chat open.
+          new Notice('Open a Nexus chat conversation first to use Send to Chat.', 3000);
         });
       });
 

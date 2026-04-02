@@ -36,6 +36,8 @@ export type SemanticContextPayload =
       kind: 'semantic-note';
       path: string;
       title: string;
+      /** Title of the source note being analyzed in the panel (for new chat naming). */
+      sourceTitle?: string;
       score: number;
       content: string;
     }
@@ -43,6 +45,8 @@ export type SemanticContextPayload =
       kind: 'semantic-block';
       path: string;
       title: string;
+      /** Title of the source note being analyzed in the panel (for new chat naming). */
+      sourceTitle?: string;
       heading?: string;
       chunkIndex: number;
       score: number;
@@ -981,6 +985,9 @@ export class SemanticPanelView extends ItemView {
 
   private async sendAllToChat(results: RowResult[]): Promise<void> {
     if (!this.onSendToChat) return;
+    const sourceTitle = this.activeNotePath
+      ? this.activeNotePath.split('/').pop()?.replace(/\.md$/, '') ?? undefined
+      : undefined;
     let sent = 0;
     for (const result of results) {
       try {
@@ -994,6 +1001,7 @@ export class SemanticPanelView extends ItemView {
           kind: 'semantic-note',
           path: result.notePath,
           title: result.title,
+          sourceTitle,
           score: result.score,
           content,
         });

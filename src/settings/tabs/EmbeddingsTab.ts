@@ -85,7 +85,8 @@ export class EmbeddingsTab {
       this.diagHealthSpan.textContent = runtime?.currentHealth ?? 'unavailable';
     }
     if (this.diagBackendSpan) {
-      const backendLabel = runtime?.backend === 'webgpu' ? 'WebGPU (GPU)'
+      const backendLabel = runtime?.backend === 'webnn' ? 'WebNN (NPU/GPU)'
+        : runtime?.backend === 'webgpu' ? 'WebGPU (GPU)'
         : runtime?.backend === 'wasm' ? 'WASM (CPU)'
         : runtime?.currentHealth === 'ready' ? 'WASM (CPU)'
         : '—';

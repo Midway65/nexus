@@ -295,6 +295,9 @@ export class SemanticResultRow {
 
     const result = this.opts.result;
     let content = result.contentPreview ?? '';
+    const sourceTitle = this.opts.sourceNotePath
+      ? this.opts.sourceNotePath.split('/').pop()?.replace(/\.md$/, '') ?? undefined
+      : undefined;
 
     if (result.kind === 'note') {
       try {
@@ -308,6 +311,7 @@ export class SemanticResultRow {
         kind: 'semantic-note',
         path: result.notePath,
         title: result.title,
+        sourceTitle,
         score: result.score,
         content,
       });
@@ -316,6 +320,7 @@ export class SemanticResultRow {
         kind: 'semantic-block',
         path: result.notePath,
         title: result.title,
+        sourceTitle,
         heading: result.heading ?? undefined,
         chunkIndex: result.chunkIndex ?? 0,
         score: result.score,
