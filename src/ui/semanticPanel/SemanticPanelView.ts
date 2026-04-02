@@ -612,10 +612,16 @@ export class SemanticPanelView extends ItemView {
       // 2. Normalize raw cosine scores before any boosts
       const normalized = this.normalizeScores(visible);
 
-      // 3. Apply contextual score boosts
-      const boosted = this.applyScoreBoosts(normalized, pinned);
+      // 3. Apply global feedback re-ranking (pins/hides from other source notes)
+      const cs = this.getConnectionsSettings();
+      const reranked = cs.feedback_scoring !== false
+        ? await this.applyFeedbackReranking(normalized, this.activeNotePath!, cs)
+        : normalized;
 
-      // 4. Sort by score desc; hard-partition pinned to top
+      // 4. Apply contextual score boosts
+      const boosted = this.applyScoreBoosts(reranked, pinned);
+
+      // 5. Sort by score desc; hard-partition pinned to top
       boosted.sort((a, b) => b.score - a.score);
       const pinnedResults = boosted.filter(r => pinned.has(r.notePath));
       const normalResults = boosted.filter(r => !pinned.has(r.notePath));
@@ -635,6 +641,37 @@ export class SemanticPanelView extends ItemView {
     return results;
   }
 
+  /**
+   * Adjust scores using cross-note feedback signal.
+   * For each result, counts how many OTHER source notes have pinned or hidden it.
+   * Pins → small boost; hides → small penalty.
+   * This lets accumulated feedback from similar notes propagate to new notes.
+   */
+  private async applyFeedbackReranking(
+    results: RowResult[],
+    activeNotePath: string,
+    cs: ReturnType<typeof this.getConnectionsSettings>,
+  ): Promise<RowResult[]> {
+    if (!this.feedbackService || results.length === 0) return results;
+    try {
+      const pinWeight = cs.feedback_pin_weight ?? 0.03;
+      const hideWeight = cs.feedback_hide_weight ?? 0.03;
+      const targetPaths = results.map(r => r.notePath);
+      const counts = await this.feedbackService.getGlobalFeedbackCounts(targetPaths, activeNotePath);
+      if (counts.size === 0) return results;
+
+      return results.map(r => {
+        const fb = counts.get(r.notePath);
+        if (!fb) return r;
+        const delta = (fb.pins * pinWeight) - (fb.hides * hideWeight);
+        if (delta === 0) return r;
+        return { ...r, score: Math.max(0, Math.min(1, r.score + delta)) };
+      });
+    } catch {
+      return results;
+    }
+  }
+
   private applyScoreBoosts(results: RowResult[], pinned: Set<string>): RowResult[] {
     const cs = this.getConnectionsSettings();
     const doFrontmatter = cs.frontmatter_scoring !== false;
@@ -649,6 +686,10 @@ export class SemanticPanelView extends ItemView {
     const activeFolder = this.activeNotePath.includes('/')
       ? this.activeNotePath.slice(0, this.activeNotePath.lastIndexOf('/'))
       : '';
+
+    const fmWeight = cs.frontmatter_scoring_weight ?? 0.03;
+    const coCiteWeight = cs.co_citation_scoring_weight ?? 0.02;
+    const pathWeight = cs.path_proximity_scoring_weight ?? 0.01;
 
     return results.map(r => {
       if (pinned.has(r.notePath)) return r; // pinned results are hard-partitioned, no boost needed
@@ -666,7 +707,7 @@ export class SemanticPanelView extends ItemView {
               matches++;
             }
           }
-          boost += Math.min(matches * 0.03, 0.09);
+          boost += Math.min(matches * fmWeight, fmWeight * 3);
         }
       }
 
@@ -675,7 +716,7 @@ export class SemanticPanelView extends ItemView {
         if (file) {
           const links = this.app.metadataCache.getFileCache(file)?.links ?? [];
           const hasShared = links.some(l => activeOutlinks.has(l.link));
-          if (hasShared) boost += 0.02;
+          if (hasShared) boost += coCiteWeight;
         }
       }
 
@@ -683,7 +724,7 @@ export class SemanticPanelView extends ItemView {
         const resultFolder = r.notePath.includes('/')
           ? r.notePath.slice(0, r.notePath.lastIndexOf('/'))
           : '';
-        if (activeFolder === resultFolder) boost += 0.01;
+        if (activeFolder === resultFolder) boost += pathWeight;
       }
 
       if (boost === 0) return r;

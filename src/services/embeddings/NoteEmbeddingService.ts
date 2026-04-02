@@ -335,11 +335,12 @@ export class NoteEmbeddingService {
    */
   async findSimilarNotes(notePath: string, limit = 10, minScore = 0): Promise<SimilarNote[]> {
     try {
+      const activeModel = this.runtime.currentModelId;
       const sourceEmbed = await this.db.queryOne<{ embedding: Buffer }>(
         `SELECT ne.embedding FROM note_embeddings ne
          JOIN embedding_metadata em ON em.rowid = ne.rowid
-         WHERE em.notePath = ?`,
-        [notePath]
+         WHERE em.notePath = ? AND em.model = ?`,
+        [notePath, activeModel]
       );
 
       if (!sourceEmbed) return [];
@@ -348,10 +349,10 @@ export class NoteEmbeddingService {
         SELECT em.notePath, vec_distance_cosine(ne.embedding, ?) as distance
         FROM note_embeddings ne
         JOIN embedding_metadata em ON em.rowid = ne.rowid
-        WHERE em.notePath != ?
+        WHERE em.notePath != ? AND em.model = ?
         ORDER BY distance
         LIMIT ?
-      `, [sourceEmbed.embedding, notePath, limit * 2]);
+      `, [sourceEmbed.embedding, notePath, activeModel, limit * 2]);
 
       return results
         .map(r => ({ notePath: r.notePath, score: 1 - r.distance }))
@@ -371,15 +372,16 @@ export class NoteEmbeddingService {
    */
   async findSimilarBlocks(notePath: string, limit = 10, minScore = 0): Promise<SimilarBlock[]> {
     try {
+      const activeModel = this.runtime.currentModelId;
       const sourceEmbed = await this.db.queryOne<{ embedding: Buffer }>(
         `SELECT ne.embedding FROM note_embeddings ne
          JOIN embedding_metadata em ON em.rowid = ne.rowid
-         WHERE em.notePath = ?`,
-        [notePath]
+         WHERE em.notePath = ? AND em.model = ?`,
+        [notePath, activeModel]
       );
 
       if (!sourceEmbed) {
-        return []; // Source note not indexed yet
+        return []; // Source note not indexed yet (or indexed under a different model)
       }
 
       const fetchLimit = Math.min(limit * 3, 300);
@@ -394,10 +396,10 @@ export class NoteEmbeddingService {
                vec_distance_cosine(be.embedding, ?) as distance
         FROM block_embeddings be
         JOIN block_embedding_metadata bm ON bm.rowid = be.rowid
-        WHERE bm.notePath != ?
+        WHERE bm.notePath != ? AND bm.model = ?
         ORDER BY distance
         LIMIT ?
-      `, [sourceEmbed.embedding, notePath, fetchLimit]);
+      `, [sourceEmbed.embedding, notePath, activeModel, fetchLimit]);
 
       // Deduplication: keep best-scoring block per note
       const bestPerNote = new Map<string, typeof candidates[0]>();
@@ -438,9 +440,10 @@ export class NoteEmbeddingService {
         SELECT em.notePath, vec_distance_cosine(ne.embedding, ?) as distance
         FROM note_embeddings ne
         JOIN embedding_metadata em ON em.rowid = ne.rowid
+        WHERE em.model = ?
         ORDER BY distance
         LIMIT ?
-      `, [queryBuffer, limit * 2]);
+      `, [queryBuffer, this.runtime.currentModelId, limit * 2]);
 
       return results
         .map(r => ({ notePath: r.notePath, score: 1 - r.distance }))
@@ -474,9 +477,10 @@ export class NoteEmbeddingService {
                vec_distance_cosine(be.embedding, ?) as distance
         FROM block_embeddings be
         JOIN block_embedding_metadata bm ON bm.rowid = be.rowid
+        WHERE bm.model = ?
         ORDER BY distance
         LIMIT ?
-      `, [queryBuffer, fetchLimit]);
+      `, [queryBuffer, this.runtime.currentModelId, fetchLimit]);
 
       const bestPerNote = new Map<string, typeof candidates[0]>();
       for (const row of candidates) {

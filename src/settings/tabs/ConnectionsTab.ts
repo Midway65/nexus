@@ -433,34 +433,103 @@ export class ConnectionsTab {
 
     new Setting(section)
       .setName('Frontmatter-aware scoring')
-      .setDesc('Boost results that share frontmatter values (tags, type, status) with the current note. +0.03 per match, up to +0.09.')
+      .setDesc('Boost results that share frontmatter values (tags, type, status) with the current note.')
       .addToggle(toggle => {
         toggle
           .setValue(cs().frontmatter_scoring ?? DEFAULT_CONNECTIONS_SETTINGS.frontmatter_scoring)
           .onChange(async (value) => {
             await saveConnections({ frontmatter_scoring: value });
           });
+      })
+      .addSlider(slider => {
+        const pct = Math.round((cs().frontmatter_scoring_weight ?? DEFAULT_CONNECTIONS_SETTINGS.frontmatter_scoring_weight) * 100);
+        slider
+          .setLimits(0, 20, 1)
+          .setValue(pct)
+          .setDynamicTooltip()
+          .onChange(async (value) => {
+            await saveConnections({ frontmatter_scoring_weight: value / 100 });
+          });
       });
 
     new Setting(section)
       .setName('Co-citation scoring')
-      .setDesc('Boost results that link to the same notes as the current note. +0.02 per shared outlink.')
+      .setDesc('Boost results that link to the same notes as the current note.')
       .addToggle(toggle => {
         toggle
           .setValue(cs().co_citation_scoring ?? DEFAULT_CONNECTIONS_SETTINGS.co_citation_scoring)
           .onChange(async (value) => {
             await saveConnections({ co_citation_scoring: value });
           });
+      })
+      .addSlider(slider => {
+        const pct = Math.round((cs().co_citation_scoring_weight ?? DEFAULT_CONNECTIONS_SETTINGS.co_citation_scoring_weight) * 100);
+        slider
+          .setLimits(0, 20, 1)
+          .setValue(pct)
+          .setDynamicTooltip()
+          .onChange(async (value) => {
+            await saveConnections({ co_citation_scoring_weight: value / 100 });
+          });
       });
 
     new Setting(section)
       .setName('Path proximity scoring')
-      .setDesc('Boost results in the same folder as the current note. +0.01.')
+      .setDesc('Boost results in the same folder as the current note.')
       .addToggle(toggle => {
         toggle
           .setValue(cs().path_proximity_scoring ?? DEFAULT_CONNECTIONS_SETTINGS.path_proximity_scoring)
           .onChange(async (value) => {
             await saveConnections({ path_proximity_scoring: value });
+          });
+      })
+      .addSlider(slider => {
+        const pct = Math.round((cs().path_proximity_scoring_weight ?? DEFAULT_CONNECTIONS_SETTINGS.path_proximity_scoring_weight) * 100);
+        slider
+          .setLimits(0, 20, 1)
+          .setValue(pct)
+          .setDynamicTooltip()
+          .onChange(async (value) => {
+            await saveConnections({ path_proximity_scoring_weight: value / 100 });
+          });
+      });
+
+    new Setting(section)
+      .setName('Feedback re-ranking')
+      .setDesc('Boost or penalise results based on how you\'ve pinned or hidden them from other notes across the vault. Accumulates over time as you use the panel.')
+      .addToggle(toggle => {
+        toggle
+          .setValue(cs().feedback_scoring ?? DEFAULT_CONNECTIONS_SETTINGS.feedback_scoring)
+          .onChange(async (value) => {
+            await saveConnections({ feedback_scoring: value });
+          });
+      });
+
+    new Setting(section)
+      .setName('Feedback pin weight')
+      .setDesc('Score boost per pin from another source note (0–10%).')
+      .addSlider(slider => {
+        const pct = Math.round((cs().feedback_pin_weight ?? DEFAULT_CONNECTIONS_SETTINGS.feedback_pin_weight) * 100);
+        slider
+          .setLimits(0, 10, 1)
+          .setValue(pct)
+          .setDynamicTooltip()
+          .onChange(async (value) => {
+            await saveConnections({ feedback_pin_weight: value / 100 });
+          });
+      });
+
+    new Setting(section)
+      .setName('Feedback hide weight')
+      .setDesc('Score penalty per hide from another source note (0–10%).')
+      .addSlider(slider => {
+        const pct = Math.round((cs().feedback_hide_weight ?? DEFAULT_CONNECTIONS_SETTINGS.feedback_hide_weight) * 100);
+        slider
+          .setLimits(0, 10, 1)
+          .setValue(pct)
+          .setDynamicTooltip()
+          .onChange(async (value) => {
+            await saveConnections({ feedback_hide_weight: value / 100 });
           });
       });
   }

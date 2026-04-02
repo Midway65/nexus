@@ -92,4 +92,38 @@ export class SemanticFeedbackService {
     );
     return row?.state ?? null;
   }
+
+  /**
+   * Count how many OTHER source notes have pinned or hidden each target path.
+   * The current source note is excluded so its own pins/hides don't double-count
+   * (they are already applied as hard-pin / hard-hide in the main pipeline).
+   *
+   * Returns a Map keyed by targetNotePath with { pins, hides } counts.
+   * Paths with zero feedback are omitted from the map.
+   */
+  async getGlobalFeedbackCounts(
+    targetPaths: string[],
+    excludeSourcePath: string,
+  ): Promise<Map<string, { pins: number; hides: number }>> {
+    if (targetPaths.length === 0) return new Map();
+
+    const placeholders = targetPaths.map(() => '?').join(', ');
+    const rows = await this.db.query<{ targetNotePath: string; state: FeedbackState; count: number }>(
+      `SELECT targetNotePath, state, COUNT(*) as count
+       FROM semantic_feedback
+       WHERE targetNotePath IN (${placeholders})
+         AND sourceNotePath != ?
+       GROUP BY targetNotePath, state`,
+      [...targetPaths, excludeSourcePath]
+    );
+
+    const result = new Map<string, { pins: number; hides: number }>();
+    for (const row of rows) {
+      const entry = result.get(row.targetNotePath) ?? { pins: 0, hides: 0 };
+      if (row.state === 'pinned') entry.pins += row.count;
+      else if (row.state === 'hidden') entry.hides += row.count;
+      result.set(row.targetNotePath, entry);
+    }
+    return result;
+  }
 }

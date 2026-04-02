@@ -32,12 +32,27 @@ export interface ConnectionsSettings {
   exclude_outlinks: boolean;
   /** Hide block results whose chunk is the frontmatter block. Default true. */
   exclude_frontmatter_blocks: boolean;
-  /** Boost results sharing frontmatter keys (tags, type, status) with active note. +0.03 per match. */
+  /** Boost results sharing frontmatter keys (tags, type, status) with active note. */
   frontmatter_scoring: boolean;
-  /** Boost results that share outlinks with the active note. +0.02 per shared link. */
+  /** Per-match boost amount for frontmatter scoring (0–0.20). Default 0.03. */
+  frontmatter_scoring_weight: number;
+  /** Boost results that share outlinks with the active note. */
   co_citation_scoring: boolean;
-  /** Boost results in the same folder as the active note. +0.01. */
+  /** Flat boost amount for co-citation scoring (0–0.20). Default 0.02. */
+  co_citation_scoring_weight: number;
+  /** Boost results in the same folder as the active note. */
   path_proximity_scoring: boolean;
+  /** Flat boost amount for path proximity scoring (0–0.20). Default 0.01. */
+  path_proximity_scoring_weight: number;
+  /**
+   * Adjust scores based on how other notes have pinned/hidden results across the vault.
+   * Pins from other source notes boost a result; hides penalise it.
+   */
+  feedback_scoring: boolean;
+  /** Score boost applied per pin from another source note (0–0.10). Default 0.03. */
+  feedback_pin_weight: number;
+  /** Score penalty applied per hide from another source note (0–0.10). Default 0.03. */
+  feedback_hide_weight: number;
 }
 
 export const DEFAULT_CONNECTIONS_SETTINGS: ConnectionsSettings = {
@@ -53,6 +68,12 @@ export const DEFAULT_CONNECTIONS_SETTINGS: ConnectionsSettings = {
   exclude_outlinks: false,
   exclude_frontmatter_blocks: true,
   frontmatter_scoring: true,
+  frontmatter_scoring_weight: 0.03,
   co_citation_scoring: true,
+  co_citation_scoring_weight: 0.02,
   path_proximity_scoring: true,
+  path_proximity_scoring_weight: 0.01,
+  feedback_scoring: true,
+  feedback_pin_weight: 0.03,
+  feedback_hide_weight: 0.03,
 };
