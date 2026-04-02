@@ -113,6 +113,7 @@ export class SemanticPanelView extends ItemView {
 
   // ---- DOM ----
   private headerEl: HTMLElement | null = null;
+  private refreshBtnEl: HTMLElement | null = null;
   private modeBarEl: HTMLElement | null = null;
   private notesBlocksToggleEl: HTMLElement | null = null;
   private searchInputEl: HTMLInputElement | null = null;
@@ -275,6 +276,7 @@ export class SemanticPanelView extends ItemView {
     const refreshBtn = actions.createEl('button', { cls: 'semantic-panel-icon-btn' });
     refreshBtn.setAttribute('aria-label', 'Refresh');
     setIcon(refreshBtn, 'refresh-cw');
+    this.refreshBtnEl = refreshBtn;
     this.registerDomEvent(refreshBtn, 'click', () => void this.refresh());
 
     // Settings popover
@@ -381,6 +383,20 @@ export class SemanticPanelView extends ItemView {
         this.refreshTimer = setTimeout(() => void this.onActiveFileChange(), 250);
       })
     );
+
+    // 'active-leaf-change' fires before the file is loaded into the view (view.file can
+    // still be null during the debounce window). 'file-open' fires AFTER the file is fully
+    // available, so view.file is guaranteed to be set. This handles the race where the panel
+    // sees an empty mdLeaves list and shows "No active note" even though a note IS open.
+    this.registerEvent(
+      this.app.workspace.on('file-open', (file) => {
+        if (this.panelMode !== 'browse') return;
+        if (!file) return;
+        // Shorter delay since file-open fires later in the loading cycle.
+        if (this.refreshTimer !== null) clearTimeout(this.refreshTimer);
+        this.refreshTimer = setTimeout(() => void this.onActiveFileChange(), 100);
+      })
+    );
   }
 
   // ---- mode switching ----
@@ -444,6 +460,13 @@ export class SemanticPanelView extends ItemView {
   // ---- main refresh ----
 
   async refresh(): Promise<void> {
+    // Always re-read results_limit from Connections settings so in-session changes take effect
+    // without needing to close and reopen the panel.
+    const connectionsLimit = (this.plugin as unknown as { settings?: { connections?: { results_limit?: number } } }).settings?.connections?.results_limit;
+    if (connectionsLimit !== undefined && connectionsLimit > 0) {
+      this.settings.resultCount = connectionsLimit;
+    }
+
     // Lazy re-resolve: panel may have opened before the embedding system was ready.
     if (!this.noteEmbeddingService) {
       this.resolveServices();
@@ -489,6 +512,7 @@ export class SemanticPanelView extends ItemView {
 
       if (this.panelMode === 'browse') {
         if (!this.activeNotePath) {
+          this.setLoading(false);
           this.renderEmptyState('no-file');
           return;
         }
@@ -496,16 +520,46 @@ export class SemanticPanelView extends ItemView {
       } else {
         const query = this.searchQuery.trim();
         if (!query) {
+          this.setLoading(false);
           this.setPanelMode('browse');
           return;
         }
         results = await this.loadSearchResults(query, requestId);
       }
 
-      if (requestId !== this.requestId) return;
+      if (requestId !== this.requestId) {
+        this.setLoading(false);
+        return;
+      }
+
+      // When browse mode returns zero results, distinguish "not indexed" from
+      // "indexed but no similar notes above the threshold."
+      // Not-indexed: show the Index-now state with a retry for mid-reindex gaps.
+      // No-results: show the normal empty state.
+      if (results.length === 0 && this.panelMode === 'browse' && this.activeNotePath) {
+        const indexed = await this.noteEmbeddingService.isNoteIndexed(this.activeNotePath);
+        if (requestId !== this.requestId) { this.setLoading(false); return; }
+        if (!indexed) {
+          this.setLoading(false);
+          this.renderEmptyState('note-not-indexed');
+          // Schedule a single retry in case this is a transient mid-reindex gap
+          // (embedding deleted, not yet re-written by background indexer).
+          if (this.warmupRetryTimer === null) {
+            const retryPath = this.activeNotePath;
+            this.warmupRetryTimer = setTimeout(async () => {
+              this.warmupRetryTimer = null;
+              if (this.activeNotePath === retryPath) await this.refresh();
+            }, 2500);
+          }
+          return;
+        }
+      }
 
       const filtered = await this.applyFeedback(results);
-      if (requestId !== this.requestId) return;
+      if (requestId !== this.requestId) {
+        this.setLoading(false);
+        return;
+      }
 
       this.renderResults(filtered, requestId);
       this.setLoading(false);
@@ -516,7 +570,10 @@ export class SemanticPanelView extends ItemView {
         if (this.conversationRefsEl) this.conversationRefsEl.style.display = 'none';
       }
     } catch {
-      if (requestId !== this.requestId) return;
+      if (requestId !== this.requestId) {
+        this.setLoading(false);
+        return;
+      }
       this.setLoading(false);
       // Only show error state when there are no existing results to fall back on.
       // Transient failures (db hiccup, index busy) should not wipe a working panel.
@@ -787,6 +844,7 @@ export class SemanticPanelView extends ItemView {
         showFullPath: this.settings.showFullPath,
         feedbackService: this.feedbackService,
         onSendToChat: this.onSendToChat,
+        onRefresh: () => void this.refresh(),
         isPinned,
         onSelectionChange: (path, selected) => {
           if (selected) this.selectedPaths.add(path);
@@ -1026,11 +1084,19 @@ export class SemanticPanelView extends ItemView {
   // ---- loading state ----
 
   private setLoading(loading: boolean): void {
-    if (!this.resultsEl) return;
-    if (loading) {
-      this.resultsEl.addClass('is-loading');
-    } else {
-      this.resultsEl.removeClass('is-loading');
+    if (this.resultsEl) {
+      if (loading) {
+        this.resultsEl.addClass('is-loading');
+      } else {
+        this.resultsEl.removeClass('is-loading');
+      }
+    }
+    if (this.refreshBtnEl) {
+      if (loading) {
+        this.refreshBtnEl.addClass('is-spinning');
+      } else {
+        this.refreshBtnEl.removeClass('is-spinning');
+      }
     }
   }
 

@@ -852,6 +852,7 @@ export class ChatView extends ItemView {
     if (!path) return;
     try {
       (this.modelAgentManager as unknown as { addContextNote?(p: string): void }).addContextNote?.(path);
+      new Notice(`Added "${payload.title}" to chat context`, 2000);
     } catch { /* best-effort */ }
   }
 

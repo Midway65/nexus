@@ -511,6 +511,18 @@ export class NoteEmbeddingService {
   // Maintenance
   // ---------------------------------------------------------------------------
 
+  async isNoteIndexed(notePath: string): Promise<boolean> {
+    try {
+      const row = await this.db.queryOne<{ count: number }>(
+        'SELECT COUNT(*) as count FROM embedding_metadata WHERE notePath = ?',
+        [notePath]
+      );
+      return (row?.count ?? 0) > 0;
+    } catch {
+      return false;
+    }
+  }
+
   async getIndexedPaths(): Promise<string[]> {
     try {
       const rows = await this.db.query<{ notePath: string }>(

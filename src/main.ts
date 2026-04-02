@@ -178,6 +178,14 @@ export default class NexusPlugin extends Plugin {
     }
 
     /**
+     * Expose the SQLiteCacheManager so UI components (e.g. SemanticFeedbackService)
+     * can read/write the semantic_feedback table.
+     */
+    public getSQLiteManager() {
+        return this.lifecycleManager?.getEmbeddingManager()?.getDb() ?? null;
+    }
+
+    /**
      * Open the plugin settings modal, navigating to the plugin's settings tab.
      * Used by SemanticPanelView's 'Open Embeddings settings' action link.
      */

@@ -8144,6 +8144,15 @@ body.is-mobile .nexus-task-board-shell {
     color: var(--text-normal);
 }
 
+@keyframes semantic-spin {
+    from { transform: rotate(0deg); }
+    to   { transform: rotate(360deg); }
+}
+
+.semantic-panel-icon-btn.is-spinning svg {
+    animation: semantic-spin 0.7s linear infinite;
+}
+
 /* Mode bar */
 .semantic-panel-mode-bar {
     padding: 6px 10px;

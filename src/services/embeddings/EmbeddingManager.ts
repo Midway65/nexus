@@ -286,6 +286,10 @@ export class EmbeddingManager {
     return this.service;
   }
 
+  getDb(): SQLiteCacheManager {
+    return this.db;
+  }
+
   /**
    * Get the indexing queue (for external use)
    */

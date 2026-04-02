@@ -40,6 +40,7 @@ export interface SemanticResultRowOptions {
   feedbackService: SemanticFeedbackService | null;
   onSendToChat: ((payload: SemanticContextPayload) => void) | null;
   onExpand?: () => void; // called when this row expands (for single-expand enforcement)
+  onRefresh?: () => void; // called after pin/hide so the panel re-runs the feedback pipeline
   isPinned?: boolean;
   onSelectionChange: ((path: string, selected: boolean) => void) | null;
 }
@@ -326,7 +327,8 @@ export class SemanticResultRow {
   private openNote(): void {
     const file = this.opts.app.vault.getFileByPath(this.opts.result.notePath);
     if (!file) return;
-    this.opts.app.workspace.getLeaf(false).openFile(file);
+    // Open in a new leaf to the right so the source note stays visible.
+    this.opts.app.workspace.getLeaf(true).openFile(file);
   }
 
   private async insertLink(): Promise<void> {
@@ -335,51 +337,72 @@ export class SemanticResultRow {
     const basename = notePath.split('/').pop()?.replace(/\.md$/, '') ?? notePath;
     const wikilink = `[[${basename}]]`;
 
-    // Append to end of the active note so the link doesn't land at an arbitrary
-    // cursor position (which is often position 0 when focus is in the panel).
+    // Append to the end of the source note (the one whose results are showing).
+    // We target the specific source note editor rather than the first editor found,
+    // so having multiple notes open doesn't route the link to the wrong file.
     type EditorLike = {
       lastLine(): number;
       getLine(n: number): string;
       replaceRange(text: string, from: { line: number; ch: number }): void;
     };
+
+    const appendToEditor = (editor: EditorLike): void => {
+      const lastLine = editor.lastLine();
+      const lastCh = editor.getLine(lastLine).length;
+      const separator = lastCh > 0 ? '\n' : '';
+      editor.replaceRange(separator + wikilink, { line: lastLine, ch: lastCh });
+    };
+
+    // Pass 1: find the leaf that matches the source note path specifically.
     let inserted = false;
-    this.opts.app.workspace.iterateAllLeaves((leaf) => {
-      if (inserted) return;
-      const view = leaf.view as unknown as { editor?: EditorLike };
-      if (view?.editor) {
-        const editor = view.editor;
-        const lastLine = editor.lastLine();
-        const lastCh = editor.getLine(lastLine).length;
-        // Add a newline separator only when the file doesn't end with one.
-        const separator = lastCh > 0 ? '\n' : '';
-        editor.replaceRange(separator + wikilink, { line: lastLine, ch: lastCh });
-        inserted = true;
-      }
-    });
+    if (this.opts.sourceNotePath) {
+      this.opts.app.workspace.iterateAllLeaves((leaf) => {
+        if (inserted) return;
+        const view = leaf.view as unknown as { file?: { path?: string }; editor?: EditorLike };
+        if (view?.file?.path === this.opts.sourceNotePath && view?.editor) {
+          appendToEditor(view.editor);
+          inserted = true;
+        }
+      });
+    }
+
+    // Pass 2: fall back to first editor (search mode or source leaf not found).
+    if (!inserted) {
+      this.opts.app.workspace.iterateAllLeaves((leaf) => {
+        if (inserted) return;
+        const view = leaf.view as unknown as { editor?: EditorLike };
+        if (view?.editor) {
+          appendToEditor(view.editor);
+          inserted = true;
+        }
+      });
+    }
   }
 
   private showContextMenu(anchor: HTMLElement): void {
     const menu = new Menu();
 
     menu.addItem(item => {
-      item.setTitle('Pin result').setIcon('pin').onClick(() => {
+      item.setTitle('Pin result').setIcon('pin').onClick(async () => {
         if (!this.opts.sourceNotePath || !this.opts.feedbackService) return;
-        void this.opts.feedbackService.setFeedback(
+        await this.opts.feedbackService.setFeedback(
           this.opts.sourceNotePath,
           this.opts.result.notePath,
           'pinned'
         );
+        this.opts.onRefresh?.();
       });
     });
 
     menu.addItem(item => {
-      item.setTitle('Hide result').setIcon('eye-off').onClick(() => {
+      item.setTitle('Hide result').setIcon('eye-off').onClick(async () => {
         if (!this.opts.sourceNotePath || !this.opts.feedbackService) return;
-        void this.opts.feedbackService.setFeedback(
+        await this.opts.feedbackService.setFeedback(
           this.opts.sourceNotePath!,
           this.opts.result.notePath,
           'hidden'
         );
+        this.opts.onRefresh?.();
       });
     });
 

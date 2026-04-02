@@ -12,6 +12,7 @@
  * forwarded into each SemanticPanelView instance when it is created.
  */
 
+import { Notice } from 'obsidian';
 import type { App, Plugin } from 'obsidian';
 import type NexusPlugin from '../../main';
 import { SEMANTIC_PANEL_VIEW_TYPE } from '../../constants/branding';
@@ -50,7 +51,11 @@ export class SemanticPanelUIManager {
         // Always pass a forwarding function so the button renders immediately.
         // The inner callback may be wired later (e.g. after ChatView opens).
         return new SemanticPanelView(leaf, plugin as NexusPlugin, (payload) => {
-          self.onSendToChat?.(payload);
+          if (self.onSendToChat) {
+            self.onSendToChat(payload);
+          } else {
+            new Notice('Open a Nexus chat conversation first to use Send to Chat.', 3000);
+          }
         });
       });
 
