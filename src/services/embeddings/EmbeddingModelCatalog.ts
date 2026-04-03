@@ -78,7 +78,11 @@ export const EMBEDDING_MODELS: EmbeddingModelEntry[] = [
     queryPrefix: 'search_query: ',
     requiresMeanPool: true,
     normalizeInPipeline: true,
-    maxChars: 8000, // 8192 tokens × ~3.7 chars/token (conservative)
+    maxChars: 5000, // ~1250 content tokens + ~70 prefix overhead ≈ 1320 total tokens.
+    // 8192-token context is the model max, but batch=16 at full context produces a
+    // [16,12,2476,2476] attention matrix (~4.6 GB) which OOMs on consumer GPUs.
+    // At 5000 chars the attention matrix is [16,12,1320,1320] = ~1.34 GB, which
+    // fits within the 4 GB VRAM of integrated/mid-range GPUs (e.g. Radeon 860M).
     licenseUrl: 'https://huggingface.co/nomic-ai/nomic-embed-text-v1.5',
   },
 ];

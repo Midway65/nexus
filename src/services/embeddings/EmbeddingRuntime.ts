@@ -76,6 +76,7 @@ export class EmbeddingRuntime {
   private isReady = false;
   private initPromise: Promise<void> | null = null;
   private messageHandler: ((event: MessageEvent) => void) | null = null;
+  private skipBatching = false;
   private pendingRequests = new Map<number, {
     resolve: (value: EmbeddingResponse | void) => void;
     reject: (error: Error) => void;
@@ -295,23 +296,39 @@ export class EmbeddingRuntime {
   async embedDocuments(texts: string[]): Promise<Float32Array[]> {
     await this.ensureReady();
     const prepared = texts.map(t => EmbeddingPreprocessor.prepareDocumentText(t, this.modelId));
-    try {
-      const response = await this.sendRequest({ method: 'embed_batch', texts: prepared });
-      return response.embeddings!.map(e => EmbeddingPreprocessor.postProcess(e, this.modelId));
-    } catch (err) {
-      // GPU kernel failed (batch attention matrix too large for this seqlen+batch combo).
-      // Fall back to sequential single-note requests — each gets its own 30s timeout
-      // budget, which is safe even for long notes on WASM fallback.
-      if (err instanceof Error && err.message.includes('BATCH_GPU_FAILED')) {
-        const results: Float32Array[] = [];
-        for (const text of prepared) {
-          const response = await this.sendRequest({ method: 'embed', text });
-          results.push(EmbeddingPreprocessor.postProcess(response.embedding!, this.modelId));
+    // Skip batching permanently after any batch failure. Batch=16 × long notes OOMs
+    // GPU (4.6 GB attention matrix). Per-note (batch=1) uses ~293 MB — fits in VRAM.
+    if (!this.skipBatching) {
+      try {
+        const response = await this.sendRequest({ method: 'embed_batch', texts: prepared });
+        return response.embeddings!.map(e => EmbeddingPreprocessor.postProcess(e, this.modelId));
+      } catch (err) {
+        const isBatchFailure = err instanceof Error && (
+          err.message.includes('BATCH_GPU_FAILED') ||
+          err.message.includes('request timeout')
+        );
+        if (isBatchFailure) {
+          // Recreate the iframe for a fresh WebGPU context — the OOM or timeout
+          // may have left the GPU session in a corrupted state. A new iframe gets
+          // a new device. Per-note (batch=1) will then fit in VRAM.
+          this.skipBatching = true;
+          await this.dispose();
+          await this.initialize();
+          // Fall through to per-note loop
+        } else {
+          throw err;
         }
-        return results;
       }
-      throw err;
     }
+
+    // Per-note: used after any batch failure. [1, heads, seq, seq] attention
+    // matrix fits in VRAM for any individual note, even at max sequence length.
+    const results: Float32Array[] = [];
+    for (const text of prepared) {
+      const response = await this.sendRequest({ method: 'embed', text });
+      results.push(EmbeddingPreprocessor.postProcess(response.embedding!, this.modelId));
+    }
+    return results;
   }
 
   private async ensureReady(): Promise<void> {
@@ -517,7 +534,6 @@ export class EmbeddingRuntime {
     const MODEL_ID = '${modelId}';
     const NORMALIZE = ${normalizeFlag};
     const MEAN_POOL = ${requiresMeanPool};
-
     let extractor = null;
     let activeDevice = 'wasm';
 
