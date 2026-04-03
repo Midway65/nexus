@@ -91,10 +91,7 @@ export class EmbeddingIframe {
     this.iframe.className = 'nexus-embedding-iframe-hidden';
     this.iframe.setAttribute('sandbox', 'allow-scripts allow-same-origin');
 
-    // Set up message listener before loading iframe.
-    // This class does not extend Component so registerDomEvent is unavailable.
-    // The handler is stored as an instance property and removed in dispose(),
-    // which the owner (EmbeddingEngine) must call from its own unload/destroy path.
+    // Set up message listener before loading iframe
     this.messageHandler = (event: MessageEvent) => {
       if (event.source !== this.iframe?.contentWindow) return;
       this.handleMessage(event.data);

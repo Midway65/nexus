@@ -53,24 +53,11 @@ export interface ProcessedFilesData {
  * Plugin settings interface
  * Includes vault access toggle and version tracking
  */
-export interface SemanticPanelSettings {
-  resultCount: number;              // default: 10
-  minScore: number;                 // default: 0.70 (raw cosine threshold, 0–1)
-  resultMode: 'notes' | 'blocks';  // default: 'notes' — persisted from toggle
-  autoRefresh: boolean;             // default: true
-  showScore: boolean;               // default: true
-  showFullPath: boolean;            // default: false
-}
-
 export interface MCPSettings {
   enabledVault: boolean;
   enableEmbeddings?: boolean; // Enable/disable local embeddings for semantic search (desktop only)
-  huggingFaceToken?: string; // Optional HF access token for downloading gated models (e.g. nomic-embed-text-v1.5)
-  semanticExcludePatterns?: string[]; // Glob/prefix patterns for paths to exclude from semantic index
   enableIngestion?: boolean; // Enable/disable PDF/audio ingestion UI and ingest-only model settings
   autoIngestion?: boolean; // Automatically convert newly added supported binary files to Markdown
-  indexingExcludedPatterns?: string[]; // Glob/prefix patterns to exclude from semantic index (one per entry)
-  indexingExcludedPaths?: string[];    // Specific note paths excluded via file picker
   configFilePath?: string;
   memory?: MemorySettings;
   customPrompts?: CustomPromptsSettings;
@@ -90,11 +77,4 @@ export interface MCPSettings {
   workflowScheduler?: {
     lastCheckAt?: number;
   };
-  semanticPanel?: Partial<SemanticPanelSettings>;
-  /** Tier 2 — Connections panel result filters (no re-index needed when changed). */
-  connections?: Partial<import('../../ui/semanticPanel/ConnectionsSettings').ConnectionsSettings>;
-  /** Automatically inject semantically related vault notes into the system prompt. Default false. */
-  connectionsAutoInjectContext?: boolean;
-  /** Number of vault notes to inject when connectionsAutoInjectContext is true. Default 5. */
-  connectionsContextLimit?: number;
 }

@@ -19,26 +19,16 @@
  * 2. Remove Obsidian image embeds (`![[...]]`)
  * 3. Resolve wiki-link aliases (`[[path|alias]]` -> `alias`)
  * 4. Resolve plain wiki-links (`[[path]]` -> `path`)
- * 5. Normalize inline whitespace (tabs, multiple spaces) but preserve newlines
+ * 5. Collapse whitespace and trim
  * 6. Return null if result is shorter than 10 characters
- * 7. Truncate to maxChars (caller supplies model-appropriate limit)
+ * 7. Truncate to 2000 characters (embedding model context limit)
  *
- * Newlines are intentionally preserved. Collapsing them to spaces destroys
- * heading/paragraph/list structure that embedding models rely on — a smaller
- * model with structure intact outperforms a larger model on flattened text.
- *
- * @param content  - Raw markdown/text content
- * @param maxChars - Character limit matched to the model's token window.
- *                   MiniLM/BGE (512 tok) → 2000. Nomic (8192 tok) → 8000.
- *                   Defaults to 2000 for backward compat with trace embeddings.
+ * @param content - Raw markdown/text content
  * @returns Processed content string, or null if too short after processing
  */
-export function preprocessContent(content: string, maxChars = 2000): string | null {
-  // Include frontmatter as readable key:value lines — stripping it discards all the
-  // semantic signal (tags, type, lcsh_related, domain, etc.) from metadata-heavy notes.
-  // Only the '---' delimiters are removed; the YAML key-value pairs remain visible
-  // to the embedding model.
-  let processed = content.replace(/^---\n([\s\S]*?)\n---\n?/, '$1\n');
+export function preprocessContent(content: string): string | null {
+  // Strip frontmatter
+  let processed = content.replace(/^---[\s\S]*?---\n?/, '');
 
   // Strip image embeds, keep link text
   processed = processed
@@ -46,21 +36,18 @@ export function preprocessContent(content: string, maxChars = 2000): string | nu
     .replace(/\[\[([^\]|]+)\|([^\]]+)\]\]/g, '$2')          // [[path|alias]] -> alias
     .replace(/\[\[([^\]]+)\]\]/g, '$1');                    // [[path]] -> path
 
-  // Normalize inline whitespace only — preserve newlines so heading/paragraph
-  // structure remains visible to the embedding model.
-  processed = processed
-    .replace(/\t+/g, ' ')          // tabs → single space
-    .replace(/ {2,}/g, ' ')        // multiple spaces → single space
-    .replace(/\n{3,}/g, '\n\n')    // 3+ blank lines → one blank line
-    .trim();
+  // Normalize whitespace
+  processed = processed.replace(/\s+/g, ' ').trim();
 
   // Skip if too short
   if (processed.length < 10) {
     return null;
   }
 
-  return processed.length > maxChars
-    ? processed.slice(0, maxChars)
+  // Truncate if too long (model context limit)
+  const MAX_CHARS = 2000;
+  return processed.length > MAX_CHARS
+    ? processed.slice(0, MAX_CHARS)
     : processed;
 }
 

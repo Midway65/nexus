@@ -11,9 +11,8 @@ import type { AgentRegistrationService } from '../../services/agent/AgentRegistr
 import type { AgentManager } from '../../services/AgentManager';
 import type { WorkspaceMetadata } from '../../types/storage/StorageTypes';
 import type { TaskService } from '../../agents/taskManager/services/TaskService';
-import type { EmbeddingService } from '../../services/embeddings/EmbeddingService';
 import type { ProjectMetadata } from '../../database/repositories/interfaces/IProjectRepository';
-import type { TaskMetadata, TaskStatus, NoteLink, LinkType } from '../../database/repositories/interfaces/ITaskRepository';
+import type { TaskMetadata, TaskStatus } from '../../database/repositories/interfaces/ITaskRepository';
 import { TaskBoardEditModal, type TaskBoardEditableTask, type TaskBoardParentTaskOption, type TaskBoardProjectOption } from './TaskBoardEditModal';
 import { TASK_BOARD_VIEW_TYPE, type TaskBoardViewState } from './taskBoardNavigation';
 import { TaskBoardEvents, type TaskBoardDataChangedEvent } from '../../services/task/TaskBoardEvents';
@@ -25,7 +24,6 @@ interface TaskManagerAgentLike {
 interface TaskBoardTask extends TaskMetadata {
   projectName: string;
   workspaceName: string;
-  noteLinks: NoteLink[];
 }
 
 const STATUS_COLUMNS: Array<{ id: TaskStatus; label: string }> = [
@@ -244,28 +242,18 @@ export class TaskBoardView extends ItemView {
     this.projects = workspaceData.flatMap(entry => entry.projects);
     const projectMap = new Map(this.projects.map(project => [project.id, project]));
 
-    const allTasks = workspaceData.flatMap(entry =>
+    this.tasks = workspaceData.flatMap(entry =>
       entry.tasks
         .filter(task => projectMap.has(task.projectId))
         .map(task => ({
           ...task,
           projectName: projectMap.get(task.projectId)?.name || 'Unknown project',
-          workspaceName: entry.workspace.name,
-          noteLinks: [] as NoteLink[]
+          workspaceName: entry.workspace.name
         }))
     );
 
-    // Load note links for all tasks
-    const noteLinksResults = await Promise.all(
-      allTasks.map(task =>
-        taskService.getNoteLinks(task.id).catch(() => [] as NoteLink[])
-      )
-    );
-    allTasks.forEach((task, index) => {
-      task.noteLinks = noteLinksResults[index];
-    });
-
     this.tasks = allTasks;
+
 
     this.ensureValidFilters();
   }
@@ -590,27 +578,6 @@ export class TaskBoardView extends ItemView {
       cls: 'nexus-task-board-card-meta',
       text: `${task.workspaceName} · ${task.projectName}`
     });
-
-    if (task.noteLinks.length > 0) {
-      const linksRow = card.createDiv('nexus-task-board-card-links');
-      task.noteLinks.forEach(link => {
-        const fileName = link.notePath.split('/').pop()?.replace(/\.md$/, '') || link.notePath;
-        const linkEl = linksRow.createEl('a', {
-          cls: 'nexus-task-board-card-link',
-          text: fileName,
-          attr: { 'aria-label': link.notePath }
-        });
-        this.registerDomEvent(linkEl, 'click', (event) => {
-          event.stopPropagation();
-          const file = this.app.vault.getFileByPath(link.notePath);
-          if (file) {
-            void this.app.workspace.getLeaf(false).openFile(file);
-          } else {
-            new Notice(`File not found: ${link.notePath}`);
-          }
-        });
-      });
-    }
   }
 
   private getFilteredProjectsForToolbar(): ProjectMetadata[] {
@@ -794,8 +761,7 @@ export class TaskBoardView extends ItemView {
       dueDate: this.toDateInputValue(task.dueDate),
       assignee: task.assignee || '',
       tags: task.tags?.join(', ') || '',
-      parentTaskId: task.parentTaskId || '',
-      noteLinks: [...task.noteLinks]
+      parentTaskId: task.parentTaskId || ''
     };
 
     const projects = this.projects
@@ -813,13 +779,10 @@ export class TaskBoardView extends ItemView {
         projectId: candidate.projectId
       }));
 
-    const embeddingService = this.plugin.getServiceIfReady<EmbeddingService>('embeddingService') ?? undefined;
-
     new TaskBoardEditModal(this.app, {
       task: taskData,
       projects,
       parentTasks,
-      embeddingService,
       onSave: async (updatedTask) => {
         await this.saveTaskChanges(task, updatedTask);
       },
@@ -860,25 +823,6 @@ export class TaskBoardView extends ItemView {
         projectId: projectChanged ? updatedTask.projectId : undefined,
         parentTaskId: parentChanged ? (updatedTask.parentTaskId || null) : undefined
       });
-    }
-
-    // Sync note links: compare original vs updated
-    const originalPaths = new Set(originalTask.noteLinks.map(link => link.notePath));
-    const updatedLinks = updatedTask.noteLinks.filter(link => link.notePath.trim());
-    const updatedPaths = new Map<string, LinkType>(updatedLinks.map(link => [link.notePath.trim(), link.linkType || 'reference']));
-
-    // Remove links that were deleted
-    for (const path of originalPaths) {
-      if (!updatedPaths.has(path)) {
-        await this.taskService.unlinkNote(originalTask.id, path);
-      }
-    }
-
-    // Add new links (or re-link with potentially different type)
-    for (const [path, linkType] of updatedPaths) {
-      if (!originalPaths.has(path)) {
-        await this.taskService.linkNote(originalTask.id, path, linkType);
-      }
     }
 
     await this.loadBoardData();

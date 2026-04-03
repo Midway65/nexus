@@ -8,6 +8,7 @@ export { EmbeddingService } from './EmbeddingService';
 export { NoteEmbeddingService } from './NoteEmbeddingService';
 export { TraceEmbeddingService } from './TraceEmbeddingService';
 export { ConversationEmbeddingService } from './ConversationEmbeddingService';
+export { EmbeddingWatcher } from './EmbeddingWatcher';
 export { ConversationEmbeddingWatcher } from './ConversationEmbeddingWatcher';
 export { ConversationWindowRetriever } from './ConversationWindowRetriever';
 export { IndexingQueue } from './IndexingQueue';

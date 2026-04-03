@@ -348,8 +348,7 @@ export class IndexingQueue extends EventEmitter {
     for (const note of notes) {
       try {
         const content = await this.app.vault.cachedRead(note);
-        const maxChars = this.embeddingService.getRuntime().maxChars;
-        const contentHash = hashContent(preprocessContent(content, maxChars) ?? '');
+        const contentHash = hashContent(preprocessContent(content) ?? '');
 
         const existing = await this.db.queryOne<{ contentHash: string }>(
           'SELECT contentHash FROM embedding_metadata WHERE notePath = ?',

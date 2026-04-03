@@ -17,7 +17,7 @@ import {
   getIngestCapabilityOptions,
   normalizeIngestSelection,
   IngestProviderOption
-} from '../../agents/ingestManager/tools/services/IngestCapabilityService';
+} from '../../agents/apps/ingestManager/tools/services/IngestCapabilityService';
 
 export interface DefaultsTabServices {
   app: App;
@@ -211,10 +211,18 @@ export class DefaultsTab {
       embeddingsHeader.setText('Embeddings');
       const embeddingsContent = embeddingsSection.createDiv({ cls: 'csr-section-content' });
 
-      const redirectDesc = embeddingsContent.createEl('p', {
-        cls: 'csr-redirect-note',
-        text: 'Embedding settings have moved to the Embeddings tab — enable/disable, model selection, index controls, and download progress are all there.',
-      });
+      new Setting(embeddingsContent)
+        .setName('Enable')
+        .setDesc('Local AI for semantic search (~23MB download). Restart to apply.')
+        .addToggle(toggle => {
+          toggle
+            .setValue(this.services.settings.settings.enableEmbeddings ?? true)
+            .onChange(async (value) => {
+              this.services.settings.settings.enableEmbeddings = value;
+              await this.services.settings.saveSettings();
+              new Notice(`Embeddings ${value ? 'enabled' : 'disabled'}. Restart Obsidian to apply.`);
+            });
+        });
 
       // Insert before Temperature, or append if not found
       if (temperatureSection) {

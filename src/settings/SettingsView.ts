@@ -29,9 +29,6 @@ import { WorkspacesTab } from './tabs/WorkspacesTab';
 import { PromptsTab } from './tabs/PromptsTab';
 import { ProvidersTab } from './tabs/ProvidersTab';
 import { AppsTab } from './tabs/AppsTab';
-import { EmbeddingsTab } from './tabs/EmbeddingsTab';
-import { ConnectionsTab } from './tabs/ConnectionsTab';
-import type { EmbeddingManager } from '../services/embeddings/EmbeddingManager';
 // GetStartedTab is dynamically imported (desktop-only, requires Node.js)
 type GetStartedTabType = import('./tabs/GetStartedTab').GetStartedTab;
 // import { DataTab } from './tabs/DataTab'; // TODO: Re-enable when Data tab is ready
@@ -69,8 +66,6 @@ export class SettingsView extends PluginSettingTab {
     private promptsTab: PromptsTab | undefined;
     private providersTab: ProvidersTab | undefined;
     private appsTab: AppsTab | undefined;
-    private embeddingsTab: EmbeddingsTab | undefined;
-    private connectionsTab: ConnectionsTab | undefined;
     private getStartedTab: GetStartedTabType | undefined;
     private getStartedAccordion: Accordion | undefined;
     // private dataTab: DataTab | undefined; // TODO: Re-enable when Data tab is ready
@@ -147,8 +142,6 @@ export class SettingsView extends PluginSettingTab {
         this.promptsTab?.destroy();
         this.providersTab?.destroy();
         this.appsTab?.destroy();
-        this.embeddingsTab?.destroy();
-        this.connectionsTab?.destroy();
         this.getStartedTab?.destroy();
         this.getStartedAccordion?.unload();
         // Clear prefetch cache
@@ -220,8 +213,6 @@ export class SettingsView extends PluginSettingTab {
             { key: 'prompts', label: 'Prompts' },
             { key: 'providers', label: 'Providers' },
             { key: 'apps', label: 'Apps' },
-            { key: 'embeddings', label: 'Embeddings' },
-            { key: 'connections', label: 'Connections' },
             // { key: 'data', label: 'Data' }, // TODO: Re-enable when Data tab is ready
         ];
 
@@ -354,12 +345,6 @@ export class SettingsView extends PluginSettingTab {
                 break;
             case 'apps':
                 this.renderAppsTab(pane, state, services);
-                break;
-            case 'embeddings':
-                this.renderEmbeddingsTab(pane);
-                break;
-            case 'connections':
-                this.renderConnectionsTab(pane);
                 break;
             // case 'data': // TODO: Re-enable when Data tab is ready
             //     this.renderDataTab(pane);
@@ -524,33 +509,6 @@ export class SettingsView extends PluginSettingTab {
                 appManager: this.appManager,
             }
         );
-    }
-
-    /**
-     * Render Embeddings tab content
-     */
-    private renderEmbeddingsTab(container: HTMLElement): void {
-        this.embeddingsTab?.destroy();
-        // Get EmbeddingManager via pluginLifecycleManager if available
-        const embeddingManager: EmbeddingManager | null =
-            (this.pluginLifecycleManager && typeof this.pluginLifecycleManager.getEmbeddingManager === 'function')
-                ? this.pluginLifecycleManager.getEmbeddingManager()
-                : null;
-
-        this.embeddingsTab = new EmbeddingsTab(container, this.router, { embeddingManager, settings: this.settingsManager });
-    }
-
-    /**
-     * Render Connections tab content
-     */
-    private renderConnectionsTab(container: HTMLElement): void {
-        this.connectionsTab?.destroy();
-        const embeddingManager: EmbeddingManager | null =
-            (this.pluginLifecycleManager && typeof this.pluginLifecycleManager.getEmbeddingManager === 'function')
-                ? this.pluginLifecycleManager.getEmbeddingManager()
-                : null;
-
-        this.connectionsTab = new ConnectionsTab(container, this.router, { app: this.app, embeddingManager, settings: this.settingsManager });
     }
 
     // TODO: Re-enable when Data tab is ready

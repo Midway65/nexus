@@ -16,7 +16,6 @@ import { MaintenanceCommandManager } from './commands/MaintenanceCommandManager'
 import { InlineEditCommandManager } from './commands/InlineEditCommandManager';
 import { ChatUIManager } from './ui/ChatUIManager';
 import { TaskBoardUIManager } from './ui/TaskBoardUIManager';
-import { SemanticPanelUIManager } from './ui/SemanticPanelUIManager';
 import { BackgroundProcessor } from './background/BackgroundProcessor';
 import { SettingsTabManager } from './settings/SettingsTabManager';
 import { EmbeddingManager } from '../services/embeddings/EmbeddingManager';
@@ -70,7 +69,6 @@ export class PluginLifecycleManager {
     private commandManager: MaintenanceCommandManager;
     private chatUIManager: ChatUIManager;
     private taskBoardUIManager: TaskBoardUIManager;
-    private semanticPanelUIManager: SemanticPanelUIManager;
     private backgroundProcessor: BackgroundProcessor;
     private settingsTabManager: SettingsTabManager;
     private inlineEditCommandManager: InlineEditCommandManager;
@@ -111,11 +109,6 @@ export class PluginLifecycleManager {
         });
 
         this.taskBoardUIManager = new TaskBoardUIManager({
-            plugin: config.plugin,
-            app: config.app
-        });
-
-        this.semanticPanelUIManager = new SemanticPanelUIManager({
             plugin: config.plugin,
             app: config.app
         });
@@ -172,7 +165,6 @@ export class PluginLifecycleManager {
             // PHASE 3: Register ChatView EARLY so Obsidian can restore it during layout restoration
             await this.chatUIManager.registerViewEarly();
             await this.taskBoardUIManager.registerViewEarly();
-            await this.semanticPanelUIManager.registerViewEarly();
 
             // PHASE 4: Start background initialization via setTimeout(0)
             const bgInitTimer = setTimeout(() => {
@@ -218,7 +210,6 @@ export class PluginLifecycleManager {
 
             await this.chatUIManager.registerChatUI();
             await this.taskBoardUIManager.registerTaskBoardUI();
-            await this.semanticPanelUIManager.registerSemanticPanelUI();
 
             // Initialize settings tab AFTER business services are ready
             // This prevents race condition where settings tab tries to access agents before services are initialized
@@ -323,13 +314,6 @@ export class PluginLifecycleManager {
     }
 
     /**
-     * Expose SemanticPanelUIManager so ChatView can wire the Send-to-Chat callback
-     */
-    getSemanticPanelUIManager(): SemanticPanelUIManager {
-        return this.semanticPanelUIManager;
-    }
-
-    /**
      * Initialize embeddings when storage adapter becomes ready (called from background).
      * The storageAdapter.cache getter always returns the constructor-created sqliteCache,
      * so no waitForReady guard is needed here.
@@ -337,18 +321,12 @@ export class PluginLifecycleManager {
     private async initializeEmbeddingsWhenReady(storageAdapter: HybridStorageAdapter): Promise<void> {
         try {
             const enableEmbeddings = this.config.settings.settings.enableEmbeddings ?? true;
-            const huggingFaceToken = this.config.settings.settings.huggingFaceToken;
             this.embeddingManager = new EmbeddingManager(
                 this.config.app,
                 this.config.plugin,
                 storageAdapter.cache,
                 enableEmbeddings,
-                storageAdapter.messages,
-                huggingFaceToken,
-                () => [
-                    ...(this.config.settings.settings.indexingExcludedPatterns ?? []),
-                    ...(this.config.settings.settings.indexingExcludedPaths ?? []),
-                ]
+                storageAdapter.messages
             );
             this.embeddingManager.initialize();
             (this.config.plugin as PluginWithServices).embeddingManager = this.embeddingManager;

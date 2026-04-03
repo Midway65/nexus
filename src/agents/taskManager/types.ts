@@ -209,8 +209,6 @@ export interface UpdateTaskParameters extends CommonParameters {
   tags?: string[];
   addDependencies?: string[];
   removeDependencies?: string[];
-  addNoteLinks?: Array<{ notePath: string; linkType?: LinkType }>;
-  removeNoteLinks?: string[];
   metadata?: Record<string, unknown>;
 }
 

@@ -22,15 +22,11 @@
 
 import { App, Notice, Platform } from 'obsidian';
 import { EmbeddingEngine } from './EmbeddingEngine';
-import { EmbeddingRuntime, DEFAULT_EMBEDDING_MODEL_ID } from './EmbeddingRuntime';
 import { NoteEmbeddingService } from './NoteEmbeddingService';
 import { TraceEmbeddingService } from './TraceEmbeddingService';
 import { ConversationEmbeddingService } from './ConversationEmbeddingService';
 import type { QAPair } from './QAPairBuilder';
 import type { SQLiteCacheManager } from '../../database/storage/SQLiteCacheManager';
-
-// Re-export DEFAULT_EMBEDDING_MODEL_ID so callers don't need separate import
-export { DEFAULT_EMBEDDING_MODEL_ID };
 
 // Re-export types so existing callers importing from EmbeddingService still work
 export type { SimilarNote } from './NoteEmbeddingService';
@@ -46,7 +42,6 @@ export type { ConversationSearchResult } from './ConversationEmbeddingService';
  */
 export class EmbeddingService {
   private engine: EmbeddingEngine;
-  private runtime: EmbeddingRuntime;
   private isEnabled: boolean;
 
   private noteService: NoteEmbeddingService;
@@ -56,25 +51,21 @@ export class EmbeddingService {
   constructor(
     app: App,
     db: SQLiteCacheManager,
-    engine: EmbeddingEngine,
-    runtime?: EmbeddingRuntime
+    engine: EmbeddingEngine
   ) {
     this.engine = engine;
-    // Use provided runtime or create a default one (Nomic 768-dim)
-    this.runtime = runtime ?? new EmbeddingRuntime(DEFAULT_EMBEDDING_MODEL_ID);
 
     // Disable on mobile entirely
     this.isEnabled = !Platform.isMobile;
 
-    // NoteEmbeddingService uses EmbeddingRuntime (configurable model)
-    this.noteService = new NoteEmbeddingService(app, db, this.runtime);
-    // Trace and conversation services keep using EmbeddingEngine (MiniLM 384-dim)
+    // Create domain services
+    this.noteService = new NoteEmbeddingService(app, db, engine);
     this.traceService = new TraceEmbeddingService(db, engine);
     this.conversationService = new ConversationEmbeddingService(db, engine);
   }
 
   /**
-   * Initialize the service (loads embedding models)
+   * Initialize the service (loads embedding model)
    */
   async initialize(): Promise<void> {
     if (!this.isEnabled) {
@@ -82,39 +73,12 @@ export class EmbeddingService {
     }
 
     try {
-      // Initialize both the legacy engine (traces/conversations) and the new runtime (notes)
-      await Promise.all([
-        this.engine.initialize(),
-        this.runtime.initialize(),
-      ]);
+      await this.engine.initialize();
     } catch (error) {
       console.error('[EmbeddingService] Initialization failed:', error);
       new Notice('Failed to load embedding model. Vector search will be unavailable.');
       this.isEnabled = false;
     }
-  }
-
-  /**
-   * Expose the note embedding service for direct access by the semantic panel.
-   */
-  getNoteEmbeddingService(): NoteEmbeddingService {
-    return this.noteService;
-  }
-
-  /**
-   * Expose the active EmbeddingRuntime for diagnostics and coordinator wiring.
-   */
-  getRuntime(): EmbeddingRuntime {
-    return this.runtime;
-  }
-
-  /**
-   * Hot-swap the note embedding runtime.
-   * Caller is responsible for disposing the old runtime and initializing the new one.
-   */
-  switchRuntime(newRuntime: EmbeddingRuntime): void {
-    this.runtime = newRuntime;
-    this.noteService.switchRuntime(newRuntime);
   }
 
   // ==================== NOTE EMBEDDINGS ====================
@@ -129,22 +93,19 @@ export class EmbeddingService {
     return this.noteService.findSimilarNotes(notePath, limit);
   }
 
-  /** @deprecated Use getNoteEmbeddingService().semanticSearchNotes() for new code. */
   async semanticSearch(query: string, limit = 10) {
     if (!this.isEnabled) return [];
-    return this.noteService.semanticSearchNotes(query, limit);
+    return this.noteService.semanticSearch(query, limit);
   }
 
-  /** @deprecated Use getNoteEmbeddingService().removeNote() for new code. */
   async removeEmbedding(notePath: string): Promise<void> {
     if (!this.isEnabled) return;
-    return this.noteService.removeNote(notePath);
+    return this.noteService.removeEmbedding(notePath);
   }
 
-  /** @deprecated Use getNoteEmbeddingService().renameNote() for new code. */
   async updatePath(oldPath: string, newPath: string): Promise<void> {
     if (!this.isEnabled) return;
-    return this.noteService.renameNote(oldPath, newPath);
+    return this.noteService.updatePath(oldPath, newPath);
   }
 
   // ==================== TRACE EMBEDDINGS ====================
@@ -223,12 +184,11 @@ export class EmbeddingService {
     }
 
     try {
-      const [noteStats, traceCount, conversationChunkCount] = await Promise.all([
-        this.noteService.getIndexStats(),
+      const [noteCount, traceCount, conversationChunkCount] = await Promise.all([
+        this.noteService.getNoteStats(),
         this.traceService.getTraceStats(),
         this.conversationService.getConversationStats(),
       ]);
-      const noteCount = noteStats.noteCount;
 
       return { noteCount, traceCount, conversationChunkCount };
     } catch (error) {

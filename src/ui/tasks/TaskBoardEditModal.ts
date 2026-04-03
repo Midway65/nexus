@@ -1,8 +1,5 @@
 import { ButtonComponent, DropdownComponent, Modal, Notice, TextAreaComponent, TextComponent } from 'obsidian';
-import type { App, TFile } from 'obsidian';
-import type { NoteLink } from '../../database/repositories/interfaces/ITaskRepository';
-import type { EmbeddingService } from '../../services/embeddings/EmbeddingService';
-import { NoteInputSuggester } from './NoteInputSuggester';
+import type { App } from 'obsidian';
 
 export interface TaskBoardProjectOption {
   id: string;
@@ -27,14 +24,12 @@ export interface TaskBoardEditableTask {
   assignee: string;
   tags: string;
   parentTaskId: string;
-  noteLinks: NoteLink[];
 }
 
 interface TaskBoardEditModalOptions {
   task: TaskBoardEditableTask;
   projects: TaskBoardProjectOption[];
   parentTasks: TaskBoardParentTaskOption[];
-  embeddingService?: EmbeddingService;
   onSave: (task: TaskBoardEditableTask) => Promise<void>;
   onClose?: () => void;
 }
@@ -42,7 +37,6 @@ interface TaskBoardEditModalOptions {
 export class TaskBoardEditModal extends Modal {
   private draft: TaskBoardEditableTask;
   private parentTaskDropdown: DropdownComponent | null = null;
-  private noteSuggesters: NoteInputSuggester[] = [];
   private isSaving = false;
 
   constructor(app: App, private options: TaskBoardEditModalOptions) {
@@ -135,9 +129,6 @@ export class TaskBoardEditModal extends Modal {
     tagsInput.setValue(this.draft.tags);
     tagsInput.onChange((value) => { this.draft.tags = value; });
 
-    // Linked notes
-    this.renderLinkedNotesSection(details);
-
     // Actions
     const actions = contentEl.createDiv('nexus-form-actions');
 
@@ -156,8 +147,6 @@ export class TaskBoardEditModal extends Modal {
   }
 
   onClose(): void {
-    this.noteSuggesters.forEach(s => s.close());
-    this.noteSuggesters = [];
     this.options.onClose?.();
   }
 
@@ -173,9 +162,8 @@ export class TaskBoardEditModal extends Modal {
 
     this.parentTaskDropdown.addOption('', 'None');
     const options = this.getParentTaskOptionsForProject(this.draft.projectId);
-    const parentTaskDropdown = this.parentTaskDropdown;
     options.forEach(task => {
-      parentTaskDropdown.addOption(task.id, task.title);
+      this.parentTaskDropdown!.addOption(task.id, task.title);
     });
     this.parentTaskDropdown.setValue(this.draft.parentTaskId);
   }
@@ -194,13 +182,9 @@ export class TaskBoardEditModal extends Modal {
     if (includeEmpty && !options.some(([optionValue]) => optionValue === '')) {
       dropdown.addOption('', 'None');
     }
-    for (const [optionValue, optionLabel] of options) {
-      dropdown.addOption(optionValue, optionLabel);
-    }
+    options.forEach(([optionValue, optionLabel]) => dropdown.addOption(optionValue, optionLabel));
     dropdown.setValue(value || '');
-    dropdown.onChange((nextValue) => {
-      void onChange(nextValue);
-    });
+    dropdown.onChange(onChange);
   }
 
   private renderTextField(
@@ -215,9 +199,7 @@ export class TaskBoardEditModal extends Modal {
     const input = new TextComponent(field);
     if (placeholder) input.setPlaceholder(placeholder);
     input.setValue(value);
-    input.onChange((nextValue) => {
-      void onChange(nextValue);
-    });
+    input.onChange(onChange);
   }
 
   private renderDateField(
@@ -234,82 +216,8 @@ export class TaskBoardEditModal extends Modal {
     });
     input.value = value;
     input.addEventListener('input', () => {
-      void onChange(input.value);
+      onChange(input.value);
     });
-  }
-
-  private renderLinkedNotesSection(container: HTMLElement): void {
-    const subsection = container.createDiv('nexus-form-field');
-    subsection.createEl('label', { text: 'Linked notes', cls: 'nexus-form-label' });
-
-    const listContainer = subsection.createDiv('nexus-item-list');
-
-    const updateList = () => {
-      this.noteSuggesters.forEach(s => s.close());
-      this.noteSuggesters = [];
-      listContainer.empty();
-
-      if (this.draft.noteLinks.length === 0) {
-        listContainer.createEl('span', { text: 'None', cls: 'nexus-form-hint' });
-      } else {
-        this.draft.noteLinks.forEach((link, index) => {
-          const item = listContainer.createDiv('nexus-item-row');
-
-          const input = new TextComponent(item);
-          input.setPlaceholder('path/to/note.md');
-          input.setValue(link.notePath);
-          input.onChange((value) => {
-            this.draft.noteLinks[index] = { ...this.draft.noteLinks[index], notePath: value };
-          });
-
-          const suggester = new NoteInputSuggester(
-            this.app,
-            input.inputEl,
-            this.options.embeddingService ?? null,
-            (file: TFile) => {
-              this.draft.noteLinks[index] = { ...this.draft.noteLinks[index], notePath: file.path };
-            }
-          );
-          this.noteSuggesters.push(suggester);
-
-          const actions = item.createDiv('nexus-item-actions');
-
-          const typeDropdown = new DropdownComponent(actions);
-          typeDropdown.addOption('reference', 'Reference');
-          typeDropdown.addOption('input', 'Input');
-          typeDropdown.addOption('output', 'Output');
-          typeDropdown.setValue(link.linkType || 'reference');
-          typeDropdown.onChange((value) => {
-            this.draft.noteLinks[index] = {
-              ...this.draft.noteLinks[index],
-              linkType: value as NoteLink['linkType']
-            };
-          });
-
-          new ButtonComponent(actions)
-            .setButtonText('×')
-            .setWarning()
-            .onClick(() => {
-              this.draft.noteLinks.splice(index, 1);
-              updateList();
-            });
-        });
-      }
-    };
-
-    updateList();
-
-    new ButtonComponent(subsection)
-      .setButtonText('Add note link')
-      .onClick(() => {
-        this.draft.noteLinks.push({
-          taskId: this.draft.id,
-          notePath: '',
-          linkType: 'reference',
-          created: Date.now()
-        });
-        updateList();
-      });
   }
 
   private async handleSave(): Promise<void> {

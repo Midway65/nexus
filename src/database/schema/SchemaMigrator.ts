@@ -73,7 +73,7 @@ export interface MigratableDatabase {
 // Alias for backward compatibility
 type Database = MigratableDatabase;
 
-export const CURRENT_SCHEMA_VERSION = 16;
+export const CURRENT_SCHEMA_VERSION = 12;
 
 export interface Migration {
   version: number;
@@ -404,134 +404,16 @@ export const MIGRATIONS: Migration[] = [
       'CREATE INDEX IF NOT EXISTS idx_workspaces_archived ON workspaces(isArchived)'
     ]
   },
-
-  // Version 11 -> 12: Plan 04 — Semantic database with multi-model support and optional block indexing.
-  //
-  // CRITICAL: note_embeddings and embedding_metadata already exist at float[384] (MiniLM).
-  // Vec0 virtual tables CANNOT be ALTER TABLE'd to change dimensions — DROP+recreate is the
-  // only safe path. We also add block_embeddings, block_embedding_metadata, and embedding_config.
-  // The default dimension is 768 for nomic-embed-text-v1.5. Existing note embeddings are wiped
-  // (model change always requires rebuild — see Plan 04 Architecture Decisions).
   {
     version: 12,
-    description: 'Plan 04: Semantic database upgrade — multi-model note+block embeddings with embedding_config',
+    description: 'Remove semantic panel tables (Plan 04/05 feature removed)',
     sql: [
-      // Drop existing 384-dim note embedding tables (cannot ALTER vec0 dimension)
-      'DROP TABLE IF EXISTS embedding_metadata',
-      'DROP TABLE IF EXISTS note_embeddings',
-
-      // Recreate at 768-dim (nomic-embed-text-v1.5 default)
-      `CREATE VIRTUAL TABLE note_embeddings USING vec0(
-        embedding float[768]
-      )`,
-
-      `CREATE TABLE embedding_metadata (
-        rowid       INTEGER PRIMARY KEY,
-        notePath    TEXT NOT NULL UNIQUE,
-        contentHash TEXT NOT NULL,
-        model       TEXT NOT NULL,
-        dimension   INTEGER NOT NULL,
-        created     INTEGER NOT NULL,
-        updated     INTEGER NOT NULL
-      )`,
-
-      `CREATE INDEX IF NOT EXISTS idx_embed_meta_notePath ON embedding_metadata(notePath)`,
-      `CREATE INDEX IF NOT EXISTS idx_embed_meta_updated ON embedding_metadata(updated)`,
-
-      // Block embeddings (optional layer — enabled/disabled via embedding_config)
-      `CREATE VIRTUAL TABLE IF NOT EXISTS block_embeddings USING vec0(
-        embedding float[768]
-      )`,
-
-      `CREATE TABLE IF NOT EXISTS block_embedding_metadata (
-        rowid          INTEGER PRIMARY KEY,
-        notePath       TEXT NOT NULL,
-        chunkIndex     INTEGER NOT NULL,
-        heading        TEXT,
-        charOffset     INTEGER NOT NULL,
-        contentHash    TEXT NOT NULL,
-        contentPreview TEXT,
-        model          TEXT NOT NULL,
-        dimension      INTEGER NOT NULL,
-        created        INTEGER NOT NULL,
-        updated        INTEGER NOT NULL,
-        UNIQUE(notePath, chunkIndex)
-      )`,
-
-      `CREATE INDEX IF NOT EXISTS idx_block_embed_meta_notePath ON block_embedding_metadata(notePath)`,
-      `CREATE INDEX IF NOT EXISTS idx_block_embed_meta_note_chunk ON block_embedding_metadata(notePath, chunkIndex)`,
-
-      // Embedding configuration store
-      `CREATE TABLE IF NOT EXISTS embedding_config (
-        key   TEXT PRIMARY KEY,
-        value TEXT NOT NULL
-      )`,
-
-      // Seed config with defaults for new installs
-      `INSERT OR IGNORE INTO embedding_config(key, value) VALUES ('activeModel', 'Xenova/nomic-embed-text-v1.5')`,
-      `INSERT OR IGNORE INTO embedding_config(key, value) VALUES ('activeDimension', '768')`,
-      `INSERT OR IGNORE INTO embedding_config(key, value) VALUES ('blockIndexingEnabled', 'false')`,
-      `INSERT OR IGNORE INTO embedding_config(key, value) VALUES ('blockIndexStale', 'false')`,
-    ]
-  },
-
-  // Version 12 -> 13: Plan 05 — Semantic panel pin/hide feedback table.
-  {
-    version: 13,
-
-    description: 'Plan 05: Add semantic_feedback table for pin/hide curation in the semantic panel',
-    sql: [
-      `CREATE TABLE IF NOT EXISTS semantic_feedback (
-        sourceNotePath TEXT NOT NULL,
-        targetNotePath TEXT NOT NULL,
-        state          TEXT NOT NULL CHECK(state IN ('pinned', 'hidden')),
-        createdAt      INTEGER NOT NULL,
-        PRIMARY KEY (sourceNotePath, targetNotePath, state)
-      )`,
-      `CREATE INDEX IF NOT EXISTS idx_semantic_feedback_source ON semantic_feedback(sourceNotePath)`,
-      `CREATE INDEX IF NOT EXISTS idx_semantic_feedback_state ON semantic_feedback(sourceNotePath, state)`,
-    ]
-  },
-
-  // Version 13 -> 14: Switch default embedding model from nomic-embed-text-v1.5 (768-dim, gated)
-  // to all-MiniLM-L6-v2 (384-dim, fully public). Existing vec0 tables must be dropped and
-  // recreated because sqlite-vec float[N] dimensions cannot be changed via ALTER TABLE.
-  {
-    version: 14,
-    description: 'Switch default embedding model to MiniLM-L6-v2 (384-dim, public)',
-    sql: [
-      // Recreate vec0 tables at 384-dim
-      'DROP TABLE IF EXISTS note_embeddings',
-      `CREATE VIRTUAL TABLE note_embeddings USING vec0(embedding float[384])`,
+      'DROP TABLE IF EXISTS semantic_feedback',
+      'DROP TABLE IF EXISTS block_embedding_metadata',
       'DROP TABLE IF EXISTS block_embeddings',
-      `CREATE VIRTUAL TABLE block_embeddings USING vec0(embedding float[384])`,
-      // Clear metadata (rowid links to now-dropped vec0 rows)
-      'DELETE FROM embedding_metadata',
-      'DELETE FROM block_embedding_metadata',
-      // Update config to MiniLM defaults
-      `UPDATE embedding_config SET value = 'Xenova/all-MiniLM-L6-v2' WHERE key = 'activeModel'`,
-      `UPDATE embedding_config SET value = '384' WHERE key = 'activeDimension'`,
-      `UPDATE embedding_config SET value = 'false' WHERE key = 'blockIndexStale'`,
-    ]
-  },
-
-  // Version 14 -> 15: Add mtime column to embedding_metadata for fast startup reconciliation.
-  // Storing the file's last-modified timestamp allows embedNote() to skip vault.read() + hash
-  // computation + model inference for notes whose mtime hasn't changed since the last index run.
-  // Existing rows get mtime=0 (never matches a real mtime), so they re-embed once on next
-  // reconcile and populate the real mtime for all future runs.
-  {
-    version: 15,
-    description: 'Add mtime column to embedding_metadata for mtime-based early exit in embedNote()',
-    sql: [
-      'ALTER TABLE embedding_metadata ADD COLUMN mtime INTEGER NOT NULL DEFAULT 0',
-    ]
-  },
-  {
-    version: 16,
-    description: 'Add minIndexLength config key for minimum content length threshold',
-    sql: [
-      `INSERT OR IGNORE INTO embedding_config(key, value) VALUES ('minIndexLength', '50')`,
+      'DROP TABLE IF EXISTS embedding_config',
+      // note_embeddings and embedding_metadata stay — upstream schema uses them
+      // at float[384] for conversation/trace embeddings
     ]
   },
 ];
@@ -589,22 +471,10 @@ export class SchemaMigrator {
     }
   }
 
-  private static readonly KNOWN_TABLES = new Set([
-    'schema_version', 'workspaces', 'sessions', 'states', 'memory_traces',
-    'conversations', 'messages', 'sync_state', 'applied_events',
-    'embedding_metadata', 'trace_embedding_metadata', 'custom_prompts',
-    'conversation_embedding_metadata', 'embedding_backfill_state',
-    'projects', 'tasks', 'task_dependencies', 'task_note_links'
-  ]);
-
   /**
    * Check if a column exists in a table
    */
   private columnExists(tableName: string, columnName: string): boolean {
-    if (!SchemaMigrator.KNOWN_TABLES.has(tableName)) {
-      console.error(`[SchemaMigrator] Refusing PRAGMA for unknown table: ${tableName}`);
-      return false;
-    }
     try {
       const result = this.db.exec(`PRAGMA table_info(${tableName})`);
 

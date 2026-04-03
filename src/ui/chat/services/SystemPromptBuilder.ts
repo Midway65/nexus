@@ -98,8 +98,6 @@ export interface SystemPromptOptions {
   legacyCompactionRecord?: CompactedContext | null;
   // Legacy alias retained for compatibility with older tests/call sites.
   previousContext?: CompactedContext | null;
-  // Pre-built vault context block from semantic search (injected when connectionsAutoInjectContext is on)
-  vaultContext?: string | null;
 }
 
 export class SystemPromptBuilder {
@@ -190,11 +188,6 @@ export class SystemPromptBuilder {
     );
     if (workspaceSection) {
       sections.push(workspaceSection);
-    }
-
-    // 9. Semantic vault context (related notes auto-injected by ConnectionsService)
-    if (options.vaultContext) {
-      sections.push(options.vaultContext);
     }
 
     return sections.length > 0 ? sections.join('\n') : null;
