@@ -8360,14 +8360,19 @@ body.is-mobile .nexus-task-board-shell {
     justify-content: center;
 }
 
-.semantic-result-title {
+.semantic-result-text {
     flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+}
+
+.semantic-result-title {
     font-size: var(--font-ui-small);
     color: var(--text-normal);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-    min-width: 0;
 }
 
 .semantic-result-subtitle {
@@ -8376,8 +8381,6 @@ body.is-mobile .nexus-task-board-shell {
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-    max-width: 30%;
-    flex-shrink: 0;
 }
 
 .semantic-result-score {

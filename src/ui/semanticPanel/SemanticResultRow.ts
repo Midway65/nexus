@@ -95,8 +95,10 @@ export class SemanticResultRow {
       setIcon(pinEl, 'pin');
     }
 
-    // Title
-    const titleEl = header.createEl('span', { cls: 'semantic-result-title' });
+    // Text column: title and subtitle stacked vertically
+    const textCol = header.createDiv('semantic-result-text');
+
+    const titleEl = textCol.createEl('span', { cls: 'semantic-result-title' });
     titleEl.textContent = this.opts.result.title;
 
     // Subtitle: always show parent folder as breadcrumb; include heading for blocks.
@@ -108,14 +110,14 @@ export class SemanticResultRow {
       const folderPath = this.opts.showFullPath
         ? folderParts.join(' › ')
         : folderParts[folderParts.length - 1];
-      const subtitleEl = header.createEl('span', { cls: 'semantic-result-subtitle' });
+      const subtitleEl = textCol.createEl('span', { cls: 'semantic-result-subtitle' });
       if (this.opts.result.kind === 'block' && this.opts.result.heading) {
         subtitleEl.textContent = `${this.opts.result.heading} · ${folderPath}`;
       } else {
         subtitleEl.textContent = folderPath;
       }
     } else if (this.opts.result.kind === 'block' && this.opts.result.heading) {
-      const subtitleEl = header.createEl('span', { cls: 'semantic-result-subtitle' });
+      const subtitleEl = textCol.createEl('span', { cls: 'semantic-result-subtitle' });
       subtitleEl.textContent = this.opts.result.heading;
     }
 
