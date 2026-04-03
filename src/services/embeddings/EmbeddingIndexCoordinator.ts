@@ -46,6 +46,10 @@ export class EmbeddingIndexCoordinator extends Component {
   private eventListeners = new Map<IndexEventType, Array<(data: unknown) => void>>();
   private isShuttingDown = false;
 
+  // Batch size for GPU inference. 16 notes per forward pass strikes a balance between
+  // GPU utilisation (larger = better) and memory pressure / pause responsiveness.
+  private readonly EMBED_BATCH_SIZE = 16;
+
   // Operation state — queried by EmbeddingsTab when it re-renders mid-operation
   private runningOperation: 'refresh' | 'rebuild' | null = null;
   private lastProgressData: IndexProgressEvent | null = null;
@@ -209,29 +213,40 @@ export class EmbeddingIndexCoordinator extends Component {
       const files = this.app.vault.getMarkdownFiles();
       const livePaths = new Set(files.map(f => f.path));
 
+      let batch: string[] = [];
+
+      const flushBatch = async (): Promise<boolean> => {
+        if (batch.length === 0) return true;
+        const paths = batch;
+        batch = [];
+        try {
+          await this.noteEmbeddingService.embedNoteBatch(paths);
+        } catch (err) {
+          if (this.isModelError(err)) {
+            new Notice(this.modelErrorMessage(err), 10000);
+            return false; // Signal abort
+          }
+          console.error('[EmbeddingIndexCoordinator] Batch embed failed:', err);
+        }
+        return true;
+      };
+
       for (let i = 0; i < files.length; i++) {
-        // Abort if shutdown or if a manual refresh/rebuild has taken over
-        if (this.isShuttingDown || this.abortRequested) return;
+        if (this.isShuttingDown || this.abortRequested) {
+          return; // Drop current batch — notes will be picked up by the next operation
+        }
         const path = files[i].path;
 
         if (!this.exclusions.shouldIndex(path)) {
           await this.noteEmbeddingService.removeNote(path);
         } else {
-          try {
-            await this.noteEmbeddingService.embedNote(path);
-          } catch (err) {
-            if (this.isModelError(err)) {
-              new Notice(this.modelErrorMessage(err), 10000);
-              return; // Abort — all remaining notes would fail the same way
-            }
-            console.error(`[EmbeddingIndexCoordinator] Failed to embed ${path}:`, err);
+          batch.push(path);
+          if (batch.length >= this.EMBED_BATCH_SIZE) {
+            if (!await flushBatch()) return;
           }
         }
 
-        // Yield to event loop every 50 files (each note takes 10–100 ms; yielding every 10 was excessive)
-        if (i % 50 === 0) {
-          await new Promise(r => setTimeout(r, 0));
-        }
+        if (i % 50 === 0) await new Promise(r => setTimeout(r, 0));
 
         this.emit('embedding:reconcile-progress', {
           current: i + 1,
@@ -239,6 +254,8 @@ export class EmbeddingIndexCoordinator extends Component {
           phase: 'reconcile',
         });
       }
+
+      if (!await flushBatch()) return;
 
       if (this.abortRequested) return;
 
@@ -287,18 +304,28 @@ export class EmbeddingIndexCoordinator extends Component {
     this.lastOperationAborted = false;
     try {
       const files = this.app.vault.getMarkdownFiles();
+      let batch: string[] = [];
+
+      const flushBatch = async (): Promise<void> => {
+        if (batch.length === 0) return;
+        const paths = batch;
+        batch = [];
+        try {
+          await this.noteEmbeddingService.embedNoteBatch(paths);
+        } catch (err) {
+          if (this.isModelError(err)) throw err; // Let button handler surface it
+          console.error('[EmbeddingIndexCoordinator] Batch embed failed:', err);
+        }
+      };
+
       for (let i = 0; i < files.length; i++) {
         if (this.isShuttingDown || this.abortRequested) break;
         await this.waitWhilePaused();
         if (this.abortRequested) break;
 
         if (this.exclusions.shouldIndex(files[i].path)) {
-          try {
-            await this.noteEmbeddingService.embedNote(files[i].path);
-          } catch (err) {
-            if (this.isModelError(err)) throw err; // Let button handler surface it
-            console.error(`[EmbeddingIndexCoordinator] Failed to embed ${files[i].path}:`, err);
-          }
+          batch.push(files[i].path);
+          if (batch.length >= this.EMBED_BATCH_SIZE) await flushBatch();
         }
         if (i % 50 === 0) await new Promise(r => setTimeout(r, 0));
         this.emit('embedding:reconcile-progress', {
@@ -307,6 +334,7 @@ export class EmbeddingIndexCoordinator extends Component {
           phase: 'refresh',
         });
       }
+      if (!this.abortRequested) await flushBatch();
       if (!this.abortRequested) this.emit('embedding:reconcile-complete', undefined);
     } finally {
       this.lastOperationAborted = this.abortRequested;
@@ -327,18 +355,28 @@ export class EmbeddingIndexCoordinator extends Component {
       this.emit('embedding:rebuild-start', undefined);
       await this.noteEmbeddingService.clearAllEmbeddings();
       const files = this.app.vault.getMarkdownFiles();
+      let batch: string[] = [];
+
+      const flushBatch = async (): Promise<void> => {
+        if (batch.length === 0) return;
+        const paths = batch;
+        batch = [];
+        try {
+          await this.noteEmbeddingService.embedNoteBatch(paths);
+        } catch (err) {
+          if (this.isModelError(err)) throw err; // Let button handler surface it
+          console.error('[EmbeddingIndexCoordinator] Batch embed failed:', err);
+        }
+      };
+
       for (let i = 0; i < files.length; i++) {
         if (this.isShuttingDown || this.abortRequested) break;
         await this.waitWhilePaused();
         if (this.abortRequested) break;
 
         if (this.exclusions.shouldIndex(files[i].path)) {
-          try {
-            await this.noteEmbeddingService.embedNote(files[i].path);
-          } catch (err) {
-            if (this.isModelError(err)) throw err; // Let button handler surface it
-            console.error(`[EmbeddingIndexCoordinator] Failed to embed ${files[i].path}:`, err);
-          }
+          batch.push(files[i].path);
+          if (batch.length >= this.EMBED_BATCH_SIZE) await flushBatch();
         }
         if (i % 50 === 0) await new Promise(r => setTimeout(r, 0));
         this.emit('embedding:reconcile-progress', {
@@ -347,6 +385,7 @@ export class EmbeddingIndexCoordinator extends Component {
           phase: 'rebuild',
         });
       }
+      if (!this.abortRequested) await flushBatch();
       if (!this.abortRequested) this.emit('embedding:rebuild-complete', undefined);
     } finally {
       this.lastOperationAborted = this.abortRequested;

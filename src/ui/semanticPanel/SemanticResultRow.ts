@@ -16,7 +16,7 @@
  * Feedback: context menu for pin/hide.
  */
 
-import { App, Menu, setIcon, TFile } from 'obsidian';
+import { App, Menu, Notice, setIcon, TFile } from 'obsidian';
 import type { SimilarNote, SimilarBlock } from '../../services/embeddings/NoteEmbeddingService';
 import type { SemanticContextPayload } from './SemanticPanelView';
 import type { SemanticFeedbackService } from './SemanticFeedbackService';
@@ -42,6 +42,7 @@ export interface SemanticResultRowOptions {
   onExpand?: () => void; // called when this row expands (for single-expand enforcement)
   onRefresh?: () => void; // called after pin/hide so the panel re-runs the feedback pipeline
   isPinned?: boolean;
+  isHidden?: boolean;
   onSelectionChange: ((path: string, selected: boolean) => void) | null;
 }
 
@@ -98,13 +99,24 @@ export class SemanticResultRow {
     const titleEl = header.createEl('span', { cls: 'semantic-result-title' });
     titleEl.textContent = this.opts.result.title;
 
-    // Subtitle (heading for blocks, path if showFullPath)
-    if (this.opts.result.kind === 'block' && this.opts.result.heading) {
+    // Subtitle: always show parent folder as breadcrumb; include heading for blocks.
+    // showFullPath=false (default): immediate parent folder only.
+    // showFullPath=true: full ancestry chain (all parent segments).
+    const pathParts = this.opts.result.notePath.split('/');
+    if (pathParts.length > 1) {
+      const folderParts = pathParts.slice(0, -1);
+      const folderPath = this.opts.showFullPath
+        ? folderParts.join(' › ')
+        : folderParts[folderParts.length - 1];
+      const subtitleEl = header.createEl('span', { cls: 'semantic-result-subtitle' });
+      if (this.opts.result.kind === 'block' && this.opts.result.heading) {
+        subtitleEl.textContent = `${this.opts.result.heading} · ${folderPath}`;
+      } else {
+        subtitleEl.textContent = folderPath;
+      }
+    } else if (this.opts.result.kind === 'block' && this.opts.result.heading) {
       const subtitleEl = header.createEl('span', { cls: 'semantic-result-subtitle' });
       subtitleEl.textContent = this.opts.result.heading;
-    } else if (this.opts.showFullPath) {
-      const subtitleEl = header.createEl('span', { cls: 'semantic-result-subtitle' });
-      subtitleEl.textContent = this.opts.result.notePath;
     }
 
     // Score badge
@@ -387,27 +399,56 @@ export class SemanticResultRow {
   private showContextMenu(anchor: HTMLElement): void {
     const menu = new Menu();
 
+    // Pin / Unpin toggle
+    if (this.opts.isPinned) {
+      menu.addItem(item => {
+        item.setTitle('Unpin result').setIcon('pin-off').onClick(async () => {
+          if (!this.opts.sourceNotePath || !this.opts.feedbackService) return;
+          await this.opts.feedbackService.removeFeedback(
+            this.opts.sourceNotePath,
+            this.opts.result.notePath,
+            'pinned'
+          );
+          this.opts.onRefresh?.();
+        });
+      });
+    } else {
+      menu.addItem(item => {
+        item.setTitle('Pin result').setIcon('pin').onClick(async () => {
+          if (!this.opts.sourceNotePath || !this.opts.feedbackService) return;
+          await this.opts.feedbackService!.setFeedback(
+            this.opts.sourceNotePath,
+            this.opts.result.notePath,
+            'pinned'
+          );
+          this.opts.onRefresh?.();
+        });
+      });
+    }
+
     menu.addItem(item => {
-      item.setTitle('Pin result').setIcon('pin').onClick(async () => {
+      item.setTitle('Hide result').setIcon('eye-off').onClick(async () => {
         if (!this.opts.sourceNotePath || !this.opts.feedbackService) return;
-        await this.opts.feedbackService.setFeedback(
+        await this.opts.feedbackService!.setFeedback(
           this.opts.sourceNotePath,
           this.opts.result.notePath,
-          'pinned'
+          'hidden'
         );
         this.opts.onRefresh?.();
       });
     });
 
+    menu.addSeparator();
+
+    // Copy as wikilink
     menu.addItem(item => {
-      item.setTitle('Hide result').setIcon('eye-off').onClick(async () => {
-        if (!this.opts.sourceNotePath || !this.opts.feedbackService) return;
-        await this.opts.feedbackService.setFeedback(
-          this.opts.sourceNotePath!,
-          this.opts.result.notePath,
-          'hidden'
-        );
-        this.opts.onRefresh?.();
+      item.setTitle('Copy as link').setIcon('copy').onClick(async () => {
+        const basename = this.opts.result.notePath.split('/').pop()?.replace(/\.md$/, '') ?? '';
+        const link = this.opts.result.kind === 'block' && this.opts.result.heading
+          ? `[[${basename}#${this.opts.result.heading}]]`
+          : `[[${basename}]]`;
+        await navigator.clipboard.writeText(link);
+        new Notice('Copied', 1500);
       });
     });
 

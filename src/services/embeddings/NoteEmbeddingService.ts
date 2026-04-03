@@ -208,6 +208,123 @@ export class NoteEmbeddingService {
     }
   }
 
+  /**
+   * Embed a batch of notes in one GPU forward pass.
+   *
+   * Phase 1 (sequential, fast): mtime check → read → preprocess → hash check.
+   *   Notes that pass all checks are collected into a list.
+   * Phase 2 (one call): runtime.embedDocuments() — all collected texts in one
+   *   forward pass. On WebGPU this parallelises across the full batch.
+   * Phase 3 (sequential, fast): store each result to DB.
+   *
+   * Notes that are unchanged, excluded by content rules, or fail phase 1 are
+   * handled exactly as embedNote() would handle them. The coordinator supplies
+   * paths that have already passed shouldIndex().
+   */
+  async embedNoteBatch(notePaths: string[]): Promise<void> {
+    if (notePaths.length === 0) return;
+
+    const config = await this.loadConfig();
+    const modelInfo = { id: this.runtime.currentModelId, dimensions: this.runtime.dimensions };
+
+    type PendingEmbed = {
+      path: string;
+      file: TFile;
+      processedContent: string;
+      contentHash: string;
+      fileMtime: number;
+      existing: { rowid: number; contentHash: string; mtime: number } | null;
+      rawContent: string;
+    };
+
+    // Phase 1: determine which notes need re-embedding
+    const toEmbed: PendingEmbed[] = [];
+
+    for (const notePath of notePaths) {
+      try {
+        const file = this.app.vault.getAbstractFileByPath(notePath);
+        if (!file || !(file instanceof TFile) || file.extension !== 'md') {
+          await this.removeNote(notePath);
+          continue;
+        }
+
+        const fileMtime = file.stat.mtime;
+        const existing = await this.db.queryOne<{ rowid: number; contentHash: string; mtime: number }>(
+          'SELECT rowid, contentHash, mtime FROM embedding_metadata WHERE notePath = ?',
+          [notePath]
+        );
+
+        if (existing && existing.mtime === fileMtime) continue; // Fast path: unchanged
+
+        const content = await this.app.vault.read(file);
+        const processedContent = preprocessContent(content, this.runtime.maxChars);
+        if (!processedContent || processedContent.length < config.minIndexLength) {
+          await this.removeNote(notePath);
+          continue;
+        }
+
+        const contentHash = hashContent(processedContent);
+        if (existing && existing.contentHash === contentHash) {
+          // mtime changed, content identical — update mtime only, no re-embed needed
+          const now = Date.now();
+          await this.db.run(
+            'UPDATE embedding_metadata SET mtime = ?, updated = ? WHERE rowid = ?',
+            [fileMtime, now, existing.rowid]
+          );
+          if (config.blockIndexingEnabled && !config.blockIndexStale) {
+            await this.embedNoteBlocks(notePath, content, file.basename);
+          }
+          continue;
+        }
+
+        toEmbed.push({ path: notePath, file, processedContent, contentHash, fileMtime, existing, rawContent: content });
+      } catch (error) {
+        console.error(`[NoteEmbeddingService] Pre-check failed for ${notePath}:`, error);
+      }
+    }
+
+    if (toEmbed.length === 0) return;
+
+    // Phase 2: single batch inference call — throws on model errors, which the
+    // coordinator catches and surfaces via isModelError().
+    const embeddings = await this.runtime.embedDocuments(toEmbed.map(n => n.processedContent));
+
+    // Phase 3: store results
+    for (let i = 0; i < toEmbed.length; i++) {
+      const { path: notePath, file, contentHash, fileMtime, existing, rawContent } = toEmbed[i];
+      try {
+        const embeddingBuffer = Buffer.from(embeddings[i].buffer);
+        const now = Date.now();
+
+        if (existing) {
+          await this.db.run(
+            'UPDATE note_embeddings SET embedding = ? WHERE rowid = ?',
+            [embeddingBuffer, existing.rowid]
+          );
+          await this.db.run(
+            'UPDATE embedding_metadata SET contentHash = ?, mtime = ?, updated = ?, model = ?, dimension = ? WHERE rowid = ?',
+            [contentHash, fileMtime, now, modelInfo.id, modelInfo.dimensions, existing.rowid]
+          );
+        } else {
+          await this.db.run('INSERT INTO note_embeddings(embedding) VALUES (?)', [embeddingBuffer]);
+          const result = await this.db.queryOne<{ id: number }>('SELECT last_insert_rowid() as id');
+          const rowid = result?.id ?? 0;
+          await this.db.run(
+            `INSERT INTO embedding_metadata(rowid, notePath, model, dimension, contentHash, mtime, created, updated)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+            [rowid, notePath, modelInfo.id, modelInfo.dimensions, contentHash, fileMtime, now, now]
+          );
+        }
+
+        if (config.blockIndexingEnabled && !config.blockIndexStale) {
+          await this.embedNoteBlocks(notePath, rawContent, file.basename);
+        }
+      } catch (error) {
+        console.error(`[NoteEmbeddingService] Failed to store embedding for ${notePath}:`, error);
+      }
+    }
+  }
+
   // ---------------------------------------------------------------------------
   // Block embedding upsert
   // ---------------------------------------------------------------------------

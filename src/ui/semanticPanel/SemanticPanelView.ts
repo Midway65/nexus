@@ -118,6 +118,7 @@ export class SemanticPanelView extends ItemView {
   // ---- DOM ----
   private headerEl: HTMLElement | null = null;
   private refreshBtnEl: HTMLElement | null = null;
+  private expandAllBtnEl: HTMLElement | null = null;
   private modeBarEl: HTMLElement | null = null;
   private notesBlocksToggleEl: HTMLElement | null = null;
   private searchInputEl: HTMLInputElement | null = null;
@@ -276,6 +277,18 @@ export class SemanticPanelView extends ItemView {
       this.setPanelMode(this.panelMode === 'search' ? 'browse' : 'search');
     });
 
+    // Expand All / Collapse All
+    const expandAllBtn = actions.createEl('button', { cls: 'semantic-panel-icon-btn' });
+    expandAllBtn.setAttribute('aria-label', 'Expand all results');
+    setIcon(expandAllBtn, 'unfold-vertical');
+    this.expandAllBtnEl = expandAllBtn;
+    this.registerDomEvent(expandAllBtn, 'click', () => {
+      const allExpanded = this.rows.length > 0 && this.rows.every(r => r.isExpanded);
+      this.rows.forEach(r => allExpanded ? r.collapse() : r.expand());
+      setIcon(expandAllBtn, allExpanded ? 'unfold-vertical' : 'fold-vertical');
+      expandAllBtn.setAttribute('aria-label', allExpanded ? 'Expand all results' : 'Collapse all results');
+    });
+
     // Refresh
     const refreshBtn = actions.createEl('button', { cls: 'semantic-panel-icon-btn' });
     refreshBtn.setAttribute('aria-label', 'Refresh');
@@ -296,8 +309,11 @@ export class SemanticPanelView extends ItemView {
     if (this.panelMode === 'browse') {
       const activeLabel = container.createEl('span', { cls: 'semantic-panel-active-note' });
       if (this.activeNotePath) {
-        const basename = this.activeNotePath.split('/').pop()?.replace(/\.md$/, '') ?? this.activeNotePath;
-        activeLabel.textContent = `Active: ${basename}`;
+        const parts = this.activeNotePath.replace(/\.md$/, '').split('/');
+        const basename = parts.pop() ?? '';
+        activeLabel.textContent = parts.length > 0
+          ? `${parts.join(' › ')} › ${basename}`
+          : basename;
         activeLabel.setAttribute('title', this.activeNotePath);
       } else {
         activeLabel.textContent = 'No active note';
@@ -819,6 +835,12 @@ export class SemanticPanelView extends ItemView {
     this.selectedPaths.clear();
     this.resultsEl?.removeClass('has-selection');
 
+    // Reset expand-all button to default state when new results are rendered
+    if (this.expandAllBtnEl) {
+      setIcon(this.expandAllBtnEl, 'unfold-vertical');
+      this.expandAllBtnEl.setAttribute('aria-label', 'Expand all results');
+    }
+
     if (results.length === 0) {
       this.renderEmptyState(this.panelMode === 'browse' ? 'no-results-browse' : 'no-results-search');
       this.footerEl.empty();
@@ -1213,7 +1235,7 @@ export class SemanticPanelView extends ItemView {
     });
 
     menu.addItem(item => {
-      item.setTitle(`Show full path: ${this.settings.showFullPath ? 'On' : 'Off'}`)
+      item.setTitle(`Show full folder path: ${this.settings.showFullPath ? 'On' : 'Off'}`)
         .setChecked(this.settings.showFullPath)
         .onClick(() => {
           this.settings.showFullPath = !this.settings.showFullPath;

@@ -567,9 +567,29 @@ export class EmbeddingRuntime {
     }
 
     async function embedBatch(texts) {
+      if (!extractor) throw new Error('Model not initialized');
+      if (texts.length === 0) return [];
+      const truncated = texts.map(t => t.length > 30000 ? t.slice(0, 30000) : t);
+      // True batch inference: pass all texts in one forward pass.
+      // On WebGPU/WebNN the GPU processes the full batch in parallel.
+      // output.dims = [N, dim]; output.data is a flat Float32Array of length N*dim.
+      const output = await extractor(truncated, {
+        pooling: MEAN_POOL ? 'mean' : 'cls',
+        normalize: NORMALIZE
+      });
+      // Guard: output must be [N, dim] shaped. Fall back to sequential embed()
+      // if the pipeline returns an unexpected shape (e.g. WebGPU driver quirk).
+      if (!output.dims || output.dims.length < 2 || output.dims[0] !== truncated.length) {
+        const results = [];
+        for (const text of truncated) {
+          results.push(await embed(text));
+        }
+        return results;
+      }
+      const dim = output.dims[1];
       const results = [];
-      for (const text of texts) {
-        results.push(await embed(text));
+      for (let i = 0; i < truncated.length; i++) {
+        results.push(Array.from(output.data.slice(i * dim, (i + 1) * dim)));
       }
       return results;
     }
