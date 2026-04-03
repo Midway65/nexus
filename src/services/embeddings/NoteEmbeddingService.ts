@@ -153,7 +153,12 @@ export class NoteEmbeddingService {
         return;
       }
 
-      const contentHash = hashContent(processedContent);
+      // Prepend folder breadcrumb so the model has path context (matching SmartConnections behaviour).
+      // e.g. "02-Projects > AI Trading Assistant:\n<content>"
+      const breadcrumb = notePath.replace(/\.md$/, '').split('/').join(' > ');
+      const textToEmbed = `${breadcrumb}:\n${processedContent}`;
+
+      const contentHash = hashContent(textToEmbed);
 
       if (existing && existing.contentHash === contentHash) {
         // mtime changed but content is the same (e.g. touch, metadata-only save).
@@ -170,7 +175,7 @@ export class NoteEmbeddingService {
       }
 
       // Content changed — full re-embed
-      const embedding = await this.runtime.embedDocument(processedContent);
+      const embedding = await this.runtime.embedDocument(textToEmbed);
       const embeddingBuffer = Buffer.from(embedding.buffer);
       const now = Date.now();
       const modelInfo = { id: this.runtime.currentModelId, dimensions: this.runtime.dimensions };
@@ -263,7 +268,11 @@ export class NoteEmbeddingService {
           continue;
         }
 
-        const contentHash = hashContent(processedContent);
+        // Prepend folder breadcrumb so the model has path context (matching SmartConnections behaviour).
+        const breadcrumb = notePath.replace(/\.md$/, '').split('/').join(' > ');
+        const textToEmbed = `${breadcrumb}:\n${processedContent}`;
+
+        const contentHash = hashContent(textToEmbed);
         if (existing && existing.contentHash === contentHash) {
           // mtime changed, content identical — update mtime only, no re-embed needed
           const now = Date.now();
@@ -277,7 +286,7 @@ export class NoteEmbeddingService {
           continue;
         }
 
-        toEmbed.push({ path: notePath, file, processedContent, contentHash, fileMtime, existing, rawContent: content });
+        toEmbed.push({ path: notePath, file, processedContent: textToEmbed, contentHash, fileMtime, existing, rawContent: content });
       } catch (error) {
         console.error(`[NoteEmbeddingService] Pre-check failed for ${notePath}:`, error);
       }
