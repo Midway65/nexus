@@ -295,8 +295,23 @@ export class EmbeddingRuntime {
   async embedDocuments(texts: string[]): Promise<Float32Array[]> {
     await this.ensureReady();
     const prepared = texts.map(t => EmbeddingPreprocessor.prepareDocumentText(t, this.modelId));
-    const response = await this.sendRequest({ method: 'embed_batch', texts: prepared });
-    return response.embeddings!.map(e => EmbeddingPreprocessor.postProcess(e, this.modelId));
+    try {
+      const response = await this.sendRequest({ method: 'embed_batch', texts: prepared });
+      return response.embeddings!.map(e => EmbeddingPreprocessor.postProcess(e, this.modelId));
+    } catch (err) {
+      // GPU kernel failed (batch attention matrix too large for this seqlen+batch combo).
+      // Fall back to sequential single-note requests — each gets its own 30s timeout
+      // budget, which is safe even for long notes on WASM fallback.
+      if (err instanceof Error && err.message.includes('BATCH_GPU_FAILED')) {
+        const results: Float32Array[] = [];
+        for (const text of prepared) {
+          const response = await this.sendRequest({ method: 'embed', text });
+          results.push(EmbeddingPreprocessor.postProcess(response.embedding!, this.modelId));
+        }
+        return results;
+      }
+      throw err;
+    }
   }
 
   private async ensureReady(): Promise<void> {
@@ -573,25 +588,33 @@ export class EmbeddingRuntime {
       // True batch inference: pass all texts in one forward pass.
       // On WebGPU/WebNN the GPU processes the full batch in parallel.
       // output.dims = [N, dim]; output.data is a flat Float32Array of length N*dim.
-      const output = await extractor(truncated, {
-        pooling: MEAN_POOL ? 'mean' : 'cls',
-        normalize: NORMALIZE
-      });
-      // Guard: output must be [N, dim] shaped. Fall back to sequential embed()
-      // if the pipeline returns an unexpected shape (e.g. WebGPU driver quirk).
-      if (!output.dims || output.dims.length < 2 || output.dims[0] !== truncated.length) {
+      //
+      // Fall back to sequential embed() if:
+      //   (a) the GPU kernel throws (OOM / attention matrix too large for batch+seqlen)
+      //   (b) output shape is unexpected (WebGPU driver quirk)
+      // This keeps batch throughput for typical-length notes while gracefully
+      // degrading to single-note inference for long notes that exceed VRAM limits.
+      try {
+        const output = await extractor(truncated, {
+          pooling: MEAN_POOL ? 'mean' : 'cls',
+          normalize: NORMALIZE
+        });
+        if (!output.dims || output.dims.length < 2 || output.dims[0] !== truncated.length) {
+          throw new Error('Unexpected output shape');
+        }
+        const dim = output.dims[1];
         const results = [];
-        for (const text of truncated) {
-          results.push(await embed(text));
+        for (let i = 0; i < truncated.length; i++) {
+          results.push(Array.from(output.data.slice(i * dim, (i + 1) * dim)));
         }
         return results;
+      } catch (_batchErr) {
+        // GPU kernel failure (e.g. attention matrix too large for batch+seqlen combo).
+        // Signal the main thread to retry each note individually — do NOT loop here,
+        // as doing 16 sequential embeds inside one message handler would exceed the
+        // 30-second postMessage timeout.
+        throw new Error('BATCH_GPU_FAILED');
       }
-      const dim = output.dims[1];
-      const results = [];
-      for (let i = 0; i < truncated.length; i++) {
-        results.push(Array.from(output.data.slice(i * dim, (i + 1) * dim)));
-      }
-      return results;
     }
 
     window.addEventListener('message', async (event) => {

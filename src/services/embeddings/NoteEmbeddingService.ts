@@ -689,14 +689,12 @@ export class NoteEmbeddingService {
   }
 
   async clearAllEmbeddings(): Promise<void> {
-    try {
-      await this.db.run('DELETE FROM note_embeddings');
-      await this.db.run('DELETE FROM embedding_metadata');
-      await this.db.run('DELETE FROM block_embeddings');
-      await this.db.run('DELETE FROM block_embedding_metadata');
-    } catch (error) {
-      console.error('[NoteEmbeddingService] clearAllEmbeddings failed:', error);
-    }
+    // Do NOT catch — let errors propagate so rebuildAll() surfaces them to the UI
+    // rather than silently proceeding with stale data intact.
+    await this.db.run('DELETE FROM note_embeddings');
+    await this.db.run('DELETE FROM embedding_metadata');
+    await this.db.run('DELETE FROM block_embeddings');
+    await this.db.run('DELETE FROM block_embedding_metadata');
   }
 
   /**
