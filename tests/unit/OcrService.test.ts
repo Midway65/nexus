@@ -7,7 +7,7 @@
 
 // Mock PdfPageRenderer
 jest.mock(
-  '../../src/agents/ingestManager/tools/services/PdfPageRenderer',
+  '../../src/agents/apps/ingestManager/tools/services/PdfPageRenderer',
   () => ({
     renderPdfPages: jest.fn(),
   })
@@ -15,7 +15,7 @@ jest.mock(
 
 // Mock VisionMessageFormatter
 jest.mock(
-  '../../src/agents/ingestManager/tools/services/VisionMessageFormatter',
+  '../../src/agents/apps/ingestManager/tools/services/VisionMessageFormatter',
   () => ({
     formatVisionMessage: jest.fn(),
     getProviderFamily: jest.fn(),
@@ -25,13 +25,13 @@ jest.mock(
 import {
   ocrPdf,
   OcrServiceDeps,
-} from '../../src/agents/ingestManager/tools/services/OcrService';
-import { renderPdfPages } from '../../src/agents/ingestManager/tools/services/PdfPageRenderer';
+} from '../../src/agents/apps/ingestManager/tools/services/OcrService';
+import { renderPdfPages } from '../../src/agents/apps/ingestManager/tools/services/PdfPageRenderer';
 import {
   formatVisionMessage,
   getProviderFamily,
-} from '../../src/agents/ingestManager/tools/services/VisionMessageFormatter';
-import { PdfPageImage } from '../../src/agents/ingestManager/types';
+} from '../../src/agents/apps/ingestManager/tools/services/VisionMessageFormatter';
+import { PdfPageImage } from '../../src/agents/apps/ingestManager/types';
 
 const renderPdfPagesMock = renderPdfPages as jest.MockedFunction<typeof renderPdfPages>;
 const formatVisionMessageMock = formatVisionMessage as jest.MockedFunction<typeof formatVisionMessage>;

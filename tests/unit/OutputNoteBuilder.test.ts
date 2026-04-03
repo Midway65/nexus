@@ -11,13 +11,13 @@ import {
   buildDocxNote,
   buildPptxNote,
   buildSpreadsheetSheetNote,
-} from '../../src/agents/ingestManager/tools/services/OutputNoteBuilder';
+} from '../../src/agents/apps/ingestManager/tools/services/OutputNoteBuilder';
 import {
   PdfPageContent,
   PptxSlideContent,
   SpreadsheetSheetContent,
   TranscriptionSegment
-} from '../../src/agents/ingestManager/types';
+} from '../../src/agents/apps/ingestManager/types';
 
 describe('OutputNoteBuilder', () => {
   // ==========================================================================

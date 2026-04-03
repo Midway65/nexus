@@ -1,5 +1,5 @@
 /**
- * Location: src/agents/ingestManager/tools/services/OutputNoteBuilder.ts
+ * Location: src/agents/apps/ingestManager/tools/services/OutputNoteBuilder.ts
  * Purpose: Build markdown output notes from extracted/transcribed content.
  * Format: ![[source-file]] embed at top, then extracted content with page/timestamp/sheet sections.
  *

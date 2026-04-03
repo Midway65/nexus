@@ -1,5 +1,5 @@
 /**
- * Location: src/agents/ingestManager/tools/ingestTool.ts
+ * Location: src/agents/apps/ingestManager/tools/ingestTool.ts
  * Purpose: IngestTool — accepts a file path and options, orchestrates the ingestion pipeline.
  * Creates a markdown note alongside the source file with extracted/transcribed content.
  *
@@ -8,12 +8,12 @@
  */
 
 import { Vault } from 'obsidian';
-import { BaseTool } from '../../baseTool';
+import { BaseTool } from '../../../baseTool';
 import { IngestToolParameters, IngestToolResult } from '../types';
-import { JSONSchema } from '../../../types/schema/JSONSchemaTypes';
-import { createErrorMessage } from '../../../utils/errorUtils';
+import { JSONSchema } from '../../../../types/schema/JSONSchemaTypes';
+import { createErrorMessage } from '../../../../utils/errorUtils';
 import { processFile, PipelineDeps } from './services/IngestionPipelineService';
-import type { LLMProviderManager } from '../../../services/llm/providers/ProviderManager';
+import type { LLMProviderManager } from '../../../../services/llm/providers/ProviderManager';
 
 export class IngestTool extends BaseTool<IngestToolParameters, IngestToolResult> {
   constructor(

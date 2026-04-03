@@ -16,7 +16,7 @@ import { OPENAI_CODEX_MODELS } from './llm/adapters/openai-codex/OpenAICodexMode
 import { ANTHROPIC_CLAUDE_CODE_MODELS } from './llm/adapters/anthropic-claude-code/AnthropicClaudeCodeModels';
 import { GOOGLE_GEMINI_CLI_MODELS } from './llm/adapters/google-gemini-cli/GoogleGeminiCliModels';
 import { GITHUB_COPILOT_MODELS } from './llm/adapters/github-copilot/GithubCopilotModels';
-import { getIngestionModelsForProvider } from '../agents/ingestManager/tools/services/IngestModelCatalog';
+import { getIngestionModelsForProvider } from '../agents/apps/ingestManager/tools/services/IngestModelCatalog';
 
 export interface ModelWithProvider {
   provider: string;

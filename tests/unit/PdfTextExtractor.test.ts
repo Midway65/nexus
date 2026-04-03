@@ -11,8 +11,8 @@ jest.mock('../../src/agents/ingestManager/tools/services/PdfJsLoader', () => ({
   loadPdfJs: jest.fn(),
 }));
 
-import { extractPdfText } from '../../src/agents/ingestManager/tools/services/PdfTextExtractor';
-import { loadPdfJs } from '../../src/agents/ingestManager/tools/services/PdfJsLoader';
+import { extractPdfText } from '../../src/agents/apps/ingestManager/tools/services/PdfTextExtractor';
+import { loadPdfJs } from '../../src/agents/apps/ingestManager/tools/services/PdfJsLoader';
 
 const loadPdfJsMock = loadPdfJs as jest.MockedFunction<typeof loadPdfJs>;
 const getDocumentMock = jest.fn();

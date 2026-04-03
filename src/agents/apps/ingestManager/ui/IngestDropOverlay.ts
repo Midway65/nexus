@@ -1,6 +1,6 @@
 /**
  * IngestDropOverlay - Full-chat drop target overlay
- * Location: /src/agents/ingestManager/ui/IngestDropOverlay.ts
+ * Location: src/agents/apps/ingestManager/ui/IngestDropOverlay.ts
  *
  * Shown on dragenter when files are being dragged over the chat view.
  * Hidden on dragleave or drop. Shows an icon and instructional message.

@@ -1,5 +1,5 @@
 /**
- * Location: src/agents/ingestManager/tools/services/PdfPageRenderer.ts
+ * Location: src/agents/apps/ingestManager/tools/services/PdfPageRenderer.ts
  * Purpose: Render PDF pages to PNG base64 images for vision-based OCR.
  * Uses pdfjs-dist page rendering via OffscreenCanvas (Electron desktop only).
  *

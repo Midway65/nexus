@@ -1,5 +1,5 @@
 /**
- * Location: src/agents/ingestManager/tools/services/FileTypeDetector.ts
+ * Location: src/agents/apps/ingestManager/tools/services/FileTypeDetector.ts
  * Purpose: Detect file type (PDF, DOCX, PPTX, XLSX, or audio) from file extension.
  *
  * Used by: IngestionPipelineService, IngestTool

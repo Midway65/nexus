@@ -1,6 +1,6 @@
 /**
  * IngestProgressBanner - Progress banner shown during file ingestion
- * Location: /src/agents/ingestManager/ui/IngestProgressBanner.ts
+ * Location: src/agents/apps/ingestManager/ui/IngestProgressBanner.ts
  *
  * Displays filename, processing stage label, and an optional progress bar.
  * Multiple banners can stack for batch drops.

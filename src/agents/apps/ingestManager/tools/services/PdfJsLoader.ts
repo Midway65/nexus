@@ -1,5 +1,5 @@
 /**
- * Location: src/agents/ingestManager/tools/services/PdfJsLoader.ts
+ * Location: src/agents/apps/ingestManager/tools/services/PdfJsLoader.ts
  * Purpose: Load PDF.js in a way that works inside the Obsidian/Electron renderer.
  *
  * PDF.js 5 treats the renderer as a browser and expects a configured workerSrc

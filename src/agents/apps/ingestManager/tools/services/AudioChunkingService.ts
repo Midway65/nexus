@@ -1,5 +1,5 @@
 /**
- * Location: src/agents/ingestManager/tools/services/AudioChunkingService.ts
+ * Location: src/agents/apps/ingestManager/tools/services/AudioChunkingService.ts
  * Purpose: Split audio files larger than 25MB into chunks for Whisper API.
  * Uses Web Audio API (OfflineAudioContext) for decoding, with a fallback
  * that returns the original buffer unsplit if decoding fails.

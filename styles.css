@@ -1469,27 +1469,6 @@ body.is-mobile .chat-semantic-panel-button {
     white-space: nowrap;
 }
 
-/* Tool reference (green) */
-.chat-reference-tool {
-    background: rgba(76, 175, 80, 0.15);
-    color: rgb(76, 175, 80);
-    border: 1px solid rgba(76, 175, 80, 0.3);
-}
-
-/* Agent reference (purple) */
-.chat-reference-agent {
-    background: rgba(156, 39, 176, 0.15);
-    color: rgb(156, 39, 176);
-    border: 1px solid rgba(156, 39, 176, 0.3);
-}
-
-/* Note reference (blue) */
-.chat-reference-note {
-    background: rgba(33, 150, 243, 0.15);
-    color: rgb(33, 150, 243);
-    border: 1px solid rgba(33, 150, 243, 0.3);
-}
-
 /* Dark mode adjustments */
 .theme-dark .chat-reference-tool {
     background: rgba(76, 175, 80, 0.25);
@@ -1583,10 +1562,6 @@ body.is-mobile .chat-semantic-panel-button {
     }
 }
 
-.chat-loading-spinner {
-    animation: spin 1s linear infinite;
-}
-
 @keyframes spin {
     from {
         transform: rotate(0deg);
@@ -1594,15 +1569,6 @@ body.is-mobile .chat-semantic-panel-button {
     to {
         transform: rotate(360deg);
     }
-}
-
-.chat-model-selector {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    margin-top: 0.5rem;
-    font-size: 0.8rem;
-    color: var(--text-muted);
 }
 
 .model-select {
@@ -1786,26 +1752,6 @@ body.is-mobile .chat-semantic-panel-button {
     }
 }
 
-/* Setup Prompt Styles */
-.mcp-section {
-    margin-bottom: 1.5rem;
-}
-
-.mcp-section pre {
-    background-color: var(--background-secondary);
-    padding: 12px;
-    border-radius: 4px;
-    margin: 10px 0;
-    overflow-x: auto;
-    max-height: 400px;
-    overflow-y: auto;
-}
-
-.mcp-section code {
-    font-family: var(--font-monospace);
-    font-size: 0.9em;
-}
-
 .mcp-section button.mod-cta {
     margin-top: 8px;
     margin-bottom: 16px;
@@ -1820,24 +1766,6 @@ body.is-mobile .chat-semantic-panel-button {
 
 .mcp-section button.mod-cta:hover {
     background-color: var(--interactive-accent-hover);
-}
-
-/* =============================== */
-/* EXPERIMENTAL WARNING STYLES    */
-/* =============================== */
-
-/* ChatView Experimental Warning Banner */
-.chat-experimental-warning {
-    background: var(--background-modifier-error);
-    border: 1px solid var(--background-modifier-error-border, var(--background-modifier-border));
-    border-radius: 6px;
-    padding: 8px 12px;
-    margin-bottom: 12px;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    font-size: 0.9em;
-    flex-wrap: wrap;
 }
 
 .chat-experimental-warning .warning-icon {
@@ -2004,44 +1932,6 @@ body.is-mobile .chat-semantic-panel-button {
     font-family: var(--font-monospace);
 }
 
-/* Setup instructions */
-.mcp-setup-instructions {
-    margin-bottom: 20px;
-    padding: 15px;
-    background-color: var(--background-secondary);
-    border-radius: 5px;
-}
-
-/* Agents grid */
-.mcp-agents-container {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
-    gap: 15px;
-    margin-top: 10px;
-}
-
-.mcp-agent {
-    padding: 10px;
-    background-color: var(--background-secondary);
-    border-radius: 5px;
-    transition: transform 0.2s ease;
-}
-
-.mcp-agent:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-}
-
-.mcp-agent-name {
-    margin: 0 0 5px 0;
-    color: var(--text-accent);
-}
-
-.mcp-agent-description {
-    margin: 0;
-    font-size: 0.9em;
-}
-
 /* Template info */
 .template-pack-info {
     margin-top: 8px;
@@ -2054,17 +1944,6 @@ body.is-mobile .chat-semantic-panel-button {
 .template-pack-info ul {
     margin: 8px 0;
     padding-left: 20px;
-}
-
-.mcp-config-section {
-    margin-bottom: 1.5rem;
-}
-
-.mcp-config-section pre {
-    background-color: var(--background-primary);
-    padding: 10px;
-    border-radius: 4px;
-    margin: 10px 0;
 }
 
 /* Memory settings styles */
@@ -2357,21 +2236,6 @@ body.is-mobile .chat-semantic-panel-button {
     padding-left: 20px;
 }
 
-.nexus-folder-item {
-    display: flex;
-    align-items: center;
-    padding: 4px;
-    cursor: pointer;
-}
-
-.nexus-checkbox {
-    margin-right: 8px;
-}
-
-.nexus-folder-name {
-    flex: 1;
-}
-
 /* Links */
 a {
     color: var(--text-accent);
@@ -2380,16 +2244,6 @@ a {
 
 a:hover {
     color: var(--text-accent-hover);
-}
-
-
-/* MCP Connection Status */
-.mcp-connector-status {
-    display: flex;
-    align-items: center;
-    gap: 5px;
-    white-space: nowrap;
-    font-size: var(--font-ui-smaller);
 }
 
 .mcp-connector-status .status-indicator {
@@ -3294,133 +3148,6 @@ a:hover {
     border: 1px solid var(--color-red);
 }
 
-/* =============================================================================
-   MODAL DIALOGS FOR CHAT
-   ============================================================================= */
-
-.chat-modal-overlay {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: rgba(0, 0, 0, 0.6);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 9999;
-  backdrop-filter: blur(2px);
-}
-
-.chat-modal {
-  background: var(--background-primary);
-  border: 1px solid var(--background-modifier-border);
-  border-radius: 8px;
-  box-shadow: var(--shadow-l);
-  min-width: 400px;
-  max-width: 500px;
-  width: 90vw;
-}
-
-.chat-modal-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 16px 20px;
-  border-bottom: 1px solid var(--background-modifier-border);
-}
-
-.chat-modal-header h3 {
-  margin: 0;
-  color: var(--text-normal);
-  font-size: 16px;
-  font-weight: 600;
-}
-
-.chat-modal-close {
-  background: none;
-  border: none;
-  font-size: 20px;
-  color: var(--text-muted);
-  cursor: pointer;
-  padding: 4px 8px;
-  border-radius: 4px;
-  transition: background-color 0.2s;
-}
-
-.chat-modal-close:hover {
-  background: var(--background-modifier-hover);
-}
-
-.chat-modal-content {
-  padding: 20px;
-}
-
-.chat-modal-content p {
-  margin: 0 0 16px 0;
-  color: var(--text-normal);
-}
-
-.chat-title-input {
-  width: 100%;
-  padding: 12px 16px;
-  border: 1px solid var(--background-modifier-border);
-  border-radius: 6px;
-  background: var(--background-primary);
-  color: var(--text-normal);
-  font-size: 14px;
-  transition: border-color 0.2s;
-}
-
-.chat-title-input:focus {
-  outline: none;
-  border-color: var(--interactive-accent);
-  box-shadow: 0 0 0 2px var(--interactive-accent-hover);
-}
-
-.chat-title-input.chat-input-error {
-  border-color: var(--color-red);
-  box-shadow: 0 0 0 2px rgba(var(--color-red-rgb), 0.3);
-}
-
-.chat-modal-actions {
-  display: flex;
-  gap: 12px;
-  justify-content: flex-end;
-  padding: 16px 20px;
-  border-top: 1px solid var(--background-modifier-border);
-}
-
-.chat-btn-primary,
-.chat-btn-secondary {
-  padding: 8px 16px;
-  border-radius: 6px;
-  font-size: 14px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: all 0.2s;
-  border: none;
-}
-
-.chat-btn-primary {
-  background: var(--interactive-accent);
-  color: var(--text-on-accent);
-}
-
-.chat-btn-primary:hover {
-  background: var(--interactive-accent-hover);
-}
-
-.chat-btn-secondary {
-  background: var(--background-secondary);
-  color: var(--text-normal);
-  border: 1px solid var(--background-modifier-border);
-}
-
-.chat-btn-secondary:hover {
-  background: var(--background-modifier-hover);
-}
-
 /* Responsive design for cards */
 @media (max-width: 768px) {
     .card-manager-grid {
@@ -3599,11 +3326,6 @@ a:hover {
   }
 }
 
-/* Conversation-level Branch Navigator Container (Legacy) */
-.branch-navigator-container {
-  margin-left: auto; /* Push to right side of header */
-}
-
 .branch-navigator {
   display: flex;
   align-items: center;
@@ -3621,45 +3343,10 @@ a:hover {
 
 .branch-navigator-visible {
   display: flex;
-}
-
-/* Branch Navigation Buttons */
-.branch-nav-button {
-  background: none;
-  border: none;
-  color: var(--text-muted);
-  cursor: pointer;
-  padding: 4px;
-  border-radius: 3px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: all 0.2s ease;
-  width: 20px;
-  height: 20px;
-}
-
-.branch-nav-button:hover:not(:disabled) {
-  background: var(--background-modifier-hover);
-  color: var(--text-normal);
-}
-
-.branch-nav-button:active:not(:disabled) {
-  background: var(--background-modifier-active);
-  transform: scale(0.95);
-}
-
-.branch-nav-button:disabled,
-.branch-nav-button.disabled {
+}.branch-nav-button.disabled {
   opacity: 0.3;
   cursor: not-allowed;
   color: var(--text-faint);
-}
-
-.branch-nav-button svg {
-  width: 12px;
-  height: 12px;
-  stroke-width: 2.5;
 }
 
 /* Branch Indicator */
@@ -3787,39 +3474,6 @@ a:hover {
     font-style: italic;
 }
 
-/* =========================== */
-/* MCP SETUP UI STYLES        */
-/* =========================== */
-
-/* Setup sections */
-.mcp-setup-section {
-    margin: 20px 0;
-    padding: 15px;
-    background: var(--background-secondary);
-    border-radius: 6px;
-    border: 1px solid var(--background-modifier-border);
-}
-
-.mcp-setup-separator {
-    margin: 20px 0;
-}
-
-.mcp-setup-or {
-    text-align: center;
-    margin: 10px 0;
-    color: var(--text-muted);
-    font-weight: 500;
-}
-
-/* Config status */
-.mcp-config-status {
-    margin: 15px 0;
-    padding: 12px;
-    border-radius: 5px;
-    background-color: var(--background-secondary);
-    border: 1px solid var(--background-modifier-border);
-}
-
 .mcp-status {
     display: flex;
     flex-direction: column;
@@ -3829,100 +3483,6 @@ a:hover {
 .mcp-status span {
     font-weight: 500;
     font-size: 14px;
-}
-
-.mcp-status-hint {
-    font-size: 12px;
-    color: var(--text-muted);
-    margin: 0;
-    padding: 0;
-}
-
-.mcp-status-neutral {
-    color: var(--text-muted);
-}
-
-.mcp-status-warning {
-    color: var(--text-warning);
-}
-
-.mcp-status-success {
-    color: var(--text-success);
-}
-
-/* Info box */
-.mcp-info-box {
-    margin: 15px 0;
-    padding: 12px;
-    border-left: 3px solid var(--interactive-accent);
-    background-color: var(--background-secondary);
-    border-radius: 4px;
-}
-
-.mcp-info-box strong {
-    display: block;
-    margin-bottom: 8px;
-    color: var(--text-normal);
-}
-
-.mcp-info-box ol,
-.mcp-info-box ul {
-    margin: 8px 0 0 0;
-    padding-left: 20px;
-}
-
-.mcp-info-box li {
-    margin: 6px 0;
-    color: var(--text-normal);
-    font-size: 13px;
-}
-
-/* Next steps notification */
-.mcp-next-steps {
-    margin: 15px 0;
-    padding: 15px;
-    border-radius: 5px;
-    background-color: var(--background-primary-alt);
-    border: 1px solid var(--interactive-accent);
-    animation: fadeIn 0.3s ease-in;
-}
-
-.mcp-next-steps h5 {
-    margin: 0 0 12px 0;
-    color: var(--text-normal);
-    font-size: 16px;
-}
-
-.mcp-next-steps-info {
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
-}
-
-.mcp-next-steps-info p {
-    margin: 0;
-    padding: 0;
-    font-size: 13px;
-    color: var(--text-muted);
-}
-
-.mcp-next-steps-info strong {
-    display: block;
-    margin-bottom: 6px;
-    color: var(--text-normal);
-    font-size: 13px;
-}
-
-.mcp-next-steps-info ul,
-.mcp-next-steps-info ol {
-    margin: 6px 0 0 0;
-    padding-left: 20px;
-}
-
-.mcp-next-steps-info li {
-    margin: 4px 0;
-    font-size: 13px;
-    color: var(--text-normal);
 }
 
 @keyframes fadeIn {
@@ -4144,17 +3704,6 @@ a:hover {
 
 .chat-settings-header h2 {
     margin: 0;
-}
-
-/* Button Containers */
-.chat-settings-button-container {
-    display: flex;
-    gap: 8px;
-}
-
-/* Sections */
-.chat-settings-section {
-    margin-bottom: 16px;
 }
 
 /* Workspace Info Section */
@@ -4639,39 +4188,6 @@ a:hover {
     border-radius: 4px;
 }
 
-/* List items */
-.nexus-list-item {
-    display: flex;
-    align-items: center;
-    padding: 12px 16px;
-    border-radius: 6px;
-    cursor: pointer;
-    margin-bottom: 4px;
-    transition: background-color 0.1s ease;
-}
-
-.nexus-list-item:hover {
-    background: var(--background-modifier-hover);
-}
-
-.nexus-list-item-content {
-    flex: 1;
-    min-width: 0;
-}
-
-.nexus-list-item-title {
-    font-weight: 500;
-    margin-bottom: 2px;
-}
-
-.nexus-list-item-subtitle {
-    color: var(--text-muted);
-    font-size: 0.85em;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-}
-
 /* Status badges */
 .nexus-status-badge {
     font-size: 0.7rem;
@@ -4689,14 +4205,6 @@ a:hover {
 .nexus-status-badge.not-configured {
     color: var(--text-muted);
     background: var(--background-modifier-border);
-}
-
-/* Provider defaults section */
-.nexus-provider-defaults {
-    background: var(--background-secondary);
-    padding: 16px;
-    border-radius: 8px;
-    margin-bottom: 24px;
 }
 
 /* Provider group titles */
@@ -4801,25 +4309,6 @@ a:hover {
 
 .nexus-setup-path-desc {
     color: var(--text-muted);
-    font-size: 0.85em;
-}
-
-/* MCP config output */
-.nexus-mcp-output {
-    background: var(--background-primary-alt);
-    padding: 16px;
-    border-radius: 6px;
-    overflow-x: auto;
-    font-family: var(--font-monospace);
-    font-size: 0.85em;
-    white-space: pre-wrap;
-    word-break: break-all;
-}
-
-/* MCP config input */
-.nexus-mcp-input {
-    width: 100%;
-    font-family: var(--font-monospace);
     font-size: 0.85em;
 }
 
@@ -4953,52 +4442,10 @@ a:hover {
     text-decoration: underline;
 }
 
-/* Reasoning - Compact Inline */
-.nexus-thinking-section {
-    margin-top: 12px;
-    padding-top: 12px;
-    border-top: 1px solid var(--background-modifier-border);
-}
-
-.nexus-thinking-effort {
-    display: flex;
-    gap: 4px;
-    margin-right: 8px;
-}
-
-.nexus-effort-pill {
-    padding: 3px 8px;
-    border: 1px solid var(--background-modifier-border);
-    border-radius: 10px;
-    background: transparent;
-    color: var(--text-muted);
-    font-size: 0.75em;
-    cursor: pointer;
-    transition: all 0.15s ease;
-}
-
-.nexus-effort-pill:hover {
-    border-color: var(--interactive-accent);
-    color: var(--text-normal);
-}
-
 .nexus-effort-pill.is-active {
     background: var(--interactive-accent);
     border-color: var(--interactive-accent);
     color: var(--text-on-accent);
-}
-
-/* Copy container */
-.nexus-copy-container {
-    margin-top: 12px;
-}
-
-/* Placeholder message */
-.nexus-placeholder {
-    color: var(--text-muted);
-    font-style: italic;
-    padding: 20px;
-    text-align: center;
 }
 
 /* Loading message */
@@ -5006,14 +4453,6 @@ a:hover {
     color: var(--text-muted);
     font-style: italic;
     padding: 16px;
-}
-
-/* Error message */
-.nexus-error {
-    color: var(--text-error);
-    padding: 16px;
-    background: var(--background-modifier-error);
-    border-radius: 6px;
 }
 
 /* Detail view title */
@@ -5043,14 +4482,6 @@ a:hover {
     display: flex;
     flex-direction: column;
     gap: var(--space-xs);
-}
-
-.nexus-form-field-inline {
-    flex-direction: row;
-    align-items: center;
-    justify-content: space-between;
-    padding: var(--space-m) 0;
-    border-top: 1px solid var(--background-modifier-border);
 }
 
 .nexus-form-label {
@@ -5098,69 +4529,6 @@ a:hover {
 
 .nexus-form-textarea-large {
     min-height: 160px;
-}
-
-/* Toggle styling */
-.nexus-toggle-label-group {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-xxs);
-}
-
-.nexus-toggle-wrapper {
-    flex-shrink: 0;
-}
-
-.nexus-toggle-checkbox {
-    width: 42px;
-    height: 24px;
-    appearance: none;
-    -webkit-appearance: none;
-    background: var(--background-modifier-border-hover);
-    border-radius: 12px;
-    position: relative;
-    cursor: pointer;
-    transition: background 0.2s ease;
-}
-
-.nexus-toggle-checkbox::before {
-    content: '';
-    position: absolute;
-    top: 2px;
-    left: 2px;
-    width: 20px;
-    height: 20px;
-    background: var(--background-primary);
-    border-radius: 50%;
-    transition: transform 0.2s ease;
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
-}
-
-.nexus-toggle-checkbox:checked {
-    background: var(--interactive-accent);
-}
-
-.nexus-toggle-checkbox:checked::before {
-    transform: translateX(18px);
-}
-
-/* Form select dropdown */
-.nexus-form-select {
-    width: 100%;
-    padding: var(--space-m) var(--space-m);
-    border: 1px solid var(--background-modifier-border);
-    border-radius: var(--radius-s);
-    background: var(--background-primary);
-    color: var(--text-normal);
-    font-size: var(--font-ui-small);
-    font-family: var(--font-interface);
-    cursor: pointer;
-    transition: border-color 0.15s ease;
-}
-
-.nexus-form-select:focus {
-    outline: none;
-    border-color: var(--interactive-accent);
 }
 
 /* Obsidian native components - make them fill width in forms */
@@ -5319,12 +4687,6 @@ a:hover {
     text-overflow: ellipsis;
 }
 
-/* Item input (for key files) */
-.nexus-item-input {
-    flex: 1;
-    min-width: 0;
-}
-
 /* Item actions */
 .nexus-item-actions {
     display: flex;
@@ -5333,59 +4695,12 @@ a:hover {
     align-items: center;
 }
 
-/* Small buttons for item actions */
-.nexus-btn-small {
-    padding: var(--space-xs) var(--space-m);
-    font-size: var(--font-ui-smaller);
-    border: 1px solid var(--background-modifier-border);
-    border-radius: var(--radius-s);
-    background: var(--background-primary);
-    color: var(--text-muted);
-    cursor: pointer;
-    transition: all 0.15s ease;
-}
-
-.nexus-btn-small:hover {
-    background: var(--background-modifier-hover);
-    color: var(--text-normal);
-}
-
 .nexus-item-actions .clickable-icon {
     min-width: 32px;
     min-height: 32px;
     display: inline-flex;
     align-items: center;
     justify-content: center;
-}
-
-.nexus-btn-danger {
-    color: var(--text-error);
-}
-
-.nexus-btn-danger:hover {
-    background: var(--background-modifier-error);
-    border-color: var(--background-modifier-error);
-    color: var(--text-on-accent);
-}
-
-/* Add button */
-.nexus-btn-add {
-    align-self: flex-start;
-    padding: var(--space-xs) var(--space-m);
-    font-size: var(--font-ui-small);
-    border: 1px dashed var(--background-modifier-border);
-    border-radius: var(--radius-s);
-    background: transparent;
-    color: var(--text-muted);
-    cursor: pointer;
-    transition: all 0.15s ease;
-    margin-top: var(--space-xs);
-}
-
-.nexus-btn-add:hover {
-    border-color: var(--interactive-accent);
-    color: var(--interactive-accent);
-    background: var(--background-modifier-hover);
 }
 
 .nexus-task-toolbar {
@@ -5513,75 +4828,11 @@ a:hover {
 .nexus-file-picker-actions {
     display: flex;
     gap: var(--space-s);
-}
-
-.nexus-file-picker-list {
-    max-height: 400px;
-    overflow-y: auto;
-    border: 1px solid var(--background-modifier-border);
-    border-radius: var(--radius-s);
-    margin-top: var(--space-m);
-}
-
-.nexus-file-item {
-    display: flex;
-    align-items: baseline;
-    gap: var(--space-s);
-    padding: var(--space-m) var(--space-m);
-    cursor: pointer;
-    border-bottom: 1px solid var(--background-modifier-border);
-    transition: background 0.1s ease;
-}
-
-.nexus-file-item:last-child {
-    border-bottom: none;
-}
-
-.nexus-file-item:hover {
-    background: var(--background-modifier-hover);
-}
-
-.nexus-file-item-selected {
-    background: var(--background-modifier-hover);
-}
-
-.nexus-file-item-selected .nexus-file-name {
-    color: var(--interactive-accent);
-}
-
-.nexus-file-name {
-    font-weight: var(--font-medium);
-    color: var(--text-normal);
-}
-
-.nexus-file-folder {
-    font-size: var(--font-ui-smaller);
-    color: var(--text-muted);
-}
-
-.nexus-file-path {
-    color: var(--text-normal);
-}
-
-.nexus-file-hint {
-    font-size: var(--font-ui-smaller);
-    color: var(--text-muted);
-    margin-left: var(--space-s);
-}
-
-.nexus-file-picker-hint,
-.nexus-file-picker-empty,
-.nexus-file-picker-more {
+}.nexus-file-picker-empty {
     padding: var(--space-xl);
     text-align: center;
     color: var(--text-muted);
     font-size: var(--font-ui-small);
-}
-
-.nexus-file-picker-more {
-    padding: var(--space-m);
-    background: var(--background-secondary);
-    border-top: 1px solid var(--background-modifier-border);
 }
 
 /* Folder Tree */
@@ -5695,25 +4946,6 @@ a:hover {
     color: var(--text-faint);
     font-size: var(--font-ui-smaller);
     font-style: italic;
-}
-
-.nexus-file-picker-info {
-    margin-bottom: var(--space-s);
-}
-
-.nexus-selected-count {
-    font-size: var(--font-ui-small);
-    color: var(--text-muted);
-}
-
-/* Empty state */
-.nexus-empty-state {
-    text-align: center;
-    padding: 32px;
-}
-
-.nexus-empty-message {
-    color: var(--text-muted);
 }
 
 /* =========================== */
@@ -5877,15 +5109,6 @@ a:hover {
     font-weight: 500;
     color: var(--text-muted);
     margin-bottom: 6px;
-}
-
-.nexus-model-desc {
-    margin-bottom: 16px;
-}
-
-.nexus-model-desc-text {
-    font-size: var(--font-ui-smaller);
-    color: var(--text-muted);
 }
 
 /* Action Area */
@@ -6554,11 +5777,6 @@ body.is-mobile .chat-loading-overlay {
     color: var(--text-normal);
 }
 
-.nexus-agent-meta {
-    font-size: var(--font-ui-smaller);
-    color: var(--text-muted);
-}
-
 
 .nexus-agent-tool-badge {
     font-size: var(--font-ui-smaller);
@@ -6685,26 +5903,6 @@ body.is-mobile .chat-loading-overlay {
     color: var(--color-blue);
 }
 
-.nexus-status-complete {
-    background: rgba(var(--color-green-rgb), 0.15);
-    color: var(--color-green);
-}
-
-.nexus-status-cancelled {
-    background: rgba(var(--color-red-rgb), 0.15);
-    color: var(--color-red);
-}
-
-.nexus-status-max_iterations {
-    background: rgba(var(--color-yellow-rgb), 0.15);
-    color: var(--color-yellow);
-}
-
-.nexus-status-abandoned {
-    background: rgba(var(--color-orange-rgb), 0.15);
-    color: var(--color-orange);
-}
-
 /* State icons (using Obsidian setIcon) */
 .nexus-state-icon {
     display: inline-flex;
@@ -6720,11 +5918,6 @@ body.is-mobile .chat-loading-overlay {
     height: 14px;
 }
 
-/* Running state - spinning animation */
-.nexus-state-icon-running svg {
-    animation: nexus-spin 1.5s linear infinite;
-}
-
 @keyframes nexus-spin {
     from {
         transform: rotate(0deg);
@@ -6732,27 +5925,6 @@ body.is-mobile .chat-loading-overlay {
     to {
         transform: rotate(360deg);
     }
-}
-
-/* State icon colors */
-.nexus-state-icon-running {
-    color: var(--color-blue);
-}
-
-.nexus-state-icon-complete {
-    color: var(--color-green);
-}
-
-.nexus-state-icon-cancelled {
-    color: var(--color-red);
-}
-
-.nexus-state-icon-max_iterations {
-    color: var(--color-yellow);
-}
-
-.nexus-state-icon-abandoned {
-    color: var(--color-orange);
 }
 
 /* Status icon in branch header */
@@ -6811,20 +5983,6 @@ body.is-mobile .chat-loading-overlay {
     overflow-y: auto;
 }
 
-.nexus-agent-item {
-    padding: 12px;
-    background: var(--background-secondary);
-    border-radius: 6px;
-    border: 1px solid var(--background-modifier-border);
-}
-
-.nexus-agent-item-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    margin-bottom: 8px;
-}
-
 .nexus-agent-task {
     font-weight: 500;
     color: var(--text-normal);
@@ -6834,21 +5992,10 @@ body.is-mobile .chat-loading-overlay {
     white-space: nowrap;
 }
 
-.nexus-agent-meta {
-    font-size: var(--font-ui-smaller);
-    color: var(--text-muted);
-}
-
 .nexus-agent-actions {
     display: flex;
     gap: 8px;
     margin-top: 8px;
-}
-
-.nexus-no-agents {
-    text-align: center;
-    color: var(--text-muted);
-    padding: 24px;
 }
 
 /* =========================== */
@@ -7207,12 +6354,6 @@ body.is-mobile .chat-loading-overlay {
     width: 0%;
 }
 
-/* Warning Banner Fade Out */
-.chat-warning-banner-fadeout {
-    opacity: 0;
-    transition: opacity 0.5s ease-out;
-}
-
 /* Input Auto-Resize Styles */
 .chat-input-auto-height {
     height: auto;
@@ -7466,21 +6607,10 @@ body.is-mobile .chat-loading-overlay {
     color: var(--text-muted);
 }
 
-.nexus-task-board-actions {
-    display: flex;
-    gap: var(--space-s);
-}
-
 .nexus-task-board-button {
     min-height: 34px;
     padding: 0 var(--space-m);
     border-radius: var(--radius-s);
-}
-
-.nexus-task-board-button-secondary {
-    background: var(--background-primary);
-    color: var(--text-normal);
-    border: 1px solid var(--background-modifier-border);
 }
 
 .nexus-task-board-toolbar {
@@ -7510,12 +6640,6 @@ body.is-mobile .chat-loading-overlay {
     border-radius: var(--radius-s);
     background: var(--background-primary);
     color: var(--text-normal);
-}
-
-.nexus-task-board-textarea {
-    padding: var(--space-s) var(--space-m);
-    min-height: 96px;
-    resize: vertical;
 }
 
 .nexus-task-board-stats {

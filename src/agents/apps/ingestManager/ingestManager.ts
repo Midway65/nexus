@@ -1,5 +1,5 @@
 /**
- * Location: src/agents/ingestManager/ingestManager.ts
+ * Location: src/agents/apps/ingestManager/ingestManager.ts
  * Purpose: IngestManager agent — PDF and audio file ingestion with LLM OCR and transcription.
  * Extends BaseAgent with lazy tool registration following the CanvasManager/TaskManager pattern.
  *
@@ -8,10 +8,10 @@
  */
 
 import { Vault } from 'obsidian';
-import { BaseAgent } from '../baseAgent';
+import { BaseAgent } from '../../baseAgent';
 import { IngestTool } from './tools/ingestTool';
 import { ListCapabilitiesTool } from './tools/listCapabilitiesTool';
-import type { LLMProviderManager } from '../../services/llm/providers/ProviderManager';
+import type { LLMProviderManager } from '../../../services/llm/providers/ProviderManager';
 
 /**
  * Agent for ingesting PDF and audio files into structured markdown notes.

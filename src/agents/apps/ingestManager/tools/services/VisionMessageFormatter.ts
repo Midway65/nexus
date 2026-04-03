@@ -1,5 +1,5 @@
 /**
- * Location: src/agents/ingestManager/tools/services/VisionMessageFormatter.ts
+ * Location: src/agents/apps/ingestManager/tools/services/VisionMessageFormatter.ts
  * Purpose: Format base64 PNG images into provider-specific vision message formats.
  * Supports 4 provider families: OpenAI-style, Anthropic, Google, Ollama.
  *

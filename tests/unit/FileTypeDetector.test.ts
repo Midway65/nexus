@@ -9,7 +9,7 @@ import {
   detectFileType,
   getSupportedExtensions,
   isSupportedFile,
-} from '../../src/agents/ingestManager/tools/services/FileTypeDetector';
+} from '../../src/agents/apps/ingestManager/tools/services/FileTypeDetector';
 
 describe('FileTypeDetector', () => {
   // ==========================================================================

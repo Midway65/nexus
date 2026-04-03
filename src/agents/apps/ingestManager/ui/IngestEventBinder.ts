@@ -1,6 +1,6 @@
 /**
  * IngestEventBinder - Wires drag-drop events to ChatView container
- * Location: /src/agents/ingestManager/ui/IngestEventBinder.ts
+ * Location: src/agents/apps/ingestManager/ui/IngestEventBinder.ts
  *
  * Manages the lifecycle of drag-and-drop event listeners on the chat container.
  * Shows the drop overlay when files are dragged over, hides on leave/drop.

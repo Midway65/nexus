@@ -9,8 +9,8 @@
 import {
   getProviderFamily,
   formatVisionMessage,
-} from '../../src/agents/ingestManager/tools/services/VisionMessageFormatter';
-import { VisionProviderFamily } from '../../src/agents/ingestManager/types';
+} from '../../src/agents/apps/ingestManager/tools/services/VisionMessageFormatter';
+import { VisionProviderFamily } from '../../src/agents/apps/ingestManager/types';
 
 const SAMPLE_BASE64 = 'iVBORw0KGgoAAAANSUhEUg==';
 const SAMPLE_PROMPT = 'Extract all text from this PDF page.';

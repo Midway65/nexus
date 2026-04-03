@@ -1,5 +1,5 @@
 /**
- * Location: src/agents/ingestManager/tools/services/PdfTextExtractor.ts
+ * Location: src/agents/apps/ingestManager/tools/services/PdfTextExtractor.ts
  * Purpose: Extract text content from PDF pages using pdfjs-dist getTextContent().
  * This is the default (free) PDF mode — no LLM API calls needed.
  *

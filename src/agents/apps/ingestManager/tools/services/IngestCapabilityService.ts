@@ -1,5 +1,5 @@
 /**
- * Location: src/agents/ingestManager/tools/services/IngestCapabilityService.ts
+ * Location: src/agents/apps/ingestManager/tools/services/IngestCapabilityService.ts
  * Purpose: Shared capability discovery for the ingest pipeline UI and tools.
  *
  * OCR and transcription capabilities are derived from the explicit ingestion
@@ -7,8 +7,8 @@
  * those tasks.
  */
 
-import type { LLMProviderManager } from '../../../../services/llm/providers/ProviderManager';
-import { ProviderUtils } from '../../../../ui/chat/utils/ProviderUtils';
+import type { LLMProviderManager } from '../../../../../services/llm/providers/ProviderManager';
+import { ProviderUtils } from '../../../../../ui/chat/utils/ProviderUtils';
 import {
   getIngestionModelsForProvider,
   IngestionModelKind

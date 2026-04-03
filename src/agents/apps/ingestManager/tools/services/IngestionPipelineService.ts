@@ -1,5 +1,5 @@
 /**
- * Location: src/agents/ingestManager/tools/services/IngestionPipelineService.ts
+ * Location: src/agents/apps/ingestManager/tools/services/IngestionPipelineService.ts
  * Purpose: Orchestrates the full ingestion pipeline for a single file.
  * Routes PDF files to text extraction or vision OCR, audio files to transcription,
  * then builds output notes and saves them to the vault.

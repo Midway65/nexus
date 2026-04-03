@@ -1,5 +1,5 @@
 /**
- * Location: src/agents/ingestManager/tools/listCapabilitiesTool.ts
+ * Location: src/agents/apps/ingestManager/tools/listCapabilitiesTool.ts
  * Purpose: ListCapabilitiesTool — returns which configured providers support OCR and transcription.
  * Helps the LLM (or user) choose the right provider/model for ingestion.
  *
@@ -7,15 +7,15 @@
  * Dependencies: LLMProviderManager
  */
 
-import { BaseTool } from '../../baseTool';
+import { BaseTool } from '../../../baseTool';
 import {
   ListCapabilitiesParameters,
   ListCapabilitiesResult,
   ProviderCapabilityInfo,
 } from '../types';
-import { JSONSchema } from '../../../types/schema/JSONSchemaTypes';
-import { createErrorMessage } from '../../../utils/errorUtils';
-import type { LLMProviderManager } from '../../../services/llm/providers/ProviderManager';
+import { JSONSchema } from '../../../../types/schema/JSONSchemaTypes';
+import { createErrorMessage } from '../../../../utils/errorUtils';
+import type { LLMProviderManager } from '../../../../services/llm/providers/ProviderManager';
 import { getIngestCapabilityOptions } from './services/IngestCapabilityService';
 
 export class ListCapabilitiesTool extends BaseTool<ListCapabilitiesParameters, ListCapabilitiesResult> {

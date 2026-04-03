@@ -1,5 +1,5 @@
 # Claude Code Context Document
-Last Updated: 2026-04-01
+Last Updated: 2026-04-02
 
 ## Project Overview
 - **Name**: Nexus (package: claudesidian-mcp)
@@ -258,6 +258,19 @@ onCreate(file: TFile) {
 - [Sample Plugin Template](https://github.com/obsidianmd/obsidian-sample-plugin)
 
 ## Recent Milestones
+
+### April 2026
+
+**Apr 2**: Code Organization Audit + Reorganization ✅ (local-fixes branch)
+- **Full codebase audit** (708 TS files, 8,666-line styles.css): identified naming issues, misplaced files, orphaned CSS, and oversized views
+- **`ingestManager` relocated**: `agents/ingestManager/` → `agents/apps/ingestManager/` — now consistent with `composer`, `elevenlabs`, `webTools` (all extend `BaseAppAgent`); 13 internal relative paths updated, 4 external import sites updated
+- **Dead CSS audit**: 102 orphaned CSS classes removed (876 lines, 8,666 → 7,790); removed `branch-nav-button`, `chat-modal` block, `mcp-status-*` block, `nexus-file-item` block, and 80+ more orphaned selectors using a balanced-brace parser script
+- **`SemanticPanelView.ts` decomposed**: 1,272 → 1,037 lines; extracted:
+  - `SemanticPanelTypes.ts` (49 lines) — `SemanticContextPayload`, `PanelMode`, `ResultMode`, `PanelSettings`, `DEFAULT_SETTINGS`
+  - `SemanticResultLoader.ts` (80 lines) — `loadBrowseResults`, `loadSearchResults`, `noteToRow`, `blockToRow` (pure data functions)
+  - `SemanticFeedbackPipeline.ts` (188 lines) — `apply()`, normalizeScores, applyFeedbackReranking, applyScoreBoosts, frontmatter/outlink helpers
+- **Upstream-shared files left untouched**: `ChatView.ts`, `ModelAgentManager.ts`, `TaskBoardView.ts` analyzed against upstream diff; local additions too coupled to extract without creating merge friction
+- **Naming convention constraint**: File renames (baseAgent.ts, canvasManager.ts, ValidationService.ts, etc.) deliberately skipped — all exist in ProfSynapse upstream; renaming would cause systematic merge conflicts
 
 ### March 2026
 
@@ -663,7 +676,10 @@ See `package.json`. Key: MCP SDK, express, winston, uuid. LLM provider SDKs remo
 
 Full tech debt tracker: `docs/tech-debt.md`
 
-**600+ line files to watch**: WorkspaceService (965), ModelAgentManager (895), SQLiteCacheManager (856), ConversationService (813), connector (731), ChatSettingsModal (702), ChatView (659), OpenRouterAdapter (640), ValidationService (625), BatchExecutePromptTool (618), GoogleAdapter (612)
+### Remaining Large Files (600+ lines)
+WorkspaceService (965), ConversationService (813), connector (731), ModelAgentManager (895), SQLiteCacheManager (856), ChatSettingsModal (702), ChatView (1,037, shared with upstream — local additions coupled to upstream code), SemanticPanelView (1,037, decomposed Apr 2 — further reduction limited by UI coupling), OpenRouterAdapter (640), ValidationService (625), BatchExecutePromptTool (618), GoogleAdapter (612)
+
+**Note on naming**: Files like `baseAgent.ts`, `canvasManager.ts`, and `ValidationService.ts` use lowercase/ambiguous names but match the upstream (ProfSynapse/nexus) naming exactly. Do NOT rename them — doing so creates systematic conflicts on every upstream merge.
 
 **Plugin store compliance**: `isDesktopOnly: false` is correct. PR #11597 to obsidian-releases — all ~190 bot violations fixed on `fix/pr-bot-lint`. Audited GREEN. VaultOperations now uses `app.fileManager.trashFile()` (constructor takes `App` as first arg).
 

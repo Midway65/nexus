@@ -7,7 +7,7 @@
 
 // Mock AudioChunkingService
 jest.mock(
-  '../../src/agents/ingestManager/tools/services/AudioChunkingService',
+  '../../src/agents/apps/ingestManager/tools/services/AudioChunkingService',
   () => ({
     chunkAudio: jest.fn(),
   })
@@ -15,7 +15,7 @@ jest.mock(
 
 // Mock MultipartFormDataBuilder
 jest.mock(
-  '../../src/agents/ingestManager/tools/services/MultipartFormDataBuilder',
+  '../../src/agents/apps/ingestManager/tools/services/MultipartFormDataBuilder',
   () => ({
     buildMultipartFormData: jest.fn(),
   })
@@ -25,11 +25,11 @@ import { __setRequestUrlMock } from 'obsidian';
 import {
   transcribeAudio,
   TranscriptionServiceDeps,
-} from '../../src/agents/ingestManager/tools/services/TranscriptionService';
-import { getIngestionProvidersForKind } from '../../src/agents/ingestManager/tools/services/IngestModelCatalog';
-import { chunkAudio } from '../../src/agents/ingestManager/tools/services/AudioChunkingService';
-import { buildMultipartFormData } from '../../src/agents/ingestManager/tools/services/MultipartFormDataBuilder';
-import { AudioChunk } from '../../src/agents/ingestManager/types';
+} from '../../src/agents/apps/ingestManager/tools/services/TranscriptionService';
+import { getIngestionProvidersForKind } from '../../src/agents/apps/ingestManager/tools/services/IngestModelCatalog';
+import { chunkAudio } from '../../src/agents/apps/ingestManager/tools/services/AudioChunkingService';
+import { buildMultipartFormData } from '../../src/agents/apps/ingestManager/tools/services/MultipartFormDataBuilder';
+import { AudioChunk } from '../../src/agents/apps/ingestManager/types';
 
 const chunkAudioMock = chunkAudio as jest.MockedFunction<typeof chunkAudio>;
 const buildMultipartMock = buildMultipartFormData as jest.MockedFunction<typeof buildMultipartFormData>;

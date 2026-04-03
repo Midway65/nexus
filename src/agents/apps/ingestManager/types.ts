@@ -1,12 +1,12 @@
 /**
- * Location: src/agents/ingestManager/types.ts
+ * Location: src/agents/apps/ingestManager/types.ts
  * Purpose: Shared types for the Nexus Ingester agent — document, spreadsheet, PDF, and audio ingestion pipeline.
  *
  * Used by: IngestAgent, IngestTool, ListCapabilitiesTool, all ingestion services
  * Dependencies: CommonParameters, CommonResult from types
  */
 
-import { CommonParameters, CommonResult } from '../../types';
+import { CommonParameters, CommonResult } from '../../../types';
 
 export const ACCEPTED_PDF_EXTENSIONS = ['.pdf'] as const;
 export const ACCEPTED_DOCX_EXTENSIONS = ['.docx'] as const;

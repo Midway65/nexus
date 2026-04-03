@@ -1,6 +1,6 @@
 /**
  * IngestConfirmModal - Confirmation modal before ingestion starts
- * Location: /src/agents/ingestManager/ui/IngestConfirmModal.ts
+ * Location: src/agents/apps/ingestManager/ui/IngestConfirmModal.ts
  *
  * Shown after a user drops a file. Displays:
  * - Filename and file type icon

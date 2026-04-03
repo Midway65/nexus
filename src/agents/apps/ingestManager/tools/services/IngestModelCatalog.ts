@@ -1,5 +1,5 @@
 /**
- * Location: src/agents/ingestManager/tools/services/IngestModelCatalog.ts
+ * Location: src/agents/apps/ingestManager/tools/services/IngestModelCatalog.ts
  * Purpose: Shared declarations for ingestion-only models that are not part of
  * the normal chat model registry.
  */

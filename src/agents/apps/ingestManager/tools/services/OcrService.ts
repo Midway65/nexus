@@ -1,5 +1,5 @@
 /**
- * Location: src/agents/ingestManager/tools/services/OcrService.ts
+ * Location: src/agents/apps/ingestManager/tools/services/OcrService.ts
  * Purpose: OCR service for PDF vision mode. Renders PDF pages to images,
  * formats them for the target provider's vision API, and extracts text via LLM.
  *

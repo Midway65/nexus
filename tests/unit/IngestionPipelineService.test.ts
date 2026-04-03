@@ -8,7 +8,7 @@
 
 // Mock PdfTextExtractor
 jest.mock(
-  '../../src/agents/ingestManager/tools/services/PdfTextExtractor',
+  '../../src/agents/apps/ingestManager/tools/services/PdfTextExtractor',
   () => ({
     extractPdfText: jest.fn(),
   })
@@ -31,7 +31,7 @@ jest.mock(
 
 // Mock OcrService
 jest.mock(
-  '../../src/agents/ingestManager/tools/services/OcrService',
+  '../../src/agents/apps/ingestManager/tools/services/OcrService',
   () => ({
     ocrPdf: jest.fn(),
   })
@@ -49,26 +49,26 @@ jest.mock(
 
 // Mock TranscriptionService
 jest.mock(
-  '../../src/agents/ingestManager/tools/services/TranscriptionService',
+  '../../src/agents/apps/ingestManager/tools/services/TranscriptionService',
   () => ({
     transcribeAudio: jest.fn(),
   })
 );
 
-import { processFile } from '../../src/agents/ingestManager/tools/services/IngestionPipelineService';
-import { extractDocxMarkdown } from '../../src/agents/ingestManager/tools/services/DocxExtractionService';
-import { extractPdfText } from '../../src/agents/ingestManager/tools/services/PdfTextExtractor';
-import { extractPptxContent } from '../../src/agents/ingestManager/tools/services/PptxExtractionService';
-import { ocrPdf } from '../../src/agents/ingestManager/tools/services/OcrService';
-import { extractSpreadsheetSheets } from '../../src/agents/ingestManager/tools/services/SpreadsheetExtractionService';
-import { transcribeAudio } from '../../src/agents/ingestManager/tools/services/TranscriptionService';
+import { processFile } from '../../src/agents/apps/ingestManager/tools/services/IngestionPipelineService';
+import { extractDocxMarkdown } from '../../src/agents/apps/ingestManager/tools/services/DocxExtractionService';
+import { extractPdfText } from '../../src/agents/apps/ingestManager/tools/services/PdfTextExtractor';
+import { extractPptxContent } from '../../src/agents/apps/ingestManager/tools/services/PptxExtractionService';
+import { ocrPdf } from '../../src/agents/apps/ingestManager/tools/services/OcrService';
+import { extractSpreadsheetSheets } from '../../src/agents/apps/ingestManager/tools/services/SpreadsheetExtractionService';
+import { transcribeAudio } from '../../src/agents/apps/ingestManager/tools/services/TranscriptionService';
 import {
   IngestFileRequest,
   IngestProgress,
   PdfPageContent,
   SpreadsheetSheetContent,
   TranscriptionSegment,
-} from '../../src/agents/ingestManager/types';
+} from '../../src/agents/apps/ingestManager/types';
 import { TFile, Vault } from 'obsidian';
 
 const extractDocxMarkdownMock = extractDocxMarkdown as jest.MockedFunction<typeof extractDocxMarkdown>;

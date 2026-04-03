@@ -7,7 +7,7 @@
  * - decodeAudioData failure falls back to returning unsplit buffer
  */
 
-import { chunkAudio } from '../../src/agents/ingestManager/tools/services/AudioChunkingService';
+import { chunkAudio } from '../../src/agents/apps/ingestManager/tools/services/AudioChunkingService';
 import { Platform } from 'obsidian';
 
 describe('AudioChunkingService', () => {

@@ -9,7 +9,7 @@
 import {
   buildMultipartFormData,
   MultipartField,
-} from '../../src/agents/ingestManager/tools/services/MultipartFormDataBuilder';
+} from '../../src/agents/apps/ingestManager/tools/services/MultipartFormDataBuilder';
 
 /** Decode an ArrayBuffer to string for assertion */
 function decodeBody(body: ArrayBuffer): string {

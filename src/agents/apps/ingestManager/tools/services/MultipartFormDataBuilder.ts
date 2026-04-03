@@ -1,5 +1,5 @@
 /**
- * Location: src/agents/ingestManager/tools/services/MultipartFormDataBuilder.ts
+ * Location: src/agents/apps/ingestManager/tools/services/MultipartFormDataBuilder.ts
  * Purpose: Build multipart/form-data payloads for Whisper API transcription requests.
  * Constructs raw ArrayBuffer payloads without relying on the browser FormData API,
  * since Obsidian's requestUrl expects raw body content.

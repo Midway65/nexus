@@ -17,66 +17,21 @@
  * (wired from ChatView.addSemanticContext) is forwarded to each result row.
  */
 
-import { ItemView, MarkdownView, Menu, Notice, setIcon, TFile, type WorkspaceLeaf } from 'obsidian';
+import { ItemView, MarkdownView, Menu, Notice, setIcon, type WorkspaceLeaf } from 'obsidian';
 import type NexusPlugin from '../../main';
 import { SEMANTIC_PANEL_VIEW_TYPE } from '../../constants/branding';
-import type { NoteEmbeddingService, SimilarNote, SimilarBlock } from '../../services/embeddings/NoteEmbeddingService';
+import type { NoteEmbeddingService } from '../../services/embeddings/NoteEmbeddingService';
 import type { SemanticFeedbackService } from './SemanticFeedbackService';
 import { ConnectionsService } from './ConnectionsService';
 import type { ConnectionsSettings } from './ConnectionsSettings';
 import { SemanticResultRow } from './SemanticResultRow';
 import type { RowResult } from './SemanticResultRow';
+import type { SemanticContextPayload, PanelMode, ResultMode, PanelSettings } from './SemanticPanelTypes';
+import { DEFAULT_SETTINGS } from './SemanticPanelTypes';
+import { loadBrowseResults, loadSearchResults } from './SemanticResultLoader';
+import { SemanticFeedbackPipeline } from './SemanticFeedbackPipeline';
 
-// ---------------------------------------------------------------------------
-// Public types
-// ---------------------------------------------------------------------------
-
-export type SemanticContextPayload =
-  | {
-      kind: 'semantic-note';
-      path: string;
-      title: string;
-      /** Title of the source note being analyzed in the panel (for new chat naming). */
-      sourceTitle?: string;
-      score: number;
-      content: string;
-    }
-  | {
-      kind: 'semantic-block';
-      path: string;
-      title: string;
-      /** Title of the source note being analyzed in the panel (for new chat naming). */
-      sourceTitle?: string;
-      heading?: string;
-      chunkIndex: number;
-      score: number;
-      excerpt: string;
-    };
-
-type PanelMode = 'browse' | 'search';
-type ResultMode = 'notes' | 'blocks';
-
-// ---------------------------------------------------------------------------
-// Panel settings (mirrors SemanticPanelSettings in PluginTypes)
-// ---------------------------------------------------------------------------
-
-interface PanelSettings {
-  resultCount: number;
-  minScore: number;
-  resultMode: ResultMode;
-  autoRefresh: boolean;
-  showScore: boolean;
-  showFullPath: boolean;
-}
-
-const DEFAULT_SETTINGS: PanelSettings = {
-  resultCount: 10,
-  minScore: 0.70,
-  resultMode: 'notes',
-  autoRefresh: true,
-  showScore: true,
-  showFullPath: false,
-};
+export type { SemanticContextPayload };
 
 // ---------------------------------------------------------------------------
 // SemanticPanelView
@@ -87,6 +42,7 @@ export class SemanticPanelView extends ItemView {
   private noteEmbeddingService: NoteEmbeddingService | null = null;
   private feedbackService: SemanticFeedbackService | null = null;
   private connectionsService: ConnectionsService | null = null;
+  private feedbackPipeline: SemanticFeedbackPipeline | null = null;
 
   // ---- state ----
   private panelMode: PanelMode = 'browse';
@@ -188,6 +144,13 @@ export class SemanticPanelView extends ItemView {
         () => this.getConnectionsSettings(),
       );
     }
+
+    this.feedbackPipeline = new SemanticFeedbackPipeline(
+      this.app,
+      () => this.feedbackService,
+      () => this.getConnectionsSettings(),
+      () => this.activeNotePath,
+    );
   }
 
   private getConnectionsSettings(): Partial<ConnectionsSettings> {
@@ -536,7 +499,7 @@ export class SemanticPanelView extends ItemView {
           this.renderEmptyState('no-file');
           return;
         }
-        results = await this.loadBrowseResults(this.activeNotePath, requestId);
+        results = await this.loadBrowseResultsForPath(this.activeNotePath, requestId);
       } else {
         const query = this.searchQuery.trim();
         if (!query) {
@@ -544,7 +507,7 @@ export class SemanticPanelView extends ItemView {
           this.setPanelMode('browse');
           return;
         }
-        results = await this.loadSearchResults(query, requestId);
+        results = await this.loadSearchResultsForQuery(query, requestId);
       }
 
       if (requestId !== this.requestId) {
@@ -575,12 +538,19 @@ export class SemanticPanelView extends ItemView {
         }
       }
 
-      const filtered = await this.applyFeedback(results);
+      const pipeline = this.feedbackPipeline ?? new SemanticFeedbackPipeline(
+        this.app,
+        () => this.feedbackService,
+        () => this.getConnectionsSettings(),
+        () => this.activeNotePath,
+      );
+      const { results: filtered, pinnedSet } = await pipeline.apply(results, this.panelMode);
       if (requestId !== this.requestId) {
         this.setLoading(false);
         return;
       }
 
+      this.lastPinnedSet = pinnedSet;
       this.renderResults(filtered, requestId);
       this.setLoading(false);
 
@@ -603,225 +573,20 @@ export class SemanticPanelView extends ItemView {
     }
   }
 
-  private async loadBrowseResults(notePath: string, requestId: number): Promise<RowResult[]> {
+  private async loadBrowseResultsForPath(notePath: string, requestId: number): Promise<RowResult[]> {
     if (!this.noteEmbeddingService) return [];
-
     const opts = { limit: this.settings.resultCount, minScore: this.settings.minScore };
-
-    if (this.resultMode === 'blocks') {
-      const raw = this.connectionsService
-        ? await this.connectionsService.getBlockConnectionsForFile(notePath, opts)
-        : await this.noteEmbeddingService.findSimilarBlocks(notePath, opts.limit, opts.minScore);
-      if (requestId !== this.requestId) return [];
-      return raw.map(b => this.blockToRow(b));
-    } else {
-      const raw = this.connectionsService
-        ? await this.connectionsService.getConnectionsForFile(notePath, opts)
-        : await this.noteEmbeddingService.findSimilarNotes(notePath, opts.limit, opts.minScore);
-      if (requestId !== this.requestId) return [];
-      return raw.map(n => this.noteToRow(n));
-    }
-  }
-
-  private async loadSearchResults(query: string, requestId: number): Promise<RowResult[]> {
-    if (!this.noteEmbeddingService) return [];
-
-    const opts = { limit: this.settings.resultCount, minScore: this.settings.minScore };
-
-    if (this.resultMode === 'blocks') {
-      const raw = this.connectionsService
-        ? await this.connectionsService.semanticSearchBlocks(query, opts)
-        : await this.noteEmbeddingService.semanticSearchBlocks(query, opts.limit, opts.minScore);
-      if (requestId !== this.requestId) return [];
-      return raw.map(b => this.blockToRow(b));
-    } else {
-      const raw = this.connectionsService
-        ? await this.connectionsService.semanticSearch(query, opts)
-        : await this.noteEmbeddingService.semanticSearchNotes(query, opts.limit, opts.minScore);
-      if (requestId !== this.requestId) return [];
-      return raw.map(n => this.noteToRow(n));
-    }
-  }
-
-  // ---- result mapping ----
-
-  private noteToRow(n: SimilarNote): RowResult {
-    const basename = n.notePath.split('/').pop()?.replace(/\.md$/, '') ?? n.notePath;
-    return {
-      kind: 'note',
-      notePath: n.notePath,
-      title: basename,
-      score: n.score,
-    };
-  }
-
-  private blockToRow(b: SimilarBlock): RowResult {
-    const basename = b.notePath.split('/').pop()?.replace(/\.md$/, '') ?? b.notePath;
-    return {
-      kind: 'block',
-      notePath: b.notePath,
-      title: basename,
-      score: b.score,
-      heading: b.heading,
-      chunkIndex: b.chunkIndex,
-      contentPreview: b.contentPreview,
-    };
-  }
-
-  // ---- feedback filtering + scoring pipeline ----
-
-  private async applyFeedback(results: RowResult[]): Promise<RowResult[]> {
-    if (!this.feedbackService || !this.activeNotePath || this.panelMode !== 'browse') {
-      this.lastPinnedSet = new Set();
-      return results;
-    }
-    try {
-      const [pinned, hidden] = await Promise.all([
-        this.feedbackService.getPinned(this.activeNotePath),
-        this.feedbackService.getHidden(this.activeNotePath),
-      ]);
-
-      this.lastPinnedSet = pinned;
-
-      // 1. Filter hidden
-      const visible = results.filter(r => !hidden.has(r.notePath));
-
-      // 2. Normalize raw cosine scores before any boosts
-      const normalized = this.normalizeScores(visible);
-
-      // 3. Apply global feedback re-ranking (pins/hides from other source notes)
-      const cs = this.getConnectionsSettings();
-      const reranked = cs.feedback_scoring !== false
-        ? await this.applyFeedbackReranking(normalized, this.activeNotePath!, cs)
-        : normalized;
-
-      // 4. Apply contextual score boosts
-      const boosted = this.applyScoreBoosts(reranked, pinned);
-
-      // 5. Sort by score desc; hard-partition pinned to top
-      boosted.sort((a, b) => b.score - a.score);
-      const pinnedResults = boosted.filter(r => pinned.has(r.notePath));
-      const normalResults = boosted.filter(r => !pinned.has(r.notePath));
-      return [...pinnedResults, ...normalResults];
-    } catch {
-      return results;
-    }
-  }
-
-  private normalizeScores(results: RowResult[]): RowResult[] {
-    if (results.length === 0) return results;
-    const maxScore = Math.max(...results.map(r => r.score));
-    if (maxScore > 0 && maxScore < 0.5) {
-      const scale = 1 / maxScore;
-      return results.map(r => ({ ...r, score: Math.min(r.score * scale, 1) }));
-    }
+    const results = await loadBrowseResults(notePath, this.noteEmbeddingService, this.connectionsService, opts, this.resultMode);
+    if (requestId !== this.requestId) return [];
     return results;
   }
 
-  /**
-   * Adjust scores using cross-note feedback signal.
-   * For each result, counts how many OTHER source notes have pinned or hidden it.
-   * Pins → small boost; hides → small penalty.
-   * This lets accumulated feedback from similar notes propagate to new notes.
-   */
-  private async applyFeedbackReranking(
-    results: RowResult[],
-    activeNotePath: string,
-    cs: ReturnType<typeof this.getConnectionsSettings>,
-  ): Promise<RowResult[]> {
-    if (!this.feedbackService || results.length === 0) return results;
-    try {
-      const pinWeight = cs.feedback_pin_weight ?? 0.03;
-      const hideWeight = cs.feedback_hide_weight ?? 0.03;
-      const targetPaths = results.map(r => r.notePath);
-      const counts = await this.feedbackService.getGlobalFeedbackCounts(targetPaths, activeNotePath);
-      if (counts.size === 0) return results;
-
-      return results.map(r => {
-        const fb = counts.get(r.notePath);
-        if (!fb) return r;
-        const delta = (fb.pins * pinWeight) - (fb.hides * hideWeight);
-        if (delta === 0) return r;
-        return { ...r, score: Math.max(0, Math.min(1, r.score + delta)) };
-      });
-    } catch {
-      return results;
-    }
-  }
-
-  private applyScoreBoosts(results: RowResult[], pinned: Set<string>): RowResult[] {
-    const cs = this.getConnectionsSettings();
-    const doFrontmatter = cs.frontmatter_scoring !== false;
-    const doCoCitation = cs.co_citation_scoring !== false;
-    const doPathProximity = cs.path_proximity_scoring !== false;
-
-    if (!doFrontmatter && !doCoCitation && !doPathProximity) return results;
-    if (!this.activeNotePath) return results;
-
-    const activeFrontmatter = doFrontmatter ? this.getActiveFrontmatter() : {};
-    const activeOutlinks = doCoCitation ? this.getActiveOutlinks() : new Set<string>();
-    const activeFolder = this.activeNotePath.includes('/')
-      ? this.activeNotePath.slice(0, this.activeNotePath.lastIndexOf('/'))
-      : '';
-
-    const fmWeight = cs.frontmatter_scoring_weight ?? 0.03;
-    const coCiteWeight = cs.co_citation_scoring_weight ?? 0.02;
-    const pathWeight = cs.path_proximity_scoring_weight ?? 0.01;
-
-    return results.map(r => {
-      if (pinned.has(r.notePath)) return r; // pinned results are hard-partitioned, no boost needed
-
-      let boost = 0;
-
-      if (doFrontmatter) {
-        const file = this.app.vault.getFileByPath(r.notePath);
-        if (file) {
-          const fm = this.app.metadataCache.getFileCache(file)?.frontmatter ?? {};
-          const keys = ['tags', 'type', 'status'] as const;
-          let matches = 0;
-          for (const key of keys) {
-            if (activeFrontmatter[key] !== undefined && fm[key] !== undefined) {
-              matches++;
-            }
-          }
-          boost += Math.min(matches * fmWeight, fmWeight * 3);
-        }
-      }
-
-      if (doCoCitation && activeOutlinks.size > 0) {
-        const file = this.app.vault.getFileByPath(r.notePath);
-        if (file) {
-          const links = this.app.metadataCache.getFileCache(file)?.links ?? [];
-          const hasShared = links.some(l => activeOutlinks.has(l.link));
-          if (hasShared) boost += coCiteWeight;
-        }
-      }
-
-      if (doPathProximity) {
-        const resultFolder = r.notePath.includes('/')
-          ? r.notePath.slice(0, r.notePath.lastIndexOf('/'))
-          : '';
-        if (activeFolder === resultFolder) boost += pathWeight;
-      }
-
-      if (boost === 0) return r;
-      return { ...r, score: Math.min(r.score + boost, 1) };
-    });
-  }
-
-  private getActiveFrontmatter(): Record<string, unknown> {
-    if (!this.activeNotePath) return {};
-    const file = this.app.vault.getFileByPath(this.activeNotePath);
-    if (!(file instanceof TFile)) return {};
-    return this.app.metadataCache.getFileCache(file)?.frontmatter ?? {};
-  }
-
-  private getActiveOutlinks(): Set<string> {
-    if (!this.activeNotePath) return new Set();
-    const file = this.app.vault.getFileByPath(this.activeNotePath);
-    if (!(file instanceof TFile)) return new Set();
-    const links = this.app.metadataCache.getFileCache(file)?.links ?? [];
-    return new Set(links.map(l => l.link));
+  private async loadSearchResultsForQuery(query: string, requestId: number): Promise<RowResult[]> {
+    if (!this.noteEmbeddingService) return [];
+    const opts = { limit: this.settings.resultCount, minScore: this.settings.minScore };
+    const results = await loadSearchResults(query, this.noteEmbeddingService, this.connectionsService, opts, this.resultMode);
+    if (requestId !== this.requestId) return [];
+    return results;
   }
 
   // ---- render ----

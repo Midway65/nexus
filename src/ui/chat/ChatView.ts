@@ -44,15 +44,15 @@ import { ChatLayoutBuilder, ChatLayoutElements } from './builders/ChatLayoutBuil
 import { ChatEventBinder } from './utils/ChatEventBinder';
 
 // Ingest UI
-import { IngestEventBinder } from '../../agents/ingestManager/ui/IngestEventBinder';
-import { IngestProgressBanner } from '../../agents/ingestManager/ui/IngestProgressBanner';
-import { IngestConfirmModal, IngestConfirmOptions } from '../../agents/ingestManager/ui/IngestConfirmModal';
-import type { IngestProgress, IngestToolResult } from '../../agents/ingestManager/types';
-import { ACCEPTED_AUDIO_EXTENSIONS } from '../../agents/ingestManager/types';
+import { IngestEventBinder } from '../../agents/apps/ingestManager/ui/IngestEventBinder';
+import { IngestProgressBanner } from '../../agents/apps/ingestManager/ui/IngestProgressBanner';
+import { IngestConfirmModal, IngestConfirmOptions } from '../../agents/apps/ingestManager/ui/IngestConfirmModal';
+import type { IngestProgress, IngestToolResult } from '../../agents/apps/ingestManager/types';
+import { ACCEPTED_AUDIO_EXTENSIONS } from '../../agents/apps/ingestManager/types';
 import {
   getIngestCapabilityOptions,
   IngestCapabilityOptions
-} from '../../agents/ingestManager/tools/services/IngestCapabilityService';
+} from '../../agents/apps/ingestManager/tools/services/IngestCapabilityService';
 
 
 // Utils
