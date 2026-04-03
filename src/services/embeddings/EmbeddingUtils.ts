@@ -34,8 +34,11 @@
  * @returns Processed content string, or null if too short after processing
  */
 export function preprocessContent(content: string, maxChars = 2000): string | null {
-  // Strip frontmatter
-  let processed = content.replace(/^---[\s\S]*?---\n?/, '');
+  // Include frontmatter as readable key:value lines — stripping it discards all the
+  // semantic signal (tags, type, lcsh_related, domain, etc.) from metadata-heavy notes.
+  // Only the '---' delimiters are removed; the YAML key-value pairs remain visible
+  // to the embedding model.
+  let processed = content.replace(/^---\n([\s\S]*?)\n---\n?/, '$1\n');
 
   // Strip image embeds, keep link text
   processed = processed
