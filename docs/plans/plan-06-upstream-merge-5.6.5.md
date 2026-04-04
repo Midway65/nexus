@@ -1,20 +1,37 @@
-# Upstream Merge Plan: v5.6.1 → v5.6.5
-**Date**: 2026-04-01
-**Branch strategy**: Update `main` from upstream, then rebase `local-fixes` onto updated `main`
+# Upstream Merge Plan: v5.6.1 → v5.6.6
+
+**Revised**: 2026-04-03 (re-evaluated after plan-11 strip)
+**Original**: 2026-04-01
+**Branch strategy**: Fast-forward `main` from upstream, then rebase `local-fixes` onto updated `main`
 
 ---
 
-## What upstream changed
+## CRITICAL: ours/theirs semantics during `git rebase main`
+
+During `git rebase main` the meaning is the **opposite** of a merge:
+- `--ours` = current HEAD = main/upstream (the branch being rebased onto)
+- `--theirs` = the commit being replayed from local-fixes
+
+So to take upstream's version: `git checkout --ours <file>`
+To keep our local-fixes version: `git checkout --theirs <file>`
+
+---
+
+## What upstream changed (v5.6.2–5.6.6)
 
 | Release | Key changes |
 |---------|-------------|
-| **5.6.2** | Vault ingestion architecture overhaul. Drag-drop removed from ChatView (~250 lines). New `VaultIngestionManager` handles right-click "Convert to Markdown" + optional auto-convert on file create. PDF.js loader fix (new `PdfJsLoader.ts` using legacy build). |
-| **5.6.3** | DOCX, PPTX, XLSX ingestion. New extraction services. New npm packages (`mammoth`, `xlsx`). |
-| **5.6.4** | `any`→`unknown` type migration across **539 files**. ESLint v8→v9 flat config (`eslint.config.mjs`, removes `.eslintrc.json`). Anthropic streaming fix: restores `index` field on tool call chunks for correct multi-tool accumulation. |
-| **5.6.5** | Obsidian-releases bot lint compliance. 162 unnecessary `async` methods made sync. `app.fileManager.trashFile()` replaces `vault.delete()`. Sentence-case fixes in UI. `onload(): void` refactored (require-await rule). |
+| **5.6.2** | Vault ingestion architecture overhaul. Drag-drop removed from ChatView (~250 lines). New `VaultIngestionManager` (right-click "Convert to Markdown" + auto-convert on file create). PDF.js loader fix (`PdfJsLoader.ts` using legacy build). |
+| **5.6.3** | DOCX, PPTX, XLSX ingestion. New `DocxExtractionService`, `PptxExtractionService`, `SpreadsheetExtractionService`, `PdfJsLoader`. Updated `IngestionPipelineService`, `OutputNoteBuilder`, `ingestTool`, `IngestConfirmModal`. New packages: `mammoth`, `xlsx`. |
+| **5.6.4** | `any`→`unknown` type migration across **539 files**. ESLint v8→v9 flat config (`eslint.config.mjs`, removes `.eslintrc.json`). Anthropic streaming fix: restores `index` field on tool call chunks. |
+| **5.6.5** | Obsidian-releases bot lint compliance. 162 unnecessary `async` made sync. `app.fileManager.trashFile()` replaces `vault.delete()`. Sentence-case fixes. `onload(): void` refactored. |
+| **5.6.6** | `CustomPromptStorageService` dual-write desync fix. Sentence-case in PromptsTab. |
 
 Upstream commits since our `main`:
 ```
+ca056eae chore: bump version to 5.6.6
+3447d8c5 fix: ensure dual-write to both SQLite and data.json in CustomPromptStorageService
+72f9f195 fix: lowercase placeholder text in PromptsTab for sentence-case compliance
 7e7f6148 chore: bump version to 5.6.5
 04b2f90c fix: resolve all obsidian-releases bot lint violations
 ba0ccb22 chore: update ESLint config for obsidian-releases bot parity
@@ -27,227 +44,202 @@ ed1a33cd feat: DOCX, PPTX, XLSX ingestion support
 
 ---
 
-## What local-fixes preserves (must not break)
+## Impact of plan-11 on this merge
 
-31 commits on top of `main`, covering:
-- **Embedding system** — EmbeddingRuntime (iframe/WebGPU/WASM), EmbeddingIndexCoordinator, EmbeddingExclusionService, EmbeddingPreprocessor, EmbeddingModelCatalog, NoteChunker, NoteEmbeddingService; EmbeddingWatcher **deleted** (replaced by EmbeddingIndexCoordinator)
-- **Semantic panel** — SemanticPanelView, SemanticPanelNavigation, SemanticResultRow, SemanticFeedbackService, ConnectionsService, ConnectionsSettings (ConnectionsTab UI overhaul)
-- **EmbeddingsTab** — new settings tab file
-- **ConnectionsTab** — new settings tab file
-- **SettingsView / SettingsRouter** — register both new tabs
-- **SemanticPanelUIManager** — registered in PluginLifecycleManager
-- **Schema v12–v16** — semantic embedding tables (vec_notes, vec_blocks, etc.)
-- **findRelated tool** — new SearchManager tool + registration
-- **FilePickerRenderer** — folder selection fix
-- **ConversationList** — constructor arg order fixed; `component` made required; `!` assertions removed
-- **BranchHeader** — simplify optional Component registration guard
-- **IngestProgressBanner** — constructor requires Component; remove/clear drop manual `removeEventListener` calls
-- **main.ts** — `getEmbeddingManager()` and `openSettings()` methods added
-- **EmbeddingIframe** — comment clarifying why `addEventListener` is used without Component
-- **Chat fixes** — MessageActionBar, EditorInsertService, CreateFileModal, semanticPanelButton in ChatLayoutBuilder header
-- **PerplexityAdapter** — max_tokens fix + strip-tools fix
-- **CostCalculator** — Google API key moved to `x-goog-api-key` header
-- **HybridStorageAdapter** — JSONL file deletion on conversation delete
-- **Nomic embed task prefix** — correct prefix in EmbeddingRuntime
+Plan-11 (commit `3a36bd50`) eliminated many originally predicted conflicts:
+
+| Originally predicted conflict | Status after plan-11 |
+|-------------------------------|----------------------|
+| `EmbeddingManager.ts` (HIGH) | Restored to origin/main — no conflict |
+| `SemanticPanelUIManager.ts` | Deleted — no conflict |
+| `SettingsView.ts` semantic tabs | Near-upstream — type migration only |
+| `SettingsRouter.ts` | Restored to origin/main — no conflict |
+| `ModelAgentManager.ts` vault context | Near-upstream — type migration only |
+| `SystemPromptBuilder.ts` vaultContext | Near-upstream — no diff vs origin/main |
+| `EmbeddingIframe.ts`, `EmbeddingService.ts`, `EmbeddingWatcher.ts` | All restored — no conflict |
+| `schema.ts` | Restored to origin/main — no conflict |
+| `TextAreaNoteSuggester.ts`, `initializeSuggesters.ts` | Restored — no conflict |
+| `TaskBoardEditModal.ts`, `TaskBoardView.ts`, `updateTask.ts` | Restored — no conflict |
+| `searchManager.ts` + `tools/index.ts` | findRelated was local-only; origin/main never had it — no conflict |
+| `PluginTypes.ts` semantic fields | Semantic fields removed — only remaining fields + type migration |
+| `PluginLifecycleManager.ts` SemanticPanelUIManager | Removed — only `getEmbeddingManager()` accessor remains |
 
 ---
 
-## Complete conflict map
+## Revised conflict map
 
-The rebase will surface conflicts in exactly these 34 files (intersection of changes on both sides):
+Actual conflict surface: **~75 files**. The original plan predicted 34 but underestimated how many of our newly-added files (Composer, WebTools, IngestManager) upstream also type-migrated.
 
 ### Group A — Substantive conflicts (require careful manual merge)
 
-| File | Upstream change | Our change | Risk |
-|------|----------------|------------|------|
-| `src/ui/chat/ChatView.ts` | Removes all drag-drop ingest UI (~250 lines); type migration | Adds `semanticPanelButton` wiring; ConversationList constructor arg order | **HIGH** |
-| `src/ui/chat/builders/ChatLayoutBuilder.ts` | Removes `ingestBannerContainer` + warning banner | Adds `semanticPanelButton` to interface and header | **HIGH** |
-| `src/services/embeddings/EmbeddingManager.ts` | `initialize()` async→sync; `runBackgroundIndexing()` extracted | Comprehensive rewrite (adds Runtime, Coordinator, Exclusion, hfToken) | **HIGH** |
-| `src/main.ts` | `async onload()` → `onload(): void + loadPlugin()`; `_timeoutMs` rename; indentation fixes | Adds `getEmbeddingManager()` and `openSettings()` methods | **MEDIUM** |
-| `src/core/PluginLifecycleManager.ts` | Adds `VaultIngestionManager`; removes `UpdateManager`/`Notice`; type casts | Adds `SemanticPanelUIManager` | **MEDIUM** |
-| `src/database/schema/SchemaMigrator.ts` | `any[]`→`unknown[]` in interface; adds `LegacyConversationMetadata` | Schema v11→v16; new embedding table migrations | **MEDIUM** |
-| `src/settings/SettingsView.ts` | Type migration | Adds EmbeddingsTab + ConnectionsTab imports; registers new tabs; adds `embeddingManager` field | **MEDIUM** |
-| `src/agents/ingestManager/ui/IngestProgressBanner.ts` | Type-narrows querySelector calls | Adds `Component` constructor param; drops manual `removeEventListener` | **MEDIUM** — see note below |
-| `src/ui/chat/components/ConversationList.ts` | Type migration | Constructor arg order swap; `component` made required; removes `!` assertions | **LOW-MEDIUM** |
+| File | Our change | Upstream change | Risk |
+|------|-----------|----------------|------|
+| `src/ui/chat/ChatView.ts` | MessageActionBar, IngestEventBinder, IngestProgressBanner wiring, ConversationList constructor fix | Removes all drag-drop ingest UI (~250 lines) + type migration | **HIGH** |
+| `src/ui/chat/builders/ChatLayoutBuilder.ts` | Keeps `ingestBannerContainer` (needed for chat ingestion) | Removes `ingestBannerContainer`, removes `createWarningBanner()` | **MEDIUM** |
+| `src/ui/chat/components/ConversationList.ts` | Constructor arg order (Component required 4th) | Adds pending-delete two-click pattern + type migration | **MEDIUM** |
+| `src/agents/apps/ingestManager/` (multiple files) | Our relocate-to-apps version of these files | DOCX/PPTX/XLSX additions + type migration (at old `agents/ingestManager/` path) | **MEDIUM** — see path-split section |
 
-### Group B — Mechanical conflicts (our functional change + upstream type migration; accept upstream types, keep our logic)
+### Group B — Files we added, upstream type-migrated: take `--ours`
 
-| File | Our functional change |
-|------|----------------------|
-| `src/services/embeddings/EmbeddingIframe.ts` | Added comment about addEventListener usage |
-| `src/services/embeddings/EmbeddingService.ts` | Embedding service changes |
-| `src/services/embeddings/EmbeddingWatcher.ts` | **DELETED by us** — see special case below |
-| `src/services/embeddings/NoteEmbeddingService.ts` | Note embedding changes |
-| `src/services/llm/adapters/perplexity/PerplexityAdapter.ts` | max_tokens fix; strip-tools fix |
-| `src/services/llm/adapters/CostCalculator.ts` | Google API key → `x-goog-api-key` header |
-| `src/agents/searchManager/searchManager.ts` | FindRelated tool registration |
-| `src/agents/contentManager/types.ts` | Type changes for replace/write tools |
-| `src/components/workspace/FilePickerRenderer.ts` | Folder selection fix |
-| `src/database/adapters/HybridStorageAdapter.ts` | JSONL delete on conversation delete |
-| `src/database/migration/ConversationMigrator.ts` | Migration changes |
-| `src/settings/tabs/DefaultsTab.ts` | Adds Chat actions section |
-| `src/settings/SettingsRouter.ts` | Adds `'embeddings' \| 'connections'` to SettingsTab type |
-| `src/types/plugin/PluginTypes.ts` | Adds SemanticPanelSettings + embedding fields |
-| `src/ui/chat/components/AgentStatusMenu.ts` | UI changes |
-| `src/ui/chat/components/BranchHeader.ts` | Simplifies optional Component guard |
-| `src/ui/chat/components/ChatInput.ts` | Chat input changes |
-| `src/ui/chat/components/MessageBubble.ts` | Message bubble changes |
-| `src/ui/chat/components/ProgressiveToolAccordion.ts` | Tool accordion changes |
-| `src/ui/chat/components/factories/ToolBubbleFactory.ts` | Factory changes |
-| `src/ui/chat/components/suggesters/ContentEditableSuggester.ts` | Suggester changes |
-| `src/ui/chat/services/ModelAgentManager.ts` | Adds connections fields to PluginWithSettings; adds `getEmbeddingManager` type |
-| `src/ui/chat/services/SystemPromptBuilder.ts` | System prompt changes |
+These files were added in local-fixes; upstream subsequently type-migrated them. Upstream's version has our content WITH lint fixes applied. Resolution: `git checkout --ours <file>` (takes upstream's cleaned version).
+
+```
+src/agents/apps/BaseAppAgent.ts
+src/agents/apps/composer/services/AudioComposer.ts
+src/agents/apps/composer/services/AudioEncoder.ts
+src/agents/apps/composer/services/AudioMixer.ts
+src/agents/apps/composer/services/FileReader.ts
+src/agents/apps/composer/services/PdfComposer.ts
+src/agents/apps/composer/services/TextComposer.ts
+src/agents/apps/composer/tools/compose.ts
+src/agents/apps/composer/tools/listFormats.ts
+src/agents/apps/elevenlabs/ElevenLabsAgent.ts
+src/agents/apps/webTools/WebToolsAgent.ts
+src/agents/apps/webTools/tools/capturePagePdf.ts
+src/agents/apps/webTools/tools/capturePagePng.ts
+src/agents/apps/webTools/tools/captureToMarkdown.ts
+src/agents/apps/webTools/tools/extractLinks.ts
+src/agents/apps/webTools/utils/webViewer.ts
+```
+
+Same for our test files that upstream modified (type migration only):
+```
+tests/unit/AudioComposer.test.ts
+tests/unit/AudioEncoder.test.ts
+tests/unit/AudioMixer.test.ts
+tests/unit/ComposeTool.test.ts
+tests/unit/FileReader.test.ts
+tests/unit/ListFormats.test.ts
+tests/unit/PdfComposer.test.ts
+tests/unit/TextComposer.test.ts
+```
+
+### Group C — Our functional changes + upstream type migration
+
+Accept upstream's type narrowings; keep our functional changes. For all these files, do NOT `git checkout --ours` wholesale — manual merge required to keep our logic.
+
+| File | Our functional change | Note |
+|------|-----------------------|------|
+| `src/ui/chat/ChatView.ts` | See Group A | Manual |
+| `src/ui/chat/components/AgentStatusMenu.ts` | UI changes | Accept types |
+| `src/ui/chat/components/BranchHeader.ts` | Optional Component guard | Accept types |
+| `src/ui/chat/components/ChatInput.ts` | Chat input changes | Accept types |
+| `src/ui/chat/components/MessageBubble.ts` | Message bubble changes | Accept types |
+| `src/ui/chat/components/ProgressiveToolAccordion.ts` | Tool accordion changes | Accept types |
+| `src/ui/chat/components/factories/ToolBubbleFactory.ts` | Factory changes | Accept types |
+| `src/ui/chat/components/suggesters/ContentEditableSuggester.ts` | Suggester changes | Accept types |
+| `src/ui/chat/services/ModelAgentManager.ts` | Near-upstream after plan-11 | Accept types |
+| `src/database/adapters/HybridStorageAdapter.ts` | JSONL delete on conversation delete | Accept types |
+| `src/database/migration/ConversationMigrator.ts` | Migration changes | Accept types |
+| `src/database/schema/SchemaMigrator.ts` | v12 cleanup migration | See SchemaMigrator section |
+| `src/services/llm/adapters/CostCalculator.ts` | Google API key → `x-goog-api-key` | Accept types |
+| `src/services/llm/adapters/perplexity/PerplexityAdapter.ts` | max_tokens + strip-tools fixes | Accept types |
+| `src/services/llm/adapters/mistral/MistralAdapter.ts` | Multi-turn fix | Accept types |
+| `src/services/llm/adapters/ollama/OllamaAdapter.ts` | Changes | Accept types |
+| `src/components/workspace/FilePickerRenderer.ts` | Folder selection fix | Accept types |
+| `src/settings/SettingsView.ts` | Semantic tabs removed (plan-11) | Accept types |
+| `src/settings/tabs/DefaultsTab.ts` | Chat actions section | Accept types |
+| `src/settings/tabs/AppsTab.ts` | App manager changes | Accept types |
+| `src/agents/taskManager/taskManager.ts` | Note-links removed from description | Accept types |
+| `src/agents/taskManager/services/TaskService.ts` | TaskService changes | Accept types |
+| `src/agents/contentManager/types.ts` | Type changes | Accept types |
+| `src/components/AppConfigModal.ts` | App config changes | Accept types |
+| `src/components/CardManager.ts` | Card manager changes | Accept types |
+| `src/components/llm-provider/providers/GenericProviderModal.ts` | Provider modal | Accept types |
+| `src/services/StaticModelsService.ts` | Model service | Accept types |
+| `src/services/agent/AgentInitializationService.ts` | Agent initialization | Accept types |
+| `src/services/agent/AgentRegistrationService.ts` | Agent registration | Accept types |
+| `src/services/apps/AppManager.ts` | App manager | Accept types |
+| `src/types.ts` | Type changes | Accept types |
+| `src/types/plugin/PluginTypes.ts` | Semantic fields removed; others kept | Manual: keep our field removals + accept type changes to remaining fields |
+| `src/main.ts` | Minor indentation; `async onload()` (old style) | Accept upstream's `onload(): void` + `loadPlugin()` refactor; accept `_timeoutMs` rename; no functional change from our side |
+
+**`src/services/embeddings/NoteEmbeddingService.ts`** — Our version is the restored v5.5.6 baseline. Upstream v5.6.6 has functional improvements (`QueryParams` type, `asQueryParams` helper, etc.). Take upstream: `git checkout --ours`.
+
+### Group D — Trivial
+
+| File | Action | Rationale |
+|------|--------|-----------|
+| `src/utils/connectorContent.ts` | `git checkout --ours` | Timestamp; regenerated by `npm run build` anyway |
+| `CLAUDE.md` | Manual merge | Keep our milestone entries; accept upstream's additions |
+| `README.md` | `git checkout --ours` | Take upstream's updated README |
+| `guide/apps.md` | `git checkout --ours` | Take upstream's version |
+| `manifest.json` | `git checkout --ours` | Take upstream's 5.6.6 version — keeps local-fixes in sync with upstream for tracking |
+| `package-lock.json` | `git checkout --ours` | Upstream adds mammoth/xlsx; we need those |
+| `package.json` | Manual merge | Upstream adds mammoth/xlsx/jszip, ESLint v9 deps, prepends `npm run lint &&` to build script. We add `axios`, `pdf-lib`, `pdfjs-dist`, `wasm-media-encoders`. Take upstream's version then re-add `axios` to dependencies (upstream doesn't have it). Deploy script is identical in both — no action needed. |
+| `tests/unit/ReplaceTool.test.ts` | `git checkout --ours` | Pre-existing test failure; upstream may have fixed it |
 
 ### styles.css — no conflict
 
-Upstream makes zero changes to `styles.css` in 5.6.2–5.6.5. Our 688 lines of new CSS apply cleanly: chat header button group (`.chat-header-right`, `.chat-semantic-panel-button`), mobile touch targets, `message-display-container` flex fix, and all semantic panel / ConnectionsTab component styles.
-
-No action needed — git will fast-forward our CSS changes without conflict.
+Upstream makes zero changes to `styles.css` in 5.6.2–5.6.6. Our CSS additions apply cleanly.
 
 ---
 
-### Group C — Trivial resolution
+## IngestManager path split — Group A detail
 
-| File | Action |
-|------|--------|
-| `src/utils/connectorContent.ts` | `git checkout --theirs` — always a timestamp |
-| `CLAUDE.md` | **Manual merge** — see note below |
-| `package-lock.json` | `git checkout --theirs` — upstream adds mammoth/xlsx packages |
+The code organization commit (`6a4c8e3d`) relocated `src/agents/ingestManager/` → `src/agents/apps/ingestManager/`. Upstream 5.6.3 significantly updated `ingestManager/` files at the **old path** (adding DOCX/PPTX/XLSX support).
 
----
+### Files updated by upstream that we also have (at new path)
 
-## Special cases
+During the rebase, conflicts will surface for these files because the rename from our commit and upstream's modifications to the same files interact:
 
-### EmbeddingWatcher.ts — deleted by us, modified by upstream
+| Our path (after relocation) | Upstream path | What upstream changed |
+|-----------------------------|---------------|-----------------------|
+| `apps/ingestManager/tools/ingestTool.ts` | `ingestManager/tools/ingestTool.ts` | Added DOCX/PPTX/XLSX description + `outputPaths` result field |
+| `apps/ingestManager/tools/services/IngestionPipelineService.ts` | `ingestManager/tools/services/IngestionPipelineService.ts` | Added DOCX/PPTX/XLSX extraction pipeline |
+| `apps/ingestManager/tools/services/OutputNoteBuilder.ts` | `ingestManager/tools/services/OutputNoteBuilder.ts` | Added DOCX/PPTX/XLSX note builders |
+| `apps/ingestManager/tools/services/AudioChunkingService.ts` | `ingestManager/tools/services/AudioChunkingService.ts` | Type migration |
+| `apps/ingestManager/tools/services/FileTypeDetector.ts` | `ingestManager/tools/services/FileTypeDetector.ts` | Added DOCX/PPTX/XLSX detection |
+| `apps/ingestManager/types.ts` | `ingestManager/types.ts` | Added DOCX/PPTX/XLSX types |
+| `apps/ingestManager/ui/IngestProgressBanner.ts` | `ingestManager/ui/IngestProgressBanner.ts` | querySelector type narrowing |
+| `apps/ingestManager/ui/IngestConfirmModal.ts` | `ingestManager/ui/IngestConfirmModal.ts` | Text/sentence-case fixes |
+| `apps/ingestManager/ui/IngestEventBinder.ts` | `ingestManager/ui/IngestEventBinder.ts` | `_e` → parameter removed |
+| `apps/ingestManager/tools/listCapabilitiesTool.ts` | `ingestManager/tools/listCapabilitiesTool.ts` | Minor changes |
 
-We deleted this file (replaced by EmbeddingIndexCoordinator). Upstream 5.6.4 modified it (whitespace/type migration). Git will flag this as: *"deleted by us, modified by them"*.
+**Resolution approach for these files**: After the rebase conflict resolves each one, the target state is:
+- The file at `src/agents/apps/ingestManager/...` (our relocated path)
+- Content = upstream's v5.6.6 version (has DOCX/PPTX/XLSX support) PLUS our relative-import-path corrections (our paths go up 4 levels: `../../../../` vs upstream's 3 levels `../../../`)
 
-Resolution:
-```bash
-git rm src/services/embeddings/EmbeddingWatcher.ts
-```
-Keep our deletion. The file is replaced by EmbeddingIndexCoordinator in our architecture.
+For each conflicted file: check that all relative imports use the correct depth for the `apps/` subdirectory, then take upstream's functional content.
 
----
+### New files added by upstream (not in our branch at all)
 
-### IngestProgressBanner.ts — orphaned after merge
-
-**Problem**: Our local-fixes changed `IngestProgressBanner` to require a `Component` arg (correct for registerDomEvent lifecycle). But:
-- Upstream 5.6.2 removed IngestProgressBanner from `ChatView` (drag-drop gone)
-- Upstream's `VaultIngestionManager` uses `Notice` — not IngestProgressBanner
-
-**Result**: After the rebase, IngestProgressBanner exists with a changed constructor but is **called nowhere** in runtime code. Our ChatView changes that referenced it will be dropped (taken from upstream).
-
-**Resolution**: Keep our constructor change (it's correct compliance work). The banner becomes temporarily dead code. Do NOT delete it — VaultIngestionManager may want it in a future pass, and the compliance fix is correct regardless. No additional action needed for the merge itself.
-
----
-
-## Step-by-step merge procedure
-
-### Step 1 — Update main from upstream
-```bash
-git checkout main
-git merge upstream/main
-git checkout local-fixes
-```
-
-### Step 2 — Rebase local-fixes onto updated main
-```bash
-git rebase main
-```
-
-When conflicts appear, resolve per-file as described below, then:
-```bash
-git add <resolved-file>
-git rebase --continue
-```
-
----
-
-## Conflict resolution guide
-
-### Group C files
+These 4 files exist only in upstream at `agents/ingestManager/`. After the rebase they will appear at that old path and need to be moved:
 
 ```bash
-# During rebase: --ours = the base branch (main/upstream), --theirs = local-fixes commits
-git checkout --ours src/utils/connectorContent.ts
-git checkout --theirs package-lock.json
-git add src/utils/connectorContent.ts package-lock.json
+git mv src/agents/ingestManager/tools/services/DocxExtractionService.ts \
+        src/agents/apps/ingestManager/tools/services/
+git mv src/agents/ingestManager/tools/services/PptxExtractionService.ts \
+        src/agents/apps/ingestManager/tools/services/
+git mv src/agents/ingestManager/tools/services/SpreadsheetExtractionService.ts \
+        src/agents/apps/ingestManager/tools/services/
+git mv src/agents/ingestManager/tools/services/PdfJsLoader.ts \
+        src/agents/apps/ingestManager/tools/services/
+# Clean up empty directories:
+rmdir src/agents/ingestManager/tools/services/ 2>/dev/null
+rmdir src/agents/ingestManager/tools/ 2>/dev/null
+rmdir src/agents/ingestManager/ 2>/dev/null
 ```
 
-**`CLAUDE.md`** — manual merge required. Our local-fixes adds milestone entries (Chat Action Buttons, embedding system work) absent from upstream. Accept upstream's 5.6.2–5.6.5 milestone section AND keep our embedding/semantic panel entries in the March 2026 milestones section.
+Also fix relative imports inside these 4 moved files: `../../../` → `../../../../` (one extra level for `apps/`).
 
 ---
 
-## Group A — Concrete implementation steps
+## SchemaMigrator.ts — keep our v12 migration
 
-### 1. `src/ui/chat/ChatView.ts` — HIGH
+Our file has the v12 cleanup migration (drops semantic tables). Upstream 5.6.4 adds:
+1. `unknown[]` types in `MigratableDatabase` interface
+2. `LegacyConversationMetadata` interface
 
-**What happened**: Upstream (5.6.2) removed all drag-drop ingest UI (~250 lines). Our commits added `semanticPanelButton` wiring, the `openSemanticPanel()` + `addSemanticContext()` methods, and fixed the `ConversationList` constructor call. During the rebase these changes are spread across multiple commits.
-
-**Target end-state for each conflict point:**
-
-**a) Imports block** — take upstream's version (no ingest imports). The merged imports block must contain NO references to `IngestEventBinder`, `IngestProgressBanner`, `IngestConfirmModal`, `IngestProgress`, `IngestToolResult`, `ACCEPTED_AUDIO_EXTENSIONS`, `getIngestCapabilityOptions`, or `IngestCapabilityOptions`. Our import additions (none in this file — we don't add new imports) survive automatically.
-
-**b) Class fields** — the merged class must NOT contain:
-```typescript
-private ingestEventBinder: IngestEventBinder | null = null;
-private ingestProgressBanner: IngestProgressBanner | null = null;
-```
-
-**c) `initializeComponents()` — ConversationList constructor call** — use OUR arg order (Component 4th, `onConversationRename` 5th):
-```typescript
-this.conversationList = new ConversationList(
-  this.layoutElements.conversationListContainer,
-  (conversation) => this.conversationManager.selectConversation(conversation),
-  (conversationId) => this.conversationManager.deleteConversation(conversationId),
-  this,                          // Component for registerDomEvent — 4th arg (required)
-  (conversationId, newTitle) => this.conversationManager.renameConversation(conversationId, newTitle)
-);
-```
-Do NOT use upstream's order which still has `onConversationRename` 4th and `this` 5th.
-
-**d) `initializeEventListeners()` or equivalent setup** — must contain:
-```typescript
-this.registerDomEvent(
-  this.layoutElements.semanticPanelButton,
-  'click',
-  () => void this.openSemanticPanel()
-);
-```
-
-**e) `openSemanticPanel()` and `addSemanticContext()` methods** — must survive intact:
-```typescript
-private async openSemanticPanel(): Promise<void> {
-  const plugin = getNexusPlugin<NexusPlugin>(this.app);
-  const lifecycleManager = (plugin as unknown as { lifecycleManager?: { getSemanticPanelUIManager?(): { setSendToChatCallback(fn: (p: unknown) => void): void; openSemanticPanel(): Promise<void> } } }).lifecycleManager;
-  if (!lifecycleManager) return;
-  const uiManager = lifecycleManager.getSemanticPanelUIManager?.();
-  if (!uiManager) return;
-  uiManager.setSendToChatCallback((payload) => this.addSemanticContext(payload as import('../../ui/semanticPanel/SemanticPanelView').SemanticContextPayload));
-  await uiManager.openSemanticPanel();
-}
-
-addSemanticContext(payload: import('../../ui/semanticPanel/SemanticPanelView').SemanticContextPayload): void {
-  // [body unchanged from local-fixes]
-}
-```
-
-**f) Cleanup / `onClose()` or `destroy()`** — remove these two lines if they survived from our branch:
-```typescript
-this.ingestEventBinder?.destroy();   // remove
-this.ingestProgressBanner?.destroy(); // remove
-```
-
-**Verification**: `grep -n "ingest\|IngestProgress\|ingestBanner" src/ui/chat/ChatView.ts` should return zero results.
+Accept both upstream additions; keep `CURRENT_SCHEMA_VERSION = 12` and our v12 migration block.
 
 ---
 
-### 2. `src/ui/chat/builders/ChatLayoutBuilder.ts` — HIGH
+## ChatLayoutBuilder.ts — keep `ingestBannerContainer`
 
-**Target end-state:**
+Upstream 5.6.2 removes `ingestBannerContainer` because `VaultIngestionManager` uses `Notice`. However, our `IngestEventBinder` (wired in `ChatView`) still uses `IngestProgressBanner` for chat-based PDF/audio ingestion via the IngestManagerAgent. The banner is NOT dead code — keep it.
 
-**a) `ChatLayoutElements` interface** — must contain `semanticPanelButton`, must NOT contain `ingestBannerContainer`:
+Target `ChatLayoutElements` interface after merge:
 ```typescript
 export interface ChatLayoutElements {
   messageContainer: HTMLElement;
@@ -256,416 +248,206 @@ export interface ChatLayoutElements {
   conversationListContainer: HTMLElement;
   newChatButton: HTMLElement;
   settingsButton: HTMLElement;
-  semanticPanelButton: HTMLElement;   // ours — keep
   chatTitle: HTMLElement;
   hamburgerButton: HTMLElement;
   backdrop: HTMLElement;
   sidebarContainer: HTMLElement;
   loadingOverlay: HTMLElement;
   branchHeaderContainer: HTMLElement;
-  // NO ingestBannerContainer here
+  ingestBannerContainer: HTMLElement;   // keep — chat ingestion uses it
+  // NO semanticPanelButton (removed by plan-11)
 }
 ```
 
-**b) `buildLayout()` method** — must NOT create `ingestBannerContainer`, must NOT call `createWarningBanner()`. The header destructure must include `semanticPanelButton`:
-```typescript
-const { chatTitle, hamburgerButton, settingsButton, semanticPanelButton } = this.createHeader(mainContainer);
-```
-The return object must include `semanticPanelButton` and must NOT include `ingestBannerContainer`.
-
-**c) `createHeader()` private method** — must create `chat-header-right` wrapper and the semantic panel button:
-```typescript
-private static createHeader(container: HTMLElement): {
-  chatTitle: HTMLElement;
-  hamburgerButton: HTMLElement;
-  settingsButton: HTMLElement;
-  semanticPanelButton: HTMLElement;
-} {
-  const chatHeader = container.createDiv('chat-header');
-  const hamburgerButton = chatHeader.createEl('button', { cls: 'chat-hamburger-button' });
-  setIcon(hamburgerButton, 'menu');
-  hamburgerButton.setAttribute('aria-label', 'Toggle conversation list');
-
-  const chatTitle = chatHeader.createDiv('chat-title');
-  chatTitle.textContent = 'Nexus Chat';
-
-  const headerRight = chatHeader.createDiv('chat-header-right');
-
-  const semanticPanelButton = headerRight.createEl('button', { cls: 'chat-semantic-panel-button' });
-  setIcon(semanticPanelButton, 'network');
-  semanticPanelButton.setAttribute('aria-label', 'Open Semantic Panel');
-
-  const settingsButton = headerRight.createEl('button', { cls: 'chat-settings-button' });
-  setIcon(settingsButton, 'settings');
-  settingsButton.setAttribute('aria-label', 'Chat settings');
-
-  return { chatTitle, hamburgerButton, settingsButton, semanticPanelButton };
-}
-```
-
-**d) Loading overlay** — accept upstream's lint fixes: no `animate1`/`animate2` variable assignments, warning text reads `'This chat is in beta.'` (not the old experimental text). No `createWarningBanner()` method exists.
+Also accept upstream's loading overlay changes: `animate1`/`animate2` variable assignments removed, `'This chat is in beta.'` warning text. No `createWarningBanner()` method.
 
 ---
 
-### 3. `src/services/embeddings/EmbeddingManager.ts` — HIGH
+## ChatView.ts — conflict guide
 
-**Key decision**: Our `initialize()` method genuinely awaits `readActiveModelFromDb()` at its start. It cannot be made sync without losing that read. Therefore we **keep** `async initialize(): Promise<void>` — do NOT apply upstream's void signature to our version.
+**Keep from our local-fixes:**
+- `MessageActionBar` import and wiring
+- `EditorInsertService` / `CreateFileModal` imports
+- `IngestEventBinder` and `IngestProgressBanner` class fields and setup
+- `ingestBannerContainer` reference from `this.layoutElements`
+- `IngestConfirmModal` import (still used for manual ingest)
+- ConversationList constructor: Component required as 4th arg
 
-The corresponding call in `PluginLifecycleManager.initializeEmbeddingsWhenReady()` must also keep `await` (see PluginLifecycleManager steps below).
+**Accept from upstream:**
+- Removal of drag-drop event listeners (`dragover`, `drop`, etc.)
+- Removal of `IngestDropOverlay` (drag-drop UI only; distinct from `IngestProgressBanner`)
+- Removal of `ingestCapabilities` / `getIngestCapabilityOptions` in `onOpen()`
+- `onload(): void` / `loadPlugin()` pattern if present
+- All `any`→`unknown` type changes
 
-**Target end-state** — our file is authoritative. Verify after the rebase:
+**Verify after:** `grep -n "dragover\|drop.*event\|IngestDropOverlay" src/ui/chat/ChatView.ts` → zero results.
 
-- Signature: `async initialize(): Promise<void>` — confirmed correct, do not change
-- Constructor params: `(app, plugin, db, enableEmbeddings = true, messageRepository?, huggingFaceToken?, getExclusionPatterns?)` — keep all seven
-- Class fields include: `runtime`, `coordinator`, `hfToken`, `getExclusionPatterns` — all present
-- `EmbeddingWatcher` is NOT imported (we deleted it) — confirmed
-- `isInitialized: boolean = false` — change to `isInitialized = false` (upstream lint: no redundant type annotation)
-
-The only upstream change to adopt in this file is cosmetic: `private isInitialized = false` (drop `: boolean`).
-
----
-
-### 4. `src/main.ts` — MEDIUM
-
-**Target end-state** — upstream's structure + our two appended methods.
-
-**a) `getService()` signature** — accept upstream's rename:
-```typescript
-public async getService<T>(name: string, _timeoutMs?: number): Promise<T | null> {
-```
-
-**b) `onload()` / `onunload()`** — take upstream's void wrappers verbatim:
-```typescript
-onload(): void {
-  void this.loadPlugin();
-}
-
-private async loadPlugin(): Promise<void> {
-  // [full existing body, unchanged]
-}
-
-onunload(): void {
-  void this.unloadPlugin();
-}
-
-private async unloadPlugin(): Promise<void> {
-  // [full existing body, unchanged]
-}
-```
-
-**c) Our two methods** — must appear after `getServiceContainer()`:
-```typescript
-public getEmbeddingManager() {
-  return this.lifecycleManager?.getEmbeddingManager() ?? null;
-}
-
-public openSettings(_tab?: string): void {
-  const setting = (this.app as unknown as { setting?: { open(): void; openTabById(id: string): void } }).setting;
-  if (!setting) return;
-  setting.open();
-  setting.openTabById(this.manifest.id);
-}
-```
-
-The class ends with `openSettings()` — no further content.
+> **Note**: `IngestDropOverlay.ts` will still exist at `src/agents/apps/ingestManager/ui/IngestDropOverlay.ts` but is no longer referenced by ChatView after accepting upstream's drag-drop removal. It becomes dead code. Leave it for now — removing it is a separate cleanup and not a build blocker.
 
 ---
 
-### 5. `src/core/PluginLifecycleManager.ts` — MEDIUM
+## PluginLifecycleManager.ts
 
-**Target end-state** — union of both sides, with our `await` preserved.
+Our only addition after plan-11: `getEmbeddingManager(): EmbeddingManager | null`. Upstream adds `VaultIngestionManager` construction and registration. Independent additions — no interaction.
 
-**a) Imports** — must contain both (in this order, alphabetically by module):
-```typescript
-import { SemanticPanelUIManager } from './ui/SemanticPanelUIManager';  // ours
-import { VaultIngestionManager } from './ingest/VaultIngestionManager'; // upstream
-```
-Do NOT import `UpdateManager` or `Notice` (upstream removed them).
-
-**b) Class fields** — must contain both, in field declaration order (upstream fields first to minimize diff):
-```typescript
-private isInitialized = false;         // upstream: drop `: boolean`
-// ...
-private taskBoardUIManager: TaskBoardUIManager;
-private semanticPanelUIManager: SemanticPanelUIManager;   // ours
-private backgroundProcessor: BackgroundProcessor;
-// ...
-private vaultIngestionManager: VaultIngestionManager;      // upstream
-private embeddingManager: EmbeddingManager | null = null;
-```
-
-**c) Constructor** — accept upstream's type casts for `serviceContext` and `commandManager`, and add `vaultIngestionManager` block. Keep `semanticPanelUIManager` block. Order: taskBoardUIManager → **semanticPanelUIManager** → backgroundProcessor → settingsTabManager → inlineEditCommandManager → **vaultIngestionManager**:
-```typescript
-this.taskBoardUIManager = new TaskBoardUIManager({ plugin: config.plugin, app: config.app });
-
-this.semanticPanelUIManager = new SemanticPanelUIManager({ plugin: config.plugin, app: config.app });
-
-// [backgroundProcessor, settingsTabManager, inlineEditCommandManager unchanged]
-
-this.vaultIngestionManager = new VaultIngestionManager({
-  plugin: config.plugin,
-  app: config.app,
-  getService: (name, timeoutMs) => this.serviceRegistrar.getService(name, timeoutMs)
-});
-```
-
-**d) `initialize()` — registration phase** — must call both UI managers and the vault ingestion manager:
-```typescript
-await this.chatUIManager.registerViewEarly();
-await this.taskBoardUIManager.registerViewEarly();
-await this.semanticPanelUIManager.registerViewEarly();   // ours
-```
-And later in the background init phase:
-```typescript
-await this.chatUIManager.registerChatUI();
-await this.taskBoardUIManager.registerTaskBoardUI();
-await this.semanticPanelUIManager.registerSemanticPanelUI();  // ours
-this.settingsTabManager.initializeSettingsTab();               // upstream: no await (lint)
-// ...
-this.vaultIngestionManager.register();                        // upstream: fire-and-forget
-```
-
-**e) `initializeEmbeddingsWhenReady()`** — keep `await` on initialize:
-```typescript
-await this.embeddingManager.initialize();   // keep await — our version is genuinely async
-```
-
-**f) Accessor methods** — both must survive:
-```typescript
-getEmbeddingManager(): EmbeddingManager | null {
-  return this.embeddingManager;
-}
-
-getSemanticPanelUIManager(): SemanticPanelUIManager {
-  return this.semanticPanelUIManager;
-}
-```
+Accept upstream's VaultIngestionManager block AND keep our `getEmbeddingManager()` accessor.
 
 ---
 
-### 6. `src/database/schema/SchemaMigrator.ts` — MEDIUM
+## Step-by-step merge procedure
 
-Our file is authoritative. Apply three upstream changes:
-
-**a) `MigratableDatabase` interface** — use `unknown[]` types:
-```typescript
-export interface MigratableDatabase {
-  exec(sql: string): { values: unknown[][] }[];
-  run(sql: string, params?: unknown[]): void;
-}
+### Step 1 — Update main from upstream
+```bash
+git checkout main
+git merge upstream/main   # fast-forward to v5.6.6
+git checkout local-fixes
 ```
 
-**b) `CURRENT_SCHEMA_VERSION`** — keep ours:
-```typescript
-export const CURRENT_SCHEMA_VERSION = 16;
+### Step 2 — Rebase local-fixes onto updated main
+```bash
+git rebase main
 ```
 
-**c) `LegacyConversationMetadata` interface** — add upstream's interface after the `Database` alias line:
-```typescript
-type Database = MigratableDatabase;
+Resolve conflicts commit by commit. After each file resolution: `git add <file>` then `git rebase --continue`.
 
-interface LegacyConversationMetadata {
-  chatSettings?: {
-    workspaceId?: string;
-    sessionId?: string;
-  };
-  workspaceId?: string;
-  sessionId?: string;
-  workflowId?: string;
-  runTrigger?: string;
-  scheduledFor?: number;
-  runKey?: string;
-}
-```
-
-All our migration definitions (v12–v16) and version number remain untouched.
-
----
-
-### 7. `src/settings/SettingsView.ts` — MEDIUM
-
-Our file is the functional authority for the new tabs. Accept upstream's type narrowings throughout. Verify these survive after each rebase step:
-
-**a) Imports** — keep our additions:
-```typescript
-import { EmbeddingsTab } from './tabs/EmbeddingsTab';
-import { ConnectionsTab } from './tabs/ConnectionsTab';
-import type { EmbeddingManager } from '../services/embeddings/EmbeddingManager';
-```
-
-**b) Class fields** — keep our tab instances:
-```typescript
-private embeddingsTab: EmbeddingsTab | undefined;
-private connectionsTab: ConnectionsTab | undefined;
-```
-
-**c) Tab registration in `display()`** — keep our two tab configs in the tabs array:
-```typescript
-{ key: 'embeddings', label: 'Embeddings' },
-{ key: 'connections', label: 'Connections' },
-```
-
-**d) Switch/case routing** — keep our render cases:
-```typescript
-case 'embeddings':
-  this.renderEmbeddingsTab(pane);
-  break;
-case 'connections':
-  this.renderConnectionsTab(pane);
-  break;
-```
-
-**e) Render methods** — keep our two private render methods (`renderEmbeddingsTab`, `renderConnectionsTab`) and their destroy calls in `hide()`.
-
----
-
-### 8. `src/agents/ingestManager/ui/IngestProgressBanner.ts` — LOW-MEDIUM
-
-Our version is the base. Apply upstream's two querySelector type-narrowing changes:
-
-**a)** Change:
-```typescript
-const barFill = bannerEl.querySelector('.nexus-ingest-progress-bar-fill') as HTMLElement | null;
-```
-To:
-```typescript
-const barFill = bannerEl.querySelector<HTMLElement>('.nexus-ingest-progress-bar-fill');
-```
-
-**b)** Change:
-```typescript
-const dismissBtn = bannerEl.querySelector('.nexus-ingest-progress-dismiss') as HTMLElement | null;
-```
-To:
-```typescript
-const dismissBtn = bannerEl.querySelector('.nexus-ingest-progress-dismiss');
-```
-(upstream removes the `as HTMLElement` cast from dismissBtn — it's used only with `.removeClass`/`.addClass` which exist on `Element`.)
-
-Everything else (Component constructor param, no-manual-removeEventListener in `remove()` and `clear()`) stays as our version.
-
----
-
-### 9. `src/ui/chat/components/ConversationList.ts` — LOW-MEDIUM
-
-**Important**: Upstream added a new pending-delete UX feature (`pendingDeleteConversationId`, `pendingDeleteTimer`, `requestDeleteConversation()`). We must incorporate both our constructor refactor AND their new feature.
-
-**Target end-state:**
-
-**a) Class fields** — add upstream's two new fields:
-```typescript
-private conversations: ConversationData[] = [];
-private activeConversationId: string | null = null;
-private pendingDeleteConversationId: string | null = null;   // upstream — add
-private pendingDeleteTimer: number | null = null;             // upstream — add
-```
-
-**b) Constructor** — use OUR arg order (Component required 4th, onRename optional 5th):
-```typescript
-constructor(
-  private container: HTMLElement,
-  private onConversationSelect: (conversation: ConversationData) => void,
-  private onConversationDelete: (conversationId: string) => void,
-  private component: Component,                                           // ours: required, 4th
-  private onConversationRename?: (conversationId: string, newTitle: string) => void  // 5th
-) {
-  this.render();
-}
-```
-
-**c) Upstream's `requestDeleteConversation()` method** — add it. It implements a two-click delete pattern (first click arms the delete, second click within a timer confirms). Include this method verbatim from upstream's version at the end of the class.
-
-**d) Delete button wiring in `render()`** — upstream changed the delete button to call `requestDeleteConversation` rather than calling `onConversationDelete` directly. Accept upstream's version of this wiring.
-
-**e) `this.component.registerDomEvent(...)` calls** — keep our removal of the `!` assertion (component is required, not optional). If upstream uses `this.component?.registerDomEvent(...)` with optional chaining, that is fine to keep (it compiles without error on a required field).
-
----
-
-### Group B — mechanical conflicts
-
-For all 21 Group B files, the resolution rule is: **accept upstream's type narrowings, keep our functional changes**. No line-by-line pre-planning; resolve by inspection during the rebase. Three files warrant extra care:
-
-**`src/services/llm/adapters/perplexity/PerplexityAdapter.ts`** — Our max_tokens and strip-tools fixes are in `generateStreamAsync()` and `generateWithChatCompletions()`. After resolving, change `const requestBody: any = {` → `const requestBody = {` to satisfy the new lint rule.
-
-**`src/agents/searchManager/searchManager.ts`** — Accept all upstream structural changes (noop helpers, `_enableVectorModes` rename, sync `updateSettings()`). Ensure `FindRelatedTool` appears in the import destructure from `'./tools'` and the `registerLazyTool({ slug: 'findRelated', ... })` block is present in the constructor.
-
-**`src/ui/chat/services/ModelAgentManager.ts`** — Our additions to `PluginWithSettings` (`connectionsAutoInjectContext`, `connectionsContextLimit`, `connections`, `getEmbeddingManager`) are in the interface declaration near the top. Accept upstream's `any`→`unknown` changes throughout the method bodies; verify our interface fields survive.
-
----
-
-## Post-rebase checklist
+**Quick resolution reference (remember: `--ours` = upstream/main during rebase):**
 
 ```bash
-# 1. Install new packages from 5.6.3 (mammoth, xlsx)
+# Group B — take upstream's type-migrated version of our new files:
+git checkout --ours src/agents/apps/BaseAppAgent.ts
+git checkout --ours src/agents/apps/composer/services/AudioComposer.ts
+# [repeat for all Group B files]
+
+# NoteEmbeddingService — take upstream's improved version:
+git checkout --ours src/services/embeddings/NoteEmbeddingService.ts
+
+# Trivial files:
+git checkout --ours src/utils/connectorContent.ts
+git checkout --ours README.md guide/apps.md
+git checkout --ours package-lock.json
+git checkout --ours manifest.json     # take upstream's 5.6.6 version
+# package.json: manual — take upstream (--ours), then re-add "axios" to dependencies
+# (upstream has pdf-lib, pdfjs-dist, wasm-media-encoders, deploy script — all fine; only axios is missing)
+```
+
+For Group C files: manual merge — accept upstream's type changes, keep our functional logic.
+
+For ingestManager files: accept upstream's content (has DOCX/PPTX/XLSX support), then fix relative import paths from `../../../` to `../../../../`.
+
+### Step 3 — Post-rebase: relocate new upstream ingestManager files
+```bash
+git mv src/agents/ingestManager/tools/services/DocxExtractionService.ts \
+        src/agents/apps/ingestManager/tools/services/
+git mv src/agents/ingestManager/tools/services/PptxExtractionService.ts \
+        src/agents/apps/ingestManager/tools/services/
+git mv src/agents/ingestManager/tools/services/SpreadsheetExtractionService.ts \
+        src/agents/apps/ingestManager/tools/services/
+git mv src/agents/ingestManager/tools/services/PdfJsLoader.ts \
+        src/agents/apps/ingestManager/tools/services/
+rmdir src/agents/ingestManager/tools/services/ 2>/dev/null
+rmdir src/agents/ingestManager/tools/ 2>/dev/null
+rmdir src/agents/ingestManager/ 2>/dev/null
+```
+
+Fix relative imports inside these 4 files (add one extra `../`). Then wire DOCX/PPTX/XLSX support into `IngestionPipelineService` references (should already be done from upstream's version of that file after the manual merge in Step 2).
+
+Also update `src/core/ingest/VaultIngestionManager.ts` to reference `src/agents/apps/ingestManager/` paths if it imports from there (check after rebase).
+
+### Step 4 — Install new packages
+```bash
 npm install
+```
+Upstream 5.6.3 added `mammoth` and `xlsx`.
 
-# 2. Lint FIRST — upstream 5.6.4 added "npm run lint &&" to the build script,
-#    so npm run build now runs lint internally. Build will fail on any lint violation.
-#    Fix all violations in our new files before proceeding.
+### Step 5 — Lint
+```bash
 npm run lint
+```
+ESLint v9 is now part of the build script. Fix all violations before building. Common patterns:
+- `} catch (err) {` → `} catch {` (if `err` unused)
+- `const x: any = {` → `const x = {` or typed alternative
+- `async` on methods that don't `await` — remove `async`
+- `vault.delete()` → `app.fileManager.trashFile()`
+- Sentence case in any UI strings we added
 
-# 3. Full production build (must pass clean)
+### Step 6 — Build
+```bash
 npm run build
+```
 
-# 4. Tests
+`npm run build` produces three of the four required deployment artifacts:
+- `main.js` — compiled plugin bundle
+- `connector.js` — MCP server connector
+- `styles.css` — copied from source (unchanged by build if no CSS edits)
+
+`manifest.json` is the fourth required artifact — it is not generated; it is the source file itself.
+
+**All four must be deployed together.** A partial deploy (e.g., only `main.js`) will cause version mismatches or missing features:
+```
+main.js        — compiled plugin bundle
+connector.js   — MCP server connector
+manifest.json  — plugin metadata and version
+styles.css     — plugin styles
+```
+
+`npm run deploy` (which runs `npm run build` then `postbuild.ps1`) copies all four to the vault's `.obsidian/plugins/nexus/` directory in one step.
+
+### Step 7 — Test
+```bash
 npm run test
 ```
 
-### Expected lint violations in our new files
-
-Our new files (EmbeddingsTab.ts, EmbeddingRuntime.ts, EmbeddingIndexCoordinator.ts, SemanticPanelView.ts, ConnectionsTab.ts, etc.) were written before the `any`→`unknown` migration. Expect ~10–20 violations to fix:
-
-```typescript
-// Common patterns to fix:
-} catch (error: any) {                              // → } catch (error: unknown) {
-(result: any) =>                                    // → (result: unknown) =>
-const data = JSON.parse(text) as any               // → typed cast or unknown
-const requestBody: any = {                          // → drop any, let TS infer
+### Step 8 — Deploy to vault
+```bash
+npm run deploy
 ```
 
-Also watch for:
-- `async` on methods that don't `await` (require-await rule — remove `async`)
-- Sentence case violations in UI strings added by our tabs
-- `vault.delete()` calls if any — replace with `app.fileManager.trashFile()`
+Verify in Obsidian:
+- Plugin reloads without error
+- Chat panel opens and sends messages
+- New "Convert to Markdown" right-click option appears on supported files
+- Version shown in Settings → Community plugins matches upstream version
 
-### Functional verification in Obsidian
-
-- [ ] Semantic panel opens from chat header button
-- [ ] EmbeddingsTab visible in Settings; model controls work
-- [ ] Embedding indexing starts on startup; mutual exclusion with manual rebuild works
-- [ ] ConnectionsTab filter chips, frontmatter picker, exclusion patterns work
-- [ ] Right-click "Convert to Markdown" on PDF/DOCX/PPTX/XLSX in file explorer (new VaultIngestionManager)
-- [ ] Auto-ingestion toggle in Settings → Defaults → Ingestion works
-- [ ] FilePickerRenderer shows folder picker (our fix)
-- [ ] Chat action buttons (insert, append, create-file) still work
-- [ ] No drag-drop ingest in ChatView (correctly removed by upstream)
-- [ ] Nomic embed task prefix is correct (our EmbeddingRuntime fix)
-- [ ] Conversation delete removes JSONL file (our HybridStorageAdapter fix)
-- [ ] Perplexity max_tokens defaults correctly (our PerplexityAdapter fix)
-- [ ] Multi-tool Anthropic responses accumulate correctly (upstream streaming fix)
-- [ ] findRelated tool available via MCP getTools
+### Step 9 — Push
+```bash
+git checkout main && git push origin main
+git checkout local-fixes && git push --force-with-lease origin local-fixes
+```
+Force-with-lease required because rebase rewrites commit history.
 
 ---
 
-## New upstream capabilities (no action required, just awareness)
+## Post-rebase verification checklist
 
-### VaultIngestionManager
-- Right-click any supported file in Obsidian's file tree → "Convert to Markdown"
-- `autoIngestion?: boolean` setting: automatically converts newly-added supported files
-- Uses `Notice` for progress feedback (not IngestProgressBanner)
-- Wired into PluginLifecycleManager via `vaultIngestionManager.register()`
+- [ ] Chat action buttons work (insert, append, create-file)
+- [ ] Chat-based PDF/audio ingestion still shows progress banner
+- [ ] DOCX/PPTX/XLSX ingest via chat works (new extraction services wired in)
+- [ ] Right-click "Convert to Markdown" on DOCX/PPTX/XLSX/PDF in file explorer (VaultIngestionManager — new)
+- [ ] FilePickerRenderer shows folder picker
+- [ ] ConversationList delete: two-click confirm (new from upstream)
+- [ ] Anthropic multi-tool responses accumulate correctly (upstream streaming fix)
+- [ ] Embeddings toggle in Defaults → Embeddings section still works
+- [ ] No drag-drop ingest UI in ChatView (correctly removed)
+- [ ] Schema v12 migration runs cleanly (drops semantic tables on fresh open)
+- [ ] No `agents/ingestManager/` directory remains (only `agents/apps/ingestManager/`)
+- [ ] All four deployment artifacts present and consistent: `main.js`, `connector.js`, `manifest.json`, `styles.css`
+- [ ] Version in Settings → Community plugins matches upstream (5.6.6)
+
+---
+
+## New upstream capabilities (awareness only)
+
+### VaultIngestionManager (`src/core/ingest/VaultIngestionManager.ts` — new)
+- Right-click any supported file in file tree → "Convert to Markdown"
+- `autoIngestion?: boolean` in settings — auto-converts newly-added supported files
+- Uses `Notice` for progress feedback (not `IngestProgressBanner`)
+- Wired via `PluginLifecycleManager` — comes in cleanly, no conflict
 
 ### DOCX / PPTX / XLSX extraction
 - `DocxExtractionService` (mammoth), `PptxExtractionService` (zip+XML), `SpreadsheetExtractionService` (xlsx)
-- Output: Markdown note alongside original file
-- Triggered via VaultIngestionManager
+- `PdfJsLoader.ts` — cleaner PDF.js initialization using legacy build
+- All available via IngestTool once the path relocation (Step 3) and import-depth fixes are done
 
 ### Anthropic streaming fix (5.6.4)
 - `index` field restored on tool call delta chunks in `SSEStreamProcessor`
-- Fixes multi-tool responses where calls accumulated into wrong slots
-- Applies cleanly; no interaction with our changes
-
-### ESLint obsidianmd plugin (5.6.4 / 5.6.5)
-- 27 rules from the official Obsidian team
-- Key enforced rules: no innerHTML with dynamic content, registerDomEvent required, no inline styles, sentence-case UI text, no deprecated vault.delete(), no unnecessary async
-- Our new files will need a pass to comply (see lint checklist above)
+- Fixes multi-tool response accumulation — no interaction with our changes, applies cleanly
