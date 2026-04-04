@@ -7,7 +7,7 @@ jest.mock('mammoth', () => ({
 }));
 
 import mammoth from 'mammoth';
-import { extractDocxMarkdown } from '../../src/agents/ingestManager/tools/services/DocxExtractionService';
+import { extractDocxMarkdown } from '../../src/agents/apps/ingestManager/tools/services/DocxExtractionService';
 
 const convertToMarkdownMock = (mammoth as unknown as {
   convertToMarkdown: jest.Mock;

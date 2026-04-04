@@ -27,6 +27,7 @@ export interface ChatLayoutElements {
   sidebarContainer: HTMLElement;
   loadingOverlay: HTMLElement;
   branchHeaderContainer: HTMLElement;
+  ingestBannerContainer: HTMLElement;
 }
 
 export class ChatLayoutBuilder {
@@ -52,6 +53,7 @@ export class ChatLayoutBuilder {
     const messageContainer = mainContainer.createDiv('message-display-container');
     const inputContainer = mainContainer.createDiv('chat-input-container');
     const contextContainer = mainContainer.createDiv('chat-context-container');
+    const ingestBannerContainer = mainContainer.createDiv('nexus-ingest-banner-container');
 
     // Nexus model loading overlay (hidden by default)
     const loadingOverlay = this.createLoadingOverlay(mainContainer);
@@ -72,7 +74,8 @@ export class ChatLayoutBuilder {
       backdrop,
       sidebarContainer,
       loadingOverlay,
-      branchHeaderContainer
+      branchHeaderContainer,
+      ingestBannerContainer
     };
   }
 

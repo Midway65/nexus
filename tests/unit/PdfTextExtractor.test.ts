@@ -7,7 +7,7 @@
  */
 
 // Mock the PDF.js loader before importing the module under test
-jest.mock('../../src/agents/ingestManager/tools/services/PdfJsLoader', () => ({
+jest.mock('../../src/agents/apps/ingestManager/tools/services/PdfJsLoader', () => ({
   loadPdfJs: jest.fn(),
 }));
 

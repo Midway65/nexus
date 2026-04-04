@@ -182,7 +182,7 @@ export class TaskBoardEditModal extends Modal {
     if (includeEmpty && !options.some(([optionValue]) => optionValue === '')) {
       dropdown.addOption('', 'None');
     }
-    options.forEach(([optionValue, optionLabel]) => dropdown.addOption(optionValue, optionLabel));
+    options.forEach(([optionValue, optionLabel]) => { dropdown.addOption(optionValue, optionLabel); });
     dropdown.setValue(value || '');
     dropdown.onChange(onChange);
   }

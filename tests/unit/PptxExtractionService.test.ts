@@ -1,5 +1,5 @@
 import JSZip from 'jszip';
-import { extractPptxContent } from '../../src/agents/ingestManager/tools/services/PptxExtractionService';
+import { extractPptxContent } from '../../src/agents/apps/ingestManager/tools/services/PptxExtractionService';
 
 async function createSamplePptx(): Promise<ArrayBuffer> {
   const zip = new JSZip();

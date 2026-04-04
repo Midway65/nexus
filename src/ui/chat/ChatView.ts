@@ -47,7 +47,7 @@ import { ChatEventBinder } from './utils/ChatEventBinder';
 import { IngestEventBinder } from '../../agents/apps/ingestManager/ui/IngestEventBinder';
 import { IngestProgressBanner } from '../../agents/apps/ingestManager/ui/IngestProgressBanner';
 import { IngestConfirmModal, IngestConfirmOptions } from '../../agents/apps/ingestManager/ui/IngestConfirmModal';
-import type { IngestProgress, IngestToolResult } from '../../agents/apps/ingestManager/types';
+import type { IngestToolResult } from '../../agents/apps/ingestManager/types';
 import { ACCEPTED_AUDIO_EXTENSIONS } from '../../agents/apps/ingestManager/types';
 import {
   getIngestCapabilityOptions,
@@ -109,6 +109,10 @@ export class ChatView extends ItemView {
 
   // Subagent infrastructure (delegated to SubagentController)
   private subagentController: SubagentController | null = null;
+
+  // Ingest UI
+  private ingestProgressBanner: IngestProgressBanner | null = null;
+  private ingestEventBinder: IngestEventBinder | null = null;
 
   // Disposal guard - prevents polling loops from operating on detached DOM
   private isClosing = false;
@@ -464,10 +468,10 @@ export class ChatView extends ItemView {
   private initializeComponents(): void {
     this.conversationList = new ConversationList(
       this.layoutElements.conversationListContainer,
-      (conversation) => this.conversationManager.selectConversation(conversation),
-      (conversationId) => this.conversationManager.deleteConversation(conversationId),
+      (conversation) => { void this.conversationManager.selectConversation(conversation); },
+      (conversationId) => { void this.conversationManager.deleteConversation(conversationId); },
       this, // Component for registerDomEvent
-      (conversationId, newTitle) => this.conversationManager.renameConversation(conversationId, newTitle)
+      (conversationId, newTitle) => { void this.conversationManager.renameConversation(conversationId, newTitle); }
     );
 
     this.messageDisplay = new MessageDisplay(
@@ -561,7 +565,7 @@ export class ChatView extends ItemView {
       this.ingestEventBinder = new IngestEventBinder(
         mainContainer,
         plugin,
-        (files) => this.handleIngestFiles(files)
+        (files) => { void this.handleIngestFiles(files); }
       );
       this.ingestEventBinder.bind();
     }

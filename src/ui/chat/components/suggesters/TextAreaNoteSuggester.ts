@@ -28,6 +28,7 @@ export class TextAreaNoteSuggester extends ContentEditableSuggester<NoteSuggesti
     this.messageEnhancer = messageEnhancer;
   }
 
+  // eslint-disable-next-line @typescript-eslint/require-await
   async getSuggestions(query: string): Promise<SuggestionItem<NoteSuggestionItem>[]> {
     const files = this.app.vault.getMarkdownFiles();
 

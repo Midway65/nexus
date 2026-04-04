@@ -42,7 +42,7 @@ export class DefaultsTab {
     this.router = router;
     this.services = services;
 
-    this.loadDataAndRender();
+    void this.loadDataAndRender();
   }
 
   /**
@@ -186,7 +186,7 @@ export class DefaultsTab {
       initialSettings: this.getCurrentSettings(),
       options: { workspaces, prompts },
       callbacks: {
-        onSettingsChange: (settings) => this.saveSettings(settings)
+        onSettingsChange: (settings) => { void this.saveSettings(settings); }
       }
     });
 
@@ -213,6 +213,7 @@ export class DefaultsTab {
 
       new Setting(embeddingsContent)
         .setName('Enable')
+        // eslint-disable-next-line obsidianmd/ui/sentence-case
         .setDesc('Local AI for semantic search (~23MB download). Restart to apply.')
         .addToggle(toggle => {
           toggle
@@ -248,6 +249,7 @@ export class DefaultsTab {
 
     new Setting(content)
       .setName('Default folder for new files')
+      // eslint-disable-next-line obsidianmd/ui/sentence-case
       .setDesc('Pre-filled location when using "Create new file" from a chat message.')
       .addText((text) => {
         text
@@ -330,10 +332,12 @@ export class DefaultsTab {
 
     new Setting(ingestionSettingsContainer)
       .setName('Default PDF mode')
+      // eslint-disable-next-line obsidianmd/ui/sentence-case
       .setDesc('Text extraction is free. Vision OCR uses an LLM for scanned documents.')
       .addDropdown(dropdown => {
         dropdown
           .addOption('text', 'Text extraction')
+          // eslint-disable-next-line obsidianmd/ui/sentence-case
           .addOption('vision', 'Vision OCR')
           .setValue(llmSettings.defaultPdfMode || 'text')
           .onChange(async (value) => {

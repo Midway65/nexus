@@ -376,10 +376,15 @@ export const MIGRATIONS: Migration[] = [
         const metadataJson = row[1] as string;
 
         try {
+          // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
           const metadata = JSON.parse(metadataJson);
+          // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access
           const workflowId = metadata?.workflowId;
+          // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access
           const runTrigger = metadata?.runTrigger;
+          // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access
           const scheduledFor = metadata?.scheduledFor;
+          // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access
           const runKey = metadata?.runKey;
 
           if (workflowId || runTrigger || scheduledFor || runKey) {

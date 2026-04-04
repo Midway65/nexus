@@ -16,14 +16,14 @@ jest.mock(
 
 // Mock DocxExtractionService
 jest.mock(
-  '../../src/agents/ingestManager/tools/services/DocxExtractionService',
+  '../../src/agents/apps/ingestManager/tools/services/DocxExtractionService',
   () => ({
     extractDocxMarkdown: jest.fn(),
   })
 );
 
 jest.mock(
-  '../../src/agents/ingestManager/tools/services/PptxExtractionService',
+  '../../src/agents/apps/ingestManager/tools/services/PptxExtractionService',
   () => ({
     extractPptxContent: jest.fn(),
   })
@@ -39,7 +39,7 @@ jest.mock(
 
 // Mock SpreadsheetExtractionService
 jest.mock(
-  '../../src/agents/ingestManager/tools/services/SpreadsheetExtractionService',
+  '../../src/agents/apps/ingestManager/tools/services/SpreadsheetExtractionService',
   () => ({
     extractSpreadsheetSheets: jest.fn(),
     MAX_SHEET_COLUMNS: 50,

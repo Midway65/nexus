@@ -53,7 +53,7 @@ export interface DatabaseRow {
   [key: string]: unknown;
 }
 
-export type QueryParams = Array<string | number | null | boolean>;
+export type QueryParams = Array<string | number | null | boolean | Uint8Array>;
 
 /**
  * Base repository with shared functionality

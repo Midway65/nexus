@@ -94,7 +94,7 @@ export class EmbeddingIframe {
     // Set up message listener before loading iframe
     this.messageHandler = (event: MessageEvent) => {
       if (event.source !== this.iframe?.contentWindow) return;
-      this.handleMessage(event.data);
+      this.handleMessage(event.data as EmbeddingResponse);
     };
     window.addEventListener('message', this.messageHandler);
 

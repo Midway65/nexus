@@ -71,6 +71,7 @@ export class FilePickerRenderer {
     const leftSection = header.createDiv('nexus-file-picker-left');
     if (this.showBackButton) {
       new ButtonComponent(leftSection)
+        // eslint-disable-next-line obsidianmd/ui/sentence-case
         .setButtonText('← Back')
         .onClick(() => this.onCancel());
     }

@@ -52,9 +52,9 @@ export class ConversationMigrator extends BaseMigrator<ConversationMigrationResu
     const content = await this.app.vault.adapter.read(filePath);
     let conversation: IndividualConversation;
     try {
-      conversation = JSON.parse(content);
+      conversation = JSON.parse(content) as IndividualConversation;
     } catch (parseError) {
-      result.errors.push(`Skipping malformed JSON in ${filePath}: ${parseError}`);
+      result.errors.push(`Skipping malformed JSON in ${filePath}: ${parseError instanceof Error ? parseError.message : String(parseError)}`);
       return;
     }
     if (!conversation || typeof conversation !== 'object' || !conversation.id) {

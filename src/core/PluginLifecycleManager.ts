@@ -328,7 +328,7 @@ export class PluginLifecycleManager {
                 enableEmbeddings,
                 storageAdapter.messages
             );
-            this.embeddingManager.initialize();
+            void this.embeddingManager.initialize();
             (this.config.plugin as PluginWithServices).embeddingManager = this.embeddingManager;
 
             // Wire embedding service into ChatTraceService

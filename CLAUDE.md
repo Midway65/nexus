@@ -1,5 +1,5 @@
 # Claude Code Context Document
-Last Updated: 2026-04-02
+Last Updated: 2026-04-03
 
 ## Project Overview
 - **Name**: Nexus (package: claudesidian-mcp)
@@ -260,6 +260,13 @@ onCreate(file: TFile) {
 ## Recent Milestones
 
 ### April 2026
+
+**Apr 3**: Upstream Merge v5.6.1→v5.6.6 + Lint/Build/Test Pass ✅ (local-fixes branch)
+- **Rebase completed**: 52 local-fixes commits rebased onto upstream v5.6.6 (main); all conflicts resolved
+- **Lint**: 89 errors → 0; key fixes: `VaultIngestionManager.ts` import path (`agents/ingestManager/` → `agents/apps/ingestManager/`), missing `ingestBannerContainer` in `ChatLayoutBuilder`, missing `ingestProgressBanner`/`ingestEventBinder` class declarations in `ChatView`, stale `this.tasks = allTasks` removed from `TaskBoardView`, `QueryParams` extended with `Uint8Array` for BLOB binding
+- **Tests**: 93/93 suites pass (1551 tests); fixed 4 test files with old ingestManager paths; `ReplaceTool` schema test updated (startLine/endLine now optional, not required)
+- **replace tool**: `startLine`/`endLine` are now optional parameters (string-search fallback when omitted)
+- Both branches pushed: `main` (fast-forward to v5.6.6), `local-fixes` (force-with-lease)
 
 **Apr 2**: Code Organization Audit + Reorganization ✅ (local-fixes branch)
 - **Full codebase audit** (708 TS files, 8,666-line styles.css): identified naming issues, misplaced files, orphaned CSS, and oversized views

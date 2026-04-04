@@ -475,15 +475,15 @@ describe('ReplaceTool', () => {
       expect(properties.endLine.description).toContain('inclusive');
     });
 
-    it('requires all five parameters', () => {
+    it('requires path, oldContent, and newContent; startLine/endLine are optional', () => {
       const schema = tool.getParameterSchema();
       const required = (schema as SchemaLike).required;
 
       expect(required).toContain('path');
       expect(required).toContain('oldContent');
       expect(required).toContain('newContent');
-      expect(required).toContain('startLine');
-      expect(required).toContain('endLine');
+      expect(required).not.toContain('startLine');
+      expect(required).not.toContain('endLine');
     });
 
     it('result schema includes diff, totalLines, linesDelta', () => {

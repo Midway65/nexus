@@ -1084,11 +1084,11 @@ export class ModelAgentManager {
    * Resolve the Nexus plugin instance from the Obsidian app registry.
    */
   private getNexusPlugin(): NexusPlugin | null {
-    const plugins = (this.app as AppWithPlugins).plugins?.plugins;
+    const plugins = (this.app as unknown as AppWithPlugins).plugins?.plugins;
     if (!plugins) return null;
     // Try direct ID lookup first, fall back to manifest scan
     return (plugins['claudesidian-mcp'] as NexusPlugin | undefined)
-      ?? (Object.values(plugins).find((p: any) => p?.manifest?.id === 'claudesidian-mcp') as NexusPlugin | undefined)
+      ?? (Object.values(plugins).find((p: unknown) => (p as Record<string, unknown>)?.manifest && ((p as {manifest: {id?: string}}).manifest?.id) === 'claudesidian-mcp'))
       ?? null;
   }
 

@@ -74,7 +74,7 @@ export class EmbeddingWatcher {
           }
 
           // Remove embedding immediately
-          this.embeddingService.removeEmbedding(file.path);
+          void this.embeddingService.removeEmbedding(file.path);
         }
       })
     );
@@ -91,7 +91,7 @@ export class EmbeddingWatcher {
           }
 
           // Update path in metadata
-          this.embeddingService.updatePath(oldPath, file.path);
+          void this.embeddingService.updatePath(oldPath, file.path);
         }
       })
     );
@@ -127,14 +127,15 @@ export class EmbeddingWatcher {
     }
 
     // Schedule new timer
-    const timer = setTimeout(async () => {
-      this.debounceTimers.delete(notePath);
-
-      try {
-        await this.embeddingService.embedNote(notePath);
-      } catch (error) {
-        console.error(`[EmbeddingWatcher] Failed to re-embed ${notePath}:`, error);
-      }
+    const timer = setTimeout(() => {
+      void (async () => {
+        this.debounceTimers.delete(notePath);
+        try {
+          await this.embeddingService.embedNote(notePath);
+        } catch (error) {
+          console.error(`[EmbeddingWatcher] Failed to re-embed ${notePath}:`, error);
+        }
+      })();
     }, this.DEBOUNCE_MS);
 
     this.debounceTimers.set(notePath, timer);

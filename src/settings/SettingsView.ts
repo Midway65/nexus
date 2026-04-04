@@ -52,7 +52,7 @@ export class SettingsView extends PluginSettingTab {
 
     // Managers
     private serviceManager: ServiceManager | undefined;
-    private pluginLifecycleManager: any;
+    private pluginLifecycleManager: unknown;
     private appManager: AppManager | undefined;
 
     // UI Components
@@ -71,7 +71,7 @@ export class SettingsView extends PluginSettingTab {
     // private dataTab: DataTab | undefined; // TODO: Re-enable when Data tab is ready
 
     // Prefetched data cache
-    private prefetchedWorkspaces: any[] | null = null;
+    private prefetchedWorkspaces: unknown[] | null = null;
     private isPrefetching: boolean = false;
 
     constructor(
@@ -85,7 +85,7 @@ export class SettingsView extends PluginSettingTab {
         searchManager?: SearchManagerAgent,
         memoryManager?: MemoryManagerAgent,
         serviceManager?: ServiceManager,
-        pluginLifecycleManager?: any,
+        pluginLifecycleManager?: unknown,
         appManager?: AppManager
     ) {
         super(app, plugin);
@@ -168,7 +168,7 @@ export class SettingsView extends PluginSettingTab {
                     workspaceService = await Promise.race([
                         this.serviceManager.getService<WorkspaceService>('workspaceService'),
                         new Promise<undefined>((resolve) => setTimeout(() => resolve(undefined), 5000))
-                    ]) as WorkspaceService | undefined;
+                    ]);
                 }
             }
 
@@ -198,7 +198,7 @@ export class SettingsView extends PluginSettingTab {
         this.getStartedAccordion?.unload();
 
         // Start prefetching workspaces in background (non-blocking)
-        this.prefetchWorkspaces();
+        void this.prefetchWorkspaces();
 
         // 1. Render header (About + Update button)
         this.renderHeader(containerEl);
@@ -245,7 +245,7 @@ export class SettingsView extends PluginSettingTab {
         const header = containerEl.createDiv('nexus-settings-header');
 
         // Title and description
-        header.createEl('h2', { text: 'Nexus' });
+        ;
         header.createEl('p', {
             text: 'AI-powered assistant for your Obsidian vault',
             cls: 'nexus-settings-desc'
@@ -260,7 +260,7 @@ export class SettingsView extends PluginSettingTab {
         });
 
         // Conditionally show update UI (hidden when plugin is in the community store)
-        UpdateManager.isStoreAvailable(this.plugin.manifest.id).then((storeAvailable) => {
+        void UpdateManager.isStoreAvailable(this.plugin.manifest.id).then((storeAvailable) => {
             if (storeAvailable) return;
 
             // Update notification if available
@@ -473,8 +473,8 @@ export class SettingsView extends PluginSettingTab {
      */
     private renderProvidersTab(
         container: HTMLElement,
-        state: RouterState,
-        services: any
+        _state: RouterState,
+        _services: unknown
     ): void {
         // Destroy previous tab instance if exists
         this.providersTab?.destroy();
@@ -496,8 +496,8 @@ export class SettingsView extends PluginSettingTab {
      */
     private renderAppsTab(
         container: HTMLElement,
-        state: RouterState,
-        services: any
+        _state: RouterState,
+        _services: unknown
     ): void {
         this.appsTab?.destroy();
         this.appsTab = new AppsTab(

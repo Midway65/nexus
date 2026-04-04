@@ -252,9 +252,6 @@ export class TaskBoardView extends ItemView {
         }))
     );
 
-    this.tasks = allTasks;
-
-
     this.ensureValidFilters();
   }
 

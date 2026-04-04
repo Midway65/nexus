@@ -42,9 +42,10 @@ export class MessageActionBar {
       {
         icon: 'arrow-down',
         label: 'Append to file',
-        onClick: async () => {
-          const ok = await editorService.appendToActiveFile(getText());
-          if (!ok) new Notice('No active file — open a note first');
+        onClick: () => {
+          void editorService.appendToActiveFile(getText()).then(ok => {
+            if (!ok) new Notice('No active file — open a note first');
+          });
         }
       },
       {

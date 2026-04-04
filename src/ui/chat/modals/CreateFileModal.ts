@@ -38,7 +38,7 @@ export class CreateFileModal extends Modal {
       .addText((text) => {
         text.setPlaceholder('e.g., Meeting notes');
         text.inputEl.addEventListener('keydown', (e: KeyboardEvent) => {
-          if (e.key === 'Enter') { e.preventDefault(); this.submit(); }
+          if (e.key === 'Enter') { e.preventDefault(); void this.submit(); }
         });
         text.onChange((value) => { this.filename = value; });
       });
@@ -67,7 +67,7 @@ export class CreateFileModal extends Modal {
     cancelBtn.addEventListener('click', () => this.close());
 
     const createBtn = buttonContainer.createEl('button', { text: 'Create', cls: 'mod-cta' });
-    createBtn.addEventListener('click', () => this.submit());
+    createBtn.addEventListener('click', () => { void this.submit(); });
 
     requestAnimationFrame(() => {
       const input = contentEl.querySelector<HTMLInputElement>('input');

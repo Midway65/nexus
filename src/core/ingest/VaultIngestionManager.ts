@@ -10,8 +10,8 @@ import {
 } from 'obsidian';
 import type { AgentManager } from '../../services/AgentManager';
 import type { Settings } from '../../settings';
-import { detectFileType, isSupportedFile } from '../../agents/ingestManager/tools/services/FileTypeDetector';
-import type { IngestToolResult } from '../../agents/ingestManager/types';
+import { detectFileType, isSupportedFile } from '../../agents/apps/ingestManager/tools/services/FileTypeDetector';
+import type { IngestToolResult } from '../../agents/apps/ingestManager/types';
 
 declare module 'obsidian' {
   interface Workspace extends Events {

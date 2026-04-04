@@ -89,24 +89,6 @@ interface PerplexityToolDefinition {
   input_schema?: Record<string, unknown>;
 }
 
-interface PerplexityRequestBody {
-  model: string;
-  messages: Array<Record<string, unknown>>;
-  temperature?: number;
-  max_tokens?: number;
-  top_p?: number;
-  presence_penalty?: number;
-  frequency_penalty?: number;
-  tools?: PerplexityToolDefinition[];
-  stream?: boolean;
-  extra?: {
-    search_mode: 'web' | 'academic';
-    reasoning_effort: 'low' | 'medium' | 'high';
-    web_search_options: {
-      search_context_size: 'low' | 'medium' | 'high';
-    };
-  };
-}
 
 export class PerplexityAdapter extends BaseAdapter {
   readonly name = 'perplexity';
@@ -248,7 +230,7 @@ export class PerplexityAdapter extends BaseAdapter {
     const model = options?.model || this.currentModel;
     const modelSpec = PERPLEXITY_MODELS.find(m => m.apiName === model);
 
-    const requestBody: any = {
+    const requestBody: unknown = {
       model,
       messages: this.buildMessages(prompt, options?.systemPrompt),
       temperature: options?.temperature,
