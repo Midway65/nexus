@@ -90,7 +90,11 @@ uses upstream's tombstone approach (no fork divergence); pruning still needed fo
 
 **Retired entries (absorbed by upstream PR #119):**
 - `ChatView.ts` — `active-leaf-change` handler: now in upstream's ChatView (line 607). No longer fork-divergent.
-- `BranchHeader.ts` — JSDoc: BranchHeader ownership moved to `ChatBranchViewCoordinator`. No longer fork-divergent.
+
+### BranchHeader docs fix
+| File | Change |
+|------|--------|
+| `src/ui/chat/components/BranchHeader.ts` | Added 2-line JSDoc to `update()` explaining the identity-check early-return prevents unbounded `registerDomEvent` accumulation. Code behavior is identical to upstream; only the comment differs. Very low conflict risk. |
 
 ---
 
