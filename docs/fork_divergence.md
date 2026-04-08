@@ -36,7 +36,8 @@ they do a conflict will occur. Resolution is always: take upstream base, then re
 | `styles.css` | Sticky assistant header rule | CSS rule block labelled `/* fork: sticky assistant header */` |
 | `src/ui/chat/builders/ChatLayoutBuilder.ts` | Banner removal (beta/experimental warning stripped) | Remove the banner call after taking upstream |
 | `src/database/schema/SchemaMigrator.ts` | Convention comment + fork migrations v12–v19 | Restore comment block + all migrations numbered 12–19. When upstream ships their v12, renumber it to ≥ 20 (our fork occupies 12–19; upstream's colliding migrations get bumped above 19). |
-| `src/database/adapters/HybridStorageAdapter.ts` | `pruneOrphanedConversationFiles()` runs on startup — **TEMPORARY**; remove once vault reports zero pruned files for several consecutive sessions. Also upstream touched this file in PR #119 and likely will again. | Re-insert `if (syncState) { await pruneOrphanedConversationFiles() }` block after `getSyncState` call, before rebuild/sync. Keep upstream's `initialized = true` block ABOVE it. |
+
+**Note:** `HybridStorageAdapter.ts` had a fork prune block (removed 2026-04-08). No fork changes remain. Upstream touches this file frequently — take upstream as base with nothing to restore.
 
 ---
 
@@ -58,11 +59,10 @@ optional chaining. If upstream fixes this themselves, take their version and dro
 
 ### JSONL data quality fixes
 Fixes for streaming write amplification and large-file read limits. ConversationRepository now
-uses upstream's tombstone approach (no fork divergence); pruning still needed for pre-tombstone orphans.
+uses upstream's tombstone approach (no fork divergence); pre-tombstone orphan pruning removed 2026-04-08.
 
 | File | Change |
 |------|--------|
-| `src/database/adapters/HybridStorageAdapter.ts` | `pruneOrphanedConversationFiles()` runs on startup to clean orphaned `.jsonl` files — **temporary**: remove once vault reports zero pruned files at startup for several consecutive sessions |
 | `src/database/repositories/MessageRepository.ts` | Skips JSONL write during streaming states (`draft`/`streaming`) — prevents O(n²) storage growth |
 | `src/database/storage/JSONLWriter.ts` | `readEventsStreaming()` fallback via Node.js readline for files >50 MB; `stat?.()` optional-chain safe for test environments |
 | `eslint.config.mjs` | Added `JSONLWriter.ts` to `import/no-nodejs-modules` exceptions (uses `require('fs')`, `require('readline')`) |
