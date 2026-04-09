@@ -405,21 +405,10 @@ export const MIGRATIONS: Migration[] = [
     ]
   },
 
-  // Version 11 -> 12: Fix note/block embedding vec0 table dimensions (768 → 384)
-  // vec0 virtual tables cannot be DROPped and recreated via prepare().step() DDL —
-  // they require the native WASM exec() path. This migration is a version marker only;
-  // the actual DROP/CREATE is handled in SQLiteCacheManager.fixVec0TableDimensions()
-  // which is called after migrations run and uses the correct raw db.exec() path.
-  {
-    version: 12,
-    description: 'Version marker: note/block vec0 table dimension fix (768→384) handled by SQLiteCacheManager.fixVec0TableDimensions()',
-    sql: []
-  },
-
   // ========================================================================
   // FORK MIGRATION NUMBERING CONVENTION
   //
-  // This fork's local stubs occupy versions 12–19. Upstream (nexus published plugin)
+  // This fork's local stubs occupy versions 13–19. Upstream (nexus published plugin)
   // is currently at v11 and will release v12, v13, ... in future updates.
   //
   // RULE: When merging an upstream migration numbered N where N ≤ 19, renumber it

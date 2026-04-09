@@ -163,16 +163,7 @@ git checkout upstream/main -- src/database/repositories/ConversationRepository.t
 - `SQLiteWasmBridge.ts` (new)
 - `SQLiteCacheManager.ts` (kept as facade/orchestrator, now smaller)
 
-**Our addition:** `fixVec0TableDimensions()` — drops/recreates `note_embeddings` and
-`block_embeddings` vec0 tables if they were built with `float[768]` (legacy Nomic era).
-Runs once after migrations during `initialize()`.
-
-**Action:** Take all 6 new upstream files. Then find where `initialize()` lives after the split
-(probably `SQLiteCacheManager.ts` or `SQLiteMaintenanceService.ts`) and add the
-`fixVec0TableDimensions()` call back in the correct post-migration position.
-
-**Note:** This fix is fork-specific (our installation had a bad vec0 dimension from the abandoned
-Nomic embedding experiment). It is harmless if dimensions are already correct (no-op path).
+**Action:** Take all 6 new upstream files as-is — no fork additions needed for this group.
 
 ```bash
 # Accept all new files
@@ -182,7 +173,6 @@ git checkout upstream/main -- src/database/storage/SQLitePersistenceService.ts
 git checkout upstream/main -- src/database/storage/SQLiteSyncStateStore.ts
 git checkout upstream/main -- src/database/storage/SQLiteTransactionCoordinator.ts
 git checkout upstream/main -- src/database/storage/SQLiteWasmBridge.ts
-# Then re-add fixVec0TableDimensions() to the correct location
 ```
 
 ---
@@ -289,7 +279,7 @@ Execute in this order to minimize conflict cascades:
    a. ProviderHttpClient.ts   (take upstream, check timeout fix)
    b. ConversationRepository.ts (take upstream's tombstone approach)
    c. HybridStorageAdapter.ts  (take upstream, add back pruneOrphanedConversationFiles)
-   d. SQLiteCacheManager.ts    (take upstream, re-add fixVec0TableDimensions)
+   d. SQLiteCacheManager.ts    (take upstream as-is)
    e. JSONLWriter.ts           (merge, keep readEventsStreaming + listFiles + deleteFile)
    f. MessageBubble.ts         (take upstream, layer back action bar additions)
 

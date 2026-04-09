@@ -67,13 +67,6 @@ uses upstream's tombstone approach (no fork divergence); pre-tombstone orphan pr
 | `src/database/storage/JSONLWriter.ts` | `readEventsStreaming()` fallback via Node.js readline for files >50 MB; `stat?.()` optional-chain safe for test environments |
 | `eslint.config.mjs` | Added `JSONLWriter.ts` to `import/no-nodejs-modules` exceptions (uses `require('fs')`, `require('readline')`) |
 
-### Schema / embedding fix
-
-| File | Change |
-|------|--------|
-| `src/database/storage/SQLiteMaintenanceService.ts` | `fixVec0TableDimensions()` — drops and recreates `note_embeddings` / `block_embeddings` if they were created with `float[768]` (legacy Nomic era); no-op when dimensions correct |
-| `src/database/storage/SQLiteCacheManager.ts` | Calls `getMaintenanceService().fixVec0TableDimensions()` after migrations in `initialize()` |
-
 ### Provider / HTTP fixes
 
 | File | Change |
