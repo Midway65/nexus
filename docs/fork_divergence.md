@@ -35,7 +35,7 @@ they do a conflict will occur. Resolution is always: take upstream base, then re
 |------|-------------|----------------------|
 | `styles.css` | Sticky assistant header rule | CSS rule block labelled `/* fork: sticky assistant header */` |
 | `src/ui/chat/builders/ChatLayoutBuilder.ts` | Banner removal (beta/experimental warning stripped) | Remove the banner call after taking upstream |
-| `src/database/schema/SchemaMigrator.ts` | Convention comment + fork migrations v12–v19 | Restore comment block + all migrations numbered 12–19. When upstream ships their v12, renumber it to ≥ 20 (our fork occupies 12–19; upstream's colliding migrations get bumped above 19). |
+| `src/database/schema/SchemaMigrator.ts` | Convention comment + fork migrations v17–v19 (v12–v16 removed 2026-04-08) | Restore convention comment block + migrations v17–v19. When upstream ships their v12, renumber it to 20 and set `CURRENT_SCHEMA_VERSION = 20`. |
 
 **Note:** `HybridStorageAdapter.ts` had a fork prune block (removed 2026-04-08). No fork changes remain. Upstream touches this file frequently — take upstream as base with nothing to restore.
 
@@ -80,10 +80,9 @@ uses upstream's tombstone approach (no fork divergence); pre-tombstone orphan pr
 |------|--------|
 | `src/ui/chat/components/ContextProgressBar.ts` | Uses `removeAttribute('class') + addClass()` instead of `className =` (Obsidian API correctness) |
 | `src/components/shared/ChatSettingsRenderer.ts` | Removed `void` from `this.syncWorkspacePrompt(value)` call |
-| `src/ui/chat/components/BranchHeader.ts` | Added 2-line JSDoc to `update()` explaining the identity-check early-return prevents unbounded `registerDomEvent` accumulation. Code behavior is identical to upstream; only the comment differs. |
-
 **Retired entries (absorbed by upstream PR #119):**
 - `ChatView.ts` — `active-leaf-change` handler: now in upstream's ChatView (line 607). No longer fork-divergent.
+- `BranchHeader.ts` — JSDoc addition superseded; upstream PR #119 moved `BranchHeader` to `ChatBranchViewCoordinator`. No longer fork-divergent.
 
 ---
 
