@@ -354,56 +354,55 @@ export class MessageRepository
 
   /**
    * Update an existing message
-   * Only content, state, reasoning, and tool call data can be updated
+   * Only content, state, reasoning, and tool call data can be updated.
+   *
+   * Includes dirty-checking: if none of the supplied fields differ from
+   * the current stored values the write is skipped entirely, preventing
+   * O(N) redundant JSONL events when callers pass the full message array
+   * through ConversationService.updateConversation().
    */
   async update(messageId: string, data: UpdateMessageData): Promise<void> {
     try {
-      // Get message to find conversation ID
-      const message = await this.sqliteCache.queryOne<{ conversationId: string }>(
-        `SELECT conversationId FROM ${this.tableName} WHERE id = ?`,
-        [messageId]
-      );
-
-      if (!message) {
+      // Load full current message — used for both change detection and conversationId
+      const current = await this.getById(messageId);
+      if (!current) {
         throw new Error(`Message ${messageId} not found`);
       }
 
-      // 1. Write update event to JSONL — skip in-progress streaming states.
-      // During streaming every chunk calls update() with state='draft'/'streaming' and
-      // the full accumulated content so far. Writing each chunk to JSONL is O(n²) storage
-      // per message and the intermediate content is not useful for replay or sync.
-      // SQLite is the live store during streaming; JSONL gets the single final event.
-      const isStreaming = data.state === 'draft' || data.state === 'streaming';
-      if (!isStreaming) {
-        await this.writeEvent<MessageUpdatedEvent>(
-          this.jsonlPath(message.conversationId),
-          {
-            type: 'message_updated',
-            conversationId: message.conversationId,
-            messageId,
-            data: {
-              content: data.content ?? undefined,
-              state: data.state,
-              reasoning: data.reasoning,
-              // Persist full tool call data including results so tool bubbles can be reconstructed
-              tool_calls: data.toolCalls?.map(tc => ({
-                id: tc.id,
-                type: tc.type || 'function',
-                function: tc.function,
-                name: tc.name,
-                parameters: tc.parameters,
-                result: tc.result,
-                success: tc.success,
-                error: tc.error
-              })),
-              tool_call_id: data.toolCallId ?? undefined,
-              // Branching support
-              alternatives: this.convertAlternativesToEvent(data.alternatives),
-              activeAlternativeIndex: data.activeAlternativeIndex
-            }
-          }
-        );
+      // Skip entirely if nothing actually changed (prevents JSONL write amplification)
+      if (!this.hasChanges(current, data)) {
+        return;
       }
+
+      // 1. Write update event to JSONL
+      await this.writeEvent<MessageUpdatedEvent>(
+        this.jsonlPath(current.conversationId),
+        {
+          type: 'message_updated',
+          conversationId: current.conversationId,
+          messageId,
+          data: {
+            content: data.content ?? undefined,
+            state: data.state,
+            reasoning: data.reasoning,
+            // Persist full tool call data including results so tool bubbles can be reconstructed
+            tool_calls: data.toolCalls?.map(tc => ({
+              id: tc.id,
+              type: tc.type || 'function',
+              function: tc.function,
+              name: tc.name,
+              parameters: tc.parameters,
+              result: tc.result,
+              success: tc.success,
+              error: tc.error
+            })),
+            tool_call_id: data.toolCallId ?? undefined,
+            // Branching support
+            alternatives: this.convertAlternativesToEvent(data.alternatives),
+            activeAlternativeIndex: data.activeAlternativeIndex
+          }
+        }
+      );
 
       // 2. Update SQLite cache
       const setClauses: string[] = [];
@@ -449,8 +448,8 @@ export class MessageRepository
       // 3. Invalidate cache
       this.invalidateCache();
 
-      // 4. Notify observers if message transitioned to 'complete'
-      if (data.state === 'complete') {
+      // 4. Notify observers only on actual state transition to 'complete'
+      if (data.state === 'complete' && current.state !== 'complete') {
         const fullMessage = await this.getById(messageId);
         if (fullMessage) {
           this.notifyMessageComplete(fullMessage);
@@ -461,6 +460,45 @@ export class MessageRepository
       console.error('[MessageRepository] Failed to update message:', error);
       throw error;
     }
+  }
+
+  /**
+   * Detect whether any supplied update fields differ from the current stored values.
+   * Only checks fields present in the update (undefined = not being updated).
+   */
+  private hasChanges(current: MessageData, updates: UpdateMessageData): boolean {
+    if (updates.content !== undefined) {
+      // Normalise null → '' for comparison since SQLite stores empty strings
+      const incoming = updates.content ?? '';
+      if (incoming !== current.content) return true;
+    }
+    if (updates.state !== undefined && updates.state !== current.state) {
+      return true;
+    }
+    if (updates.reasoning !== undefined && updates.reasoning !== current.reasoning) {
+      return true;
+    }
+    if (updates.toolCallId !== undefined && updates.toolCallId !== current.toolCallId) {
+      return true;
+    }
+    if (updates.activeAlternativeIndex !== undefined
+        && updates.activeAlternativeIndex !== current.activeAlternativeIndex) {
+      return true;
+    }
+    // Serialised comparison for complex objects — conservative (may detect
+    // false-positive changes if the caller reshapes tool call objects, but
+    // never misses a real change).
+    if (updates.toolCalls !== undefined) {
+      const currentJson = current.toolCalls ? JSON.stringify(current.toolCalls) : null;
+      const updatesJson = updates.toolCalls ? JSON.stringify(updates.toolCalls) : null;
+      if (currentJson !== updatesJson) return true;
+    }
+    if (updates.alternatives !== undefined) {
+      const currentJson = current.alternatives ? JSON.stringify(current.alternatives) : null;
+      const updatesJson = updates.alternatives ? JSON.stringify(updates.alternatives) : null;
+      if (currentJson !== updatesJson) return true;
+    }
+    return false;
   }
 
   /**
