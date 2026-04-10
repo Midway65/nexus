@@ -4,9 +4,9 @@ This file is the authoritative record of every file in `my-custom-branch` that i
 diverges from upstream (`ProfSynapse/nexus`). Load it at the start of every upstream merge
 session to know which files require manual resolution and which can be auto-merged.
 
-**Last audited against:** upstream/main HEAD (`f4e49fd3`) — PRs #118, #119, #121  
-**Audit date:** 2026-04-08  
-**Next merge target:** next upstream/main HEAD (watch for new PRs)
+**Last audited against:** upstream/main HEAD (`b801175d`) — PRs #123, #126, #128  
+**Audit date:** 2026-04-09  
+**Next merge target:** next upstream/main HEAD (watch for PRs touching ContextProgressBar.ts / chat input area — design plan for status bar + context badge is in docs/plans/)
 
 ---
 
@@ -63,7 +63,7 @@ uses upstream's tombstone approach (no fork divergence); pre-tombstone orphan pr
 
 | File | Change |
 |------|--------|
-| `src/database/repositories/MessageRepository.ts` | Skips JSONL write during streaming states (`draft`/`streaming`) — prevents O(n²) storage growth |
+| ~~`src/database/repositories/MessageRepository.ts`~~ | ~~Skips JSONL write during streaming states (`draft`/`streaming`)~~ — **RETIRED 2026-04-09**: superseded by upstream PR #123 `hasChanges()` dirty-check (more complete fix) |
 | `src/database/storage/JSONLWriter.ts` | `readEventsStreaming()` fallback via Node.js readline for files >50 MB; `stat?.()` optional-chain safe for test environments |
 | `eslint.config.mjs` | Added `JSONLWriter.ts` to `import/no-nodejs-modules` exceptions (uses `require('fs')`, `require('readline')`) |
 
@@ -71,8 +71,8 @@ uses upstream's tombstone approach (no fork divergence); pre-tombstone orphan pr
 
 | File | Change |
 |------|--------|
-| `src/settings/tabs/ProvidersTab.ts` | `onSave` simplified from IIFE `void (async () => {...})()` to direct `async` callback |
-| `src/components/LLMProviderModal.ts` | `onSave` type widened to `void \| Promise<void>`; auto-save path awaits the callback with try/catch |
+| ~~`src/settings/tabs/ProvidersTab.ts`~~ | ~~`onSave` simplified from IIFE~~ — **RETIRED 2026-04-09**: superseded by upstream PR #126 `persistProviderConfig()` helpers |
+| ~~`src/components/LLMProviderModal.ts`~~ | ~~`onSave` type widened to `void \| Promise<void>`~~ — **RETIRED 2026-04-09**: superseded by upstream PR #126 `persistConfig()` with full `Promise<void>` + error handling |
 
 ### UI / UX fixes
 
