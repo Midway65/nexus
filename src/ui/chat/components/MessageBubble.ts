@@ -612,7 +612,8 @@ export class MessageBubble extends Component {
     const actionsEl = container.querySelector('.message-actions-external');
     if (!(actionsEl instanceof HTMLElement)) return;
 
-    this.actionBar = new MessageActionBar(activeContent, this.app);
+    const contentEl = container.querySelector('.message-content');
+    this.actionBar = new MessageActionBar(activeContent, this.app, contentEl instanceof HTMLElement ? contentEl : null);
     this.actionBar.renderInto(actionsEl);
   }
 

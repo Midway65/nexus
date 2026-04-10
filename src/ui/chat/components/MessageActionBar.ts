@@ -11,6 +11,11 @@
  * Only rendered for completed assistant messages with non-empty text content.
  * Called by MessageBubble.appendActionBar() after message state transitions
  * to complete.
+ *
+ * Selection-aware: if the user has text selected within the bubble's
+ * .message-content element, all four buttons operate on that selection
+ * instead of the full message text. Falls back to full content when nothing
+ * is selected or the selection is outside this bubble.
  */
 
 import { App, Component, MarkdownView, Notice, setIcon } from 'obsidian';
@@ -22,7 +27,8 @@ export class MessageActionBar extends Component {
 
   constructor(
     private readonly content: string,
-    private readonly app: App
+    private readonly app: App,
+    private readonly contentEl: HTMLElement | null = null
   ) {
     super();
   }
@@ -34,16 +40,19 @@ export class MessageActionBar extends Component {
    */
   renderInto(container: HTMLElement): void {
     this.copyButton = this.addButton(container, 'copy', 'Copy message', () => this.handleCopy());
+    this.registerDomEvent(this.copyButton, 'mousedown', (e: MouseEvent) => e.preventDefault());
 
-    // Insert and Append need mousedown:preventDefault so clicking the button
-    // does not shift focus away from the active note (and lose the cursor).
+    // mousedown:preventDefault on all buttons so clicking does not shift focus
+    // away from either the active note (preserves cursor) or the bubble
+    // (preserves the text selection we need to read in the click handler).
     const insertBtn = this.addButton(container, 'file-input', 'Insert at cursor', () => this.handleInsert());
     this.registerDomEvent(insertBtn, 'mousedown', (e: MouseEvent) => e.preventDefault());
 
     const appendBtn = this.addButton(container, 'file-plus-2', 'Append to active note', () => { void this.handleAppend(); });
     this.registerDomEvent(appendBtn, 'mousedown', (e: MouseEvent) => e.preventDefault());
 
-    this.addButton(container, 'file-plus', 'Create new file', () => this.handleCreate());
+    const createBtn = this.addButton(container, 'file-plus', 'Create new file', () => this.handleCreate());
+    this.registerDomEvent(createBtn, 'mousedown', (e: MouseEvent) => e.preventDefault());
   }
 
   /**
@@ -74,8 +83,31 @@ export class MessageActionBar extends Component {
     return btn;
   }
 
+  /**
+   * Returns the text to act on: the current bubble selection if one exists
+   * entirely within this bubble's content element, otherwise the full message.
+   *
+   * Must be called as the first statement in every handler — focus changes and
+   * awaits clear the selection before we can read it.
+   */
+  private getEffectiveContent(): string {
+    if (this.contentEl) {
+      const selection = window.getSelection();
+      if (selection && selection.toString().trim()) {
+        const inside =
+          this.contentEl.contains(selection.anchorNode) &&
+          this.contentEl.contains(selection.focusNode);
+        if (inside) {
+          return selection.toString();
+        }
+      }
+    }
+    return this.content;
+  }
+
   private handleCopy(): void {
-    navigator.clipboard.writeText(this.content).then(() => {
+    const text = this.getEffectiveContent();
+    navigator.clipboard.writeText(text).then(() => {
       if (this.copyButton) this.showCopyFeedback(this.copyButton);
     }).catch(err => {
       console.error('[MessageActionBar] Copy failed:', err);
@@ -107,16 +139,20 @@ export class MessageActionBar extends Component {
   }
 
   private handleInsert(): void {
+    // Capture before editor.focus() — focus clears the bubble selection.
+    const text = this.getEffectiveContent();
     const view = this.getMarkdownView();
     if (!view) {
       new Notice('No active note — open a note and place your cursor first.');
       return;
     }
     view.editor.focus();
-    view.editor.replaceSelection(this.content);
+    view.editor.replaceSelection(text);
   }
 
   private async handleAppend(): Promise<void> {
+    // Capture before first await — selection is only readable synchronously.
+    const text = this.getEffectiveContent();
     const view = this.getMarkdownView();
     if (!view?.file) {
       new Notice('No active note — open a note first.');
@@ -127,13 +163,14 @@ export class MessageActionBar extends Component {
     const separator = `\n\n---\n*Appended from Nexus Chat — ${timestamp}*\n\n`;
 
     await this.app.vault.process(view.file, (fileContent) => {
-      return fileContent + separator + this.content;
+      return fileContent + separator + text;
     });
 
     new Notice('Appended to note.');
   }
 
   private handleCreate(): void {
-    new CreateFileModal(this.app, this.content).open();
+    const text = this.getEffectiveContent();
+    new CreateFileModal(this.app, text).open();
   }
 }
