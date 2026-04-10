@@ -78,7 +78,7 @@ uses upstream's tombstone approach (no fork divergence); pre-tombstone orphan pr
 
 | File | Change |
 |------|--------|
-| `src/ui/chat/components/ContextProgressBar.ts` | Uses `removeAttribute('class') + addClass()` instead of `className =` (Obsidian API correctness) |
+| `src/ui/chat/components/ContextProgressBar.ts` | Uses `removeAttribute('class') + addClass()` instead of `className =` (Obsidian API correctness). **⚠️ RETIRE ON NEXT CONFLICT:** upstream design plan `docs/plans/chat-status-bar-and-context-badge-plan.md` replaces ContextProgressBar entirely with a status bar + context badge. When that PR lands, take upstream wholesale — do not re-apply this fix. |
 | `src/components/shared/ChatSettingsRenderer.ts` | Removed `void` from `this.syncWorkspacePrompt(value)` call |
 **Retired entries (absorbed by upstream PR #119):**
 - `ChatView.ts` — `active-leaf-change` handler: now in upstream's ChatView (line 607). No longer fork-divergent.
