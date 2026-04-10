@@ -17,12 +17,12 @@ requires manual resolution using the pattern: accept upstream base, then layer b
 
 | File | Fork change | Resolution pattern |
 |------|-------------|-------------------|
-| `src/ui/chat/components/MessageBubble.ts` | Action bar: `import MessageActionBar`, `private actionBar` field, `appendActionBar()`, `cleanupActionBar()`, call sites in createElement/updateWithNewMessage/cleanup | Take upstream as base; layer back all action bar insertions; fix `createTextBubble` call back to 3-arg (upstream keeps reverting to 7-arg) |
+| `src/ui/chat/components/MessageBubble.ts` | Action bar: `import MessageActionBar`, `private actionBar` field, `appendActionBar()`, `cleanupActionBar()`, call sites in createElement/updateWithNewMessage/cleanup. `appendActionBar()` also queries `.message-content` and passes it as `contentEl` to the `MessageActionBar` constructor (selection-aware feature). | Take upstream as base; layer back all action bar insertions; fix `createTextBubble` call back to 3-arg; restore `contentEl` query line in `appendActionBar`. |
 | `src/ui/chat/components/factories/ToolBubbleFactory.ts` | `createTextBubble` is 3-param (onCopy/showCopyFeedback removed — action bar owns copy). **Note:** upstream base is 7-param but upstream has not changed this file — git auto-keeps our 3-param. The recurring risk is the **call site in MessageBubble.ts** — every merge where upstream touches MessageBubble risks reverting it to 7 args. Always check after merge and fix if needed. | Git auto-keeps 3-param; verify MessageBubble.ts call site is 3-arg |
 
 **Fork-only files (no upstream counterpart — always rebase cleanly):**
-- `src/ui/chat/components/MessageActionBar.ts`
-- `src/ui/chat/components/CreateFileModal.ts`
+- `src/ui/chat/components/MessageActionBar.ts` — Copy / Insert / Append / Create buttons. Selection-aware: reads `window.getSelection()` scoped to the bubble's `.message-content` element; falls back to full message text when no selection. All four buttons have `mousedown → preventDefault()` to preserve selection/cursor through click.
+- `src/ui/chat/components/CreateFileModal.ts` — modal for creating a new vault file from chat content (or selected text).
 
 ---
 
