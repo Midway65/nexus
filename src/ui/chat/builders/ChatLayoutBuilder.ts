@@ -17,7 +17,7 @@ import { setIcon } from 'obsidian';
 export interface ChatLayoutElements {
   messageContainer: HTMLElement;
   inputContainer: HTMLElement;
-  contextContainer: HTMLElement;
+  toolStatusBarContainer: HTMLElement;
   conversationListContainer: HTMLElement;
   newChatButton: HTMLElement;
   settingsButton: HTMLElement;
@@ -51,8 +51,8 @@ export class ChatLayoutBuilder {
 
     // Main content areas
     const messageContainer = mainContainer.createDiv('message-display-container');
+    const toolStatusBarContainer = mainContainer.createDiv('tool-status-bar-container');
     const inputContainer = mainContainer.createDiv('chat-input-container');
-    const contextContainer = mainContainer.createDiv('chat-context-container');
 
     // Nexus model loading overlay (hidden by default)
     const loadingOverlay = this.createLoadingOverlay(mainContainer);
@@ -64,7 +64,7 @@ export class ChatLayoutBuilder {
     return {
       messageContainer,
       inputContainer,
-      contextContainer,
+      toolStatusBarContainer,
       conversationListContainer,
       newChatButton,
       settingsButton,
@@ -120,6 +120,7 @@ export class ChatLayoutBuilder {
     return overlay;
   }
 
+  /**
   /**
    * Create chat header with hamburger, title, and settings
    */

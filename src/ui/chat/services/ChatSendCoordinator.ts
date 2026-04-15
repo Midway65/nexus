@@ -11,6 +11,7 @@ import type { ContextPreservationService } from '../../../services/chat/ContextP
 import type { ConversationData, ConversationMessage } from '../../../types/chat/ChatTypes';
 import type { MessageEnhancement } from '../components/suggesters/base/SuggesterInterfaces';
 import type { ReferenceMetadata } from '../utils/ReferenceExtractor';
+import { GLOBAL_WORKSPACE_ID } from '../../../services/WorkspaceService';
 
 export interface MessageExecutionOptions {
   provider?: string;
@@ -20,6 +21,11 @@ export interface MessageExecutionOptions {
   sessionId?: string;
   enableThinking?: boolean;
   thinkingEffort?: 'low' | 'medium' | 'high';
+  temperature?: number;
+  imageProvider?: 'google' | 'openrouter';
+  imageModel?: string;
+  transcriptionProvider?: string;
+  transcriptionModel?: string;
 }
 
 interface ConversationManagerLike {
@@ -80,6 +86,7 @@ interface MessageBubbleLike {
 interface MessageDisplayLike {
   showTransientEventRow(message: string): void;
   clearTransientEventRow(): void;
+  showCompactionDivider(messagesRemoved: number): void;
   findMessageBubble(messageId: string): MessageBubbleLike | undefined;
 }
 
@@ -154,13 +161,8 @@ export class ChatSendCoordinator {
         messageOptions.systemPrompt || null,
         messageOptions.provider
       )) {
-        this.setPreSendCompactionState(true);
-        try {
-          await this.performContextCompaction(currentConversation);
-          messageOptions = await modelAgentManager.getMessageOptions();
-        } finally {
-          this.setPreSendCompactionState(false);
-        }
+        await this.runContextCompaction(currentConversation);
+        messageOptions = await modelAgentManager.getMessageOptions();
       }
 
       await messageManager.sendMessage(
@@ -174,6 +176,25 @@ export class ChatSendCoordinator {
       modelAgentManager.clearMessageEnhancement();
       chatInput?.clearMessageEnhancer();
     }
+  }
+
+  async compactCurrentConversation(): Promise<void> {
+    const messageManager = this.deps.getMessageManager();
+    const conversationManager = this.deps.getConversationManager();
+    if (!messageManager || !conversationManager) {
+      return;
+    }
+
+    if (messageManager.getIsLoading()) {
+      await messageManager.interruptCurrentGeneration();
+    }
+
+    const currentConversation = conversationManager.getCurrentConversation();
+    if (!currentConversation) {
+      return;
+    }
+
+    await this.runContextCompaction(currentConversation, true);
   }
 
   async handleRetryMessage(messageId: string): Promise<void> {
@@ -233,7 +254,7 @@ export class ChatSendCoordinator {
     }
   }
 
-  private async performContextCompaction(conversation: ConversationData): Promise<void> {
+  private async performContextCompaction(conversation: ConversationData, manual = false): Promise<void> {
     const originalMessages = [...conversation.messages];
     const preservationService = this.deps.getPreservationService();
     const modelAgentManager = this.deps.getModelAgentManager();
@@ -256,7 +277,7 @@ export class ChatSendCoordinator {
             model: messageOptions.model,
           },
           {
-            workspaceId: modelAgentManager.getSelectedWorkspaceId() || undefined,
+            workspaceId: modelAgentManager.getSelectedWorkspaceId() || GLOBAL_WORKSPACE_ID,
             sessionId: conversation.metadata?.chatSettings?.sessionId,
           }
         );
@@ -266,7 +287,7 @@ export class ChatSendCoordinator {
           usedLLM = true;
         }
       } catch (error) {
-        console.error('[ChatSendCoordinator] LLM-driven saveState failed, using programmatic fallback:', error);
+        console.error('[Compaction] LLM-driven saveState failed, using programmatic fallback:', error);
       } finally {
         savingNotice.hide();
       }
@@ -278,7 +299,8 @@ export class ChatSendCoordinator {
       includeFileReferences: true
     });
 
-    if (compactedContext.messagesRemoved <= 0) {
+    if (compactedContext.messagesRemoved <= 0 && !manual) {
+      new Notice('Nothing to compact — conversation is short enough', 2500);
       return;
     }
 
@@ -286,11 +308,20 @@ export class ChatSendCoordinator {
       compactedContext.summary = stateContent;
     }
 
-    compactedContext.transcriptCoverage = await this.buildCompactionTranscriptCoverage(
-      conversation.id,
-      originalMessages,
-      conversation.messages
-    ) ?? undefined;
+    // Compute transcript coverage from compaction boundary.
+    // Messages before the boundary are "compacted" (summarized, not sent to LLM).
+    const boundaryId = compactedContext.boundaryMessageId;
+    if (boundaryId) {
+      const boundaryIndex = originalMessages.findIndex(m => m.id === boundaryId);
+      if (boundaryIndex > 0) {
+        const keptMessages = originalMessages.slice(boundaryIndex);
+        compactedContext.transcriptCoverage = await this.buildCompactionTranscriptCoverage(
+          conversation.id,
+          originalMessages,
+          keptMessages
+        ) ?? undefined;
+      }
+    }
 
     modelAgentManager.appendCompactionRecord(compactedContext);
     conversation.metadata = modelAgentManager.buildMetadataWithCompactionRecord(
@@ -299,6 +330,9 @@ export class ChatSendCoordinator {
     );
     modelAgentManager.resetTokenTracker();
 
+    // Save conversation with ALL messages intact — compaction is view-layer only.
+    // The boundaryMessageId in metadata.compaction.frontier tells the LLM prompt
+    // assembly layer which messages to include.
     const conversationService = this.deps.chatService.getConversationService();
     if (conversationService?.updateConversation) {
       await conversationService.updateConversation(conversation.id, {
@@ -316,6 +350,33 @@ export class ChatSendCoordinator {
       ? `Context saved (${compactedContext.messagesRemoved} messages compacted)`
       : `Context compacted (${compactedContext.messagesRemoved} messages)`;
     new Notice(savedMsg, 2500);
+
+    // Show the divider BEFORE auto-continue so it marks the compaction boundary.
+    // Insert it synchronously, then send the auto-continue message.
+    // reconcile() may reorder message bubbles but leaves non-bubble DOM elements
+    // at their insertion point — placing it here ensures correct visual order.
+    this.deps.getMessageDisplay()?.showCompactionDivider(compactedContext.messagesRemoved);
+
+    // Auto-continue: send a hidden follow-up so the LLM resumes the conversation.
+    // The hidden metadata prevents the user message from rendering as a visible bubble.
+    try {
+      await this.handleSendMessage(
+        'Continue where you left off \u2014 either continue the current work or align with the user on next steps.',
+        undefined,
+        { hidden: true } as unknown as ReferenceMetadata
+      );
+    } catch (error) {
+      console.warn('[ChatSendCoordinator] Auto-continue after compaction failed:', error);
+    }
+  }
+
+  private async runContextCompaction(conversation: ConversationData, manual = false): Promise<void> {
+    this.setPreSendCompactionState(true);
+    try {
+      await this.performContextCompaction(conversation, manual);
+    } finally {
+      this.setPreSendCompactionState(false);
+    }
   }
 
   private async buildCompactionTranscriptCoverage(
@@ -353,7 +414,7 @@ export class ChatSendCoordinator {
     }
 
     if (compacting) {
-      messageDisplay.showTransientEventRow('Compacting context before sending...');
+      messageDisplay.showTransientEventRow('Compacting');
     } else {
       messageDisplay.clearTransientEventRow();
     }

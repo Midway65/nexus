@@ -8,11 +8,10 @@
  * and tool event coordination to ToolEventCoordinator.
  */
 
-import { ItemView, WorkspaceLeaf } from 'obsidian';
+import { ItemView, Notice, WorkspaceLeaf } from 'obsidian';
 import { ConversationList } from './components/ConversationList';
 import { MessageDisplay } from './components/MessageDisplay';
 import { ChatInput } from './components/ChatInput';
-import { ContextProgressBar } from './components/ContextProgressBar';
 import { ChatSettingsModal } from './components/ChatSettingsModal';
 import { ChatService } from '../../services/chat/ChatService';
 import { ConversationData, ConversationMessage } from '../../types/chat/ChatTypes';
@@ -37,7 +36,15 @@ import { NexusLoadingController } from './controllers/NexusLoadingController';
 import { SubagentController } from './controllers/SubagentController';
 
 // Coordinators
+import { ToolStatusBar } from './components/ToolStatusBar';
+import { openTaskBoardView } from '../tasks/taskBoardNavigation';
+import { ToolStatusLabelResolver } from './services/ToolStatusLabelResolver';
+import { setToolStatusLabelResolver } from './utils/toolDisplayFormatter';
+import type { AgentManager } from '../../services/AgentManager';
+import { ToolInspectionModal } from './components/ToolInspectionModal';
+import { ToolStatusBarController } from './controllers/ToolStatusBarController';
 import { ToolEventCoordinator } from './coordinators/ToolEventCoordinator';
+import { ToolCallStateManager } from './services/ToolCallStateManager';
 
 // Builders and Utilities
 import { ChatLayoutBuilder, ChatLayoutElements } from './builders/ChatLayoutBuilder';
@@ -50,7 +57,7 @@ import { getNexusPlugin } from '../../utils/pluginLocator';
 import { getWebLLMLifecycleManager } from '../../services/llm/adapters/webllm/WebLLMLifecycleManager';
 
 // Subagent infrastructure (delegated to SubagentController)
-import type { HybridStorageAdapter } from '../../database/adapters/HybridStorageAdapter';
+import type { HybridStorageAdapter, ExternalSyncEvent } from '../../database/adapters/HybridStorageAdapter';
 import type { ModelOption, PromptOption } from './types/SelectionTypes';
 import type { ToolEventData as ChatServiceToolEventData } from '../../services/chat/ToolCallService';
 import type { BranchViewContext } from './components/BranchHeader';
@@ -69,7 +76,6 @@ export class ChatView extends ItemView {
   private conversationList!: ConversationList;
   private messageDisplay!: MessageDisplay;
   private chatInput!: ChatInput;
-  private contextProgressBar!: ContextProgressBar;
 
   // Services
   private conversationManager!: ConversationManager;
@@ -83,7 +89,10 @@ export class ChatView extends ItemView {
   private uiStateController!: UIStateController;
   private streamingController!: StreamingController;
   private nexusLoadingController!: NexusLoadingController;
+  private toolCallStateManager!: ToolCallStateManager;
   private toolEventCoordinator!: ToolEventCoordinator;
+  private toolStatusBar!: ToolStatusBar;
+  private toolStatusBarController!: ToolStatusBarController;
 
   // Subagent infrastructure (delegated to SubagentController)
   private subagentController: SubagentController | null = null;
@@ -138,7 +147,7 @@ export class ChatView extends ItemView {
         getNexusPlugin<NexusPlugin>(this.app)?.getServiceIfReady<HybridStorageAdapter>('hybridStorageAdapter') ?? null,
       onUpdateContextProgress: () => {
         void this.updateContextProgress();
-      }
+      },
     });
     this.subagentIntegration = new ChatSubagentIntegration({
       app: this.app,
@@ -148,8 +157,8 @@ export class ChatView extends ItemView {
       getModelAgentManager: () => this.modelAgentManager ?? null,
       getStreamingController: () => this.streamingController ?? null,
       getToolEventCoordinator: () => this.toolEventCoordinator ?? null,
-      getSettingsButtonContainer: () => this.layoutElements.settingsButton?.parentElement ?? undefined,
-      getSettingsButton: () => this.layoutElements.settingsButton,
+      getAgentStatusSlot: () => this.toolStatusBar?.getAgentSlotEl(),
+      getSettingsButton: () => undefined,
       getNavigationTarget: () => this.branchViewCoordinator ?? null,
     });
     this.branchViewCoordinator = new ChatBranchViewCoordinator({
@@ -203,12 +212,27 @@ export class ChatView extends ItemView {
    * Wait for database to be ready, showing loading overlay if needed
    * Uses getServiceIfReady to avoid blocking startup with SQLite WASM loading
    */
-  private async waitForDatabaseReady(): Promise<void> {
+  private async waitForDatabaseReady(): Promise<boolean> {
     const plugin = getNexusPlugin<NexusPlugin>(this.app);
-    if (!plugin) return;
+    if (!plugin) return false;
+
+    type StorageAdapterStartupState = {
+      phase: 'idle' | 'running' | 'complete' | 'error';
+      isBlocking: boolean;
+      percent: number;
+      statusText: string;
+      error?: string;
+    };
+
+    type StartupAwareStorageAdapter = {
+      isReady?: () => boolean;
+      waitForReady?: () => Promise<boolean>;
+      isStartupHydrationBlocking?: () => boolean;
+      getStartupHydrationState?: () => StorageAdapterStartupState;
+    };
 
     // Use getServiceIfReady to avoid triggering SQLite WASM loading during startup
-    let storageAdapter = plugin.getServiceIfReady<{ isReady?: () => boolean; waitForReady?: () => Promise<boolean> }>('hybridStorageAdapter');
+    let storageAdapter = plugin.getServiceIfReady<StartupAwareStorageAdapter>('hybridStorageAdapter');
 
     // If adapter doesn't exist yet or isn't ready, show loading overlay and poll
     if (!storageAdapter || !storageAdapter.isReady?.()) {
@@ -221,23 +245,80 @@ export class ChatView extends ItemView {
         await new Promise(resolve => setTimeout(resolve, ChatView.SERVICE_POLL_INTERVAL_MS));
 
         // Stop polling if view was closed during the wait
-        if (this.isClosing) return;
+        if (this.isClosing) return false;
 
-        storageAdapter = plugin.getServiceIfReady<{ isReady?: () => boolean; waitForReady?: () => Promise<boolean> }>('hybridStorageAdapter');
+        storageAdapter = plugin.getServiceIfReady<StartupAwareStorageAdapter>('hybridStorageAdapter');
         if (storageAdapter?.isReady?.()) {
           break;
         }
       }
 
       // View may have closed while we were polling - skip DOM operations
-      if (this.isClosing) return;
-
-      this.nexusLoadingController.hideDatabaseLoadingOverlay();
-      return;
+      if (this.isClosing) return false;
     }
 
-    // Adapter exists and is ready - delegate to controller for any remaining checks
+    if (!storageAdapter) {
+      this.nexusLoadingController.hideDatabaseLoadingOverlay();
+      return false;
+    }
+
     await this.nexusLoadingController.waitForDatabaseReady(storageAdapter);
+    return this.waitForStartupHydration(storageAdapter);
+  }
+
+  private async waitForStartupHydration(storageAdapter: {
+    isStartupHydrationBlocking?: () => boolean;
+    getStartupHydrationState?: () => {
+      phase: 'idle' | 'running' | 'complete' | 'error';
+      isBlocking: boolean;
+      percent: number;
+      statusText: string;
+      error?: string;
+    };
+  }): Promise<boolean> {
+    const snapshot = storageAdapter.getStartupHydrationState?.();
+    if (!snapshot || !storageAdapter.isStartupHydrationBlocking?.()) {
+      this.nexusLoadingController.hideDatabaseLoadingOverlay();
+      return true;
+    }
+
+    this.nexusLoadingController.showDatabaseLoadingOverlay();
+    this.nexusLoadingController.updateDatabaseLoadingProgress(
+      snapshot.percent / 100,
+      snapshot.statusText || 'Updating local chat index...'
+    );
+
+    while (true) {
+      await new Promise(resolve => setTimeout(resolve, ChatView.SERVICE_POLL_INTERVAL_MS));
+
+      if (this.isClosing) return false;
+
+      const nextSnapshot = storageAdapter.getStartupHydrationState?.();
+      if (!nextSnapshot) {
+        break;
+      }
+
+      this.nexusLoadingController.updateDatabaseLoadingProgress(
+        nextSnapshot.percent / 100,
+        nextSnapshot.statusText || 'Updating local chat index...'
+      );
+
+      if (nextSnapshot.phase === 'error') {
+        this.nexusLoadingController.updateDatabaseLoadingProgress(
+          0,
+          nextSnapshot.error || nextSnapshot.statusText || 'Local chat index update failed'
+        );
+        return false;
+      }
+
+      if (nextSnapshot.phase === 'complete' || !nextSnapshot.isBlocking) {
+        this.nexusLoadingController.hideDatabaseLoadingOverlay();
+        return true;
+      }
+    }
+
+    this.nexusLoadingController.hideDatabaseLoadingOverlay();
+    return true;
   }
 
   /**
@@ -323,7 +404,10 @@ export class ChatView extends ItemView {
     this.initializeArchitecture();
 
     // Check if database is still loading and show overlay
-    await this.waitForDatabaseReady();
+    const databaseReady = await this.waitForDatabaseReady();
+    if (!databaseReady) {
+      return;
+    }
 
     await this.loadInitialData();
 
@@ -522,17 +606,48 @@ export class ChatView extends ItemView {
       (messageId, newContent) => {
         void this.sendCoordinator.handleEditMessage(messageId, newContent);
       },
-      (messageId, event, data) => this.handleToolEvent(messageId, event, data as unknown as ChatToolEventData),
       (messageId: string, alternativeIndex: number) => {
         void this.branchViewCoordinator.handleBranchSwitchedByIndex(messageId, alternativeIndex);
-      },
-      (branchId: string) => {
-        void this.branchViewCoordinator.navigateToBranch(branchId);
       }
     );
 
-    // Initialize tool event coordinator after messageDisplay is created
-    this.toolEventCoordinator = new ToolEventCoordinator(this.messageDisplay);
+    this.toolStatusBar = new ToolStatusBar(
+      this.layoutElements.toolStatusBarContainer,
+      this.contextTracker,
+      {
+        onInspectClick: () => this.handleInspectTools(),
+        onTaskClick: () => this.handleOpenTasks(),
+        onCompactClick: () => {
+          void this.ensurePreservationServiceAndCompact();
+        },
+        onAgentClick: () => { void this.handleOpenAgentStatus(); },
+      },
+      this
+    );
+
+    this.toolStatusBarController = new ToolStatusBarController(this.toolStatusBar, this.streamingController, this);
+
+    // Wire the colocated tool status label resolver. The resolver routes
+    // `technicalName` → owning tool → `getStatusLabel()` override, with a
+    // lazy agent lookup so it survives plugin init ordering. Installed
+    // via a module-level setter on toolDisplayFormatter so every caller
+    // of formatToolStepLabel shares the same route. Cleared in cleanup().
+    const resolver = new ToolStatusLabelResolver((agentName) => {
+      const plugin = getNexusPlugin<NexusPlugin>(this.app);
+      const agentManager = plugin?.getServiceIfReady<AgentManager>('agentManager');
+      try {
+        return agentManager?.getAgent(agentName);
+      } catch {
+        return undefined;
+      }
+    });
+    setToolStatusLabelResolver(resolver);
+    this.register(() => setToolStatusLabelResolver(null));
+
+    // Initialize tool call state machine and event coordinator
+    this.toolCallStateManager = new ToolCallStateManager();
+    this.toolEventCoordinator = new ToolEventCoordinator(this.toolStatusBarController, this.toolCallStateManager);
+    this.register(() => this.toolCallStateManager.clear());
 
     this.chatInput = new ChatInput(
       this.layoutElements.inputContainer,
@@ -546,12 +661,6 @@ export class ChatView extends ItemView {
       },
       () => this.conversationManager.getCurrentConversation() !== null,
       this // Pass Component for registerDomEvent
-    );
-
-    this.contextProgressBar = new ContextProgressBar(
-      this.layoutElements.contextContainer,
-      () => this.getContextUsage(),
-      () => this.getConversationCost()
     );
 
     // Update conversation list if conversations were already loaded
@@ -602,7 +711,7 @@ export class ChatView extends ItemView {
       });
     }
 
-    // Refresh context bar when user switches back to this tab
+    // Refresh chat chrome when user switches back to this tab
     this.registerEvent(
       this.app.workspace.on('active-leaf-change', (leaf) => {
         if (leaf === this.leaf) {
@@ -610,6 +719,67 @@ export class ChatView extends ItemView {
         }
       })
     );
+
+    // Refresh conversation list / active conversation when Obsidian Sync
+    // lands JSONL updates from another device. The adapter has already
+    // reconciled SQLite by the time this fires — we just re-query.
+    this.subscribeToExternalSync();
+  }
+
+  /**
+   * Subscribe to the HybridStorageAdapter `external-sync` event so
+   * desktop→mobile chat changes (and vice versa) appear without a
+   * manual refresh. The subscription is registered with `registerEvent`
+   * so it auto-detaches when the view unloads.
+   */
+  private subscribeToExternalSync(): void {
+    const plugin = getNexusPlugin<NexusPlugin>(this.app);
+    const adapter = plugin?.getServiceIfReady<HybridStorageAdapter>('hybridStorageAdapter') ?? null;
+    if (!adapter || typeof adapter.onExternalSync !== 'function') {
+      return;
+    }
+
+    const ref = adapter.onExternalSync((event) => {
+      void this.handleExternalSync(event);
+    });
+    this.registerEvent(ref);
+  }
+
+  /**
+   * Handle an external-sync event:
+   * - If any conversation stream changed, reload the conversation list
+   *   (a new conversation may have arrived, titles may be stale, etc.).
+   * - If the *currently-open* conversation was one of the modified
+   *   streams, re-select it to pull the new messages from SQLite.
+   *
+   * Other categories (workspaces, tasks) are handled by their own views.
+   */
+  private async handleExternalSync(event: ExternalSyncEvent): Promise<void> {
+    if (!this.conversationManager) {
+      return;
+    }
+
+    const conversationChanges = event.modified.filter((m) => m.category === 'conversations');
+    if (conversationChanges.length === 0) {
+      return;
+    }
+
+    try {
+      // Refresh list first so the sidebar reflects any new arrivals.
+      await this.conversationManager.loadConversations();
+
+      // If the user is currently viewing one of the changed conversations,
+      // re-select it so new messages show up in the main pane.
+      const current = this.conversationManager.getCurrentConversation();
+      if (current) {
+        const hitCurrent = conversationChanges.some((m) => m.businessId === current.id);
+        if (hitCurrent) {
+          await this.conversationManager.selectConversation(current);
+        }
+      }
+    } catch (error) {
+      console.error('[ChatView] Failed to apply external-sync refresh:', error);
+    }
   }
 
   /**
@@ -687,9 +857,11 @@ export class ChatView extends ItemView {
     } else if (isComplete) {
       this.streamingController.finalizeStreaming(messageId, content);
       this.messageDisplay.updateMessageContent(messageId, content);
+      this.toolEventCoordinator.clearToolNameCache();
     } else {
       this.streamingController.startStreaming(messageId);
       this.streamingController.updateStreamingChunk(messageId, content);
+      this.toolEventCoordinator.ensureListening();
     }
   }
 
@@ -725,18 +897,89 @@ export class ChatView extends ItemView {
     // Prompt changed
   }
 
-  private async getContextUsage() {
-    return await this.contextTracker.getContextUsage();
-  }
-
-  private getConversationCost(): { totalCost: number; currency: string } | null {
-    return this.contextTracker.getConversationCost();
-  }
-
   private async updateContextProgress(): Promise<void> {
-    if (this.contextProgressBar) {
-      await this.contextProgressBar.update();
-      this.contextProgressBar.checkWarningThresholds();
+    if (this.toolStatusBar) {
+      await this.toolStatusBar.updateContext();
+    }
+  }
+
+  private handleOpenTasks(): void {
+    void openTaskBoardView(this.app, {}, 'tab');
+  }
+
+  private handleInspectTools(): void {
+    const conversation = this.conversationManager.getCurrentConversation();
+    if (!conversation) {
+      return;
+    }
+
+    new ToolInspectionModal(this.app, {
+      conversationId: conversation.id,
+      historySource: {
+        getToolCallMessagesForConversation: (conversationId, options) =>
+          this.chatService.getToolCallMessagesForConversation(conversationId, options),
+      },
+    }, this).open();
+  }
+
+  private async ensurePreservationServiceAndCompact(): Promise<void> {
+    // Lazy-init preservationService if subagent infrastructure hasn't loaded yet.
+    // This decouples compaction from the subagent init path so the compact button
+    // always works, even before subagent setup completes.
+    if (!this.preservationService) {
+      try {
+        const plugin = getNexusPlugin(this.app) as { getServiceIfReady?<T>(name: string): T | null } | null;
+        const agentManager = plugin?.getServiceIfReady?.('agentManager') as AgentManager | null;
+        const llmService = this.chatService.getLLMService();
+        if (agentManager && llmService) {
+          const { DirectToolExecutor } = await import('../../services/chat/DirectToolExecutor');
+          const agentProvider = {
+            getAgent: (name: string) => agentManager.getAgent(name),
+            getAllAgents: () => agentManager.getAgents(),
+          };
+          const executor = new DirectToolExecutor({ agentProvider });
+          this.preservationService = new ContextPreservationService({
+            llmService: llmService as unknown as import('../../services/chat/ContextPreservationService').PreservationDependencies['llmService'],
+            getAgent: (name: string) => { try { return agentManager.getAgent(name); } catch { return null; } },
+            executeToolCalls: async (toolCalls: unknown[], context?: { sessionId?: string; workspaceId?: string }) => {
+              // ContextPreservationService calls tools by bare name (e.g. "createState").
+              // DirectToolExecutor expects "agentName_toolName" format. Map bare names
+              // to their agent-qualified form.
+              const mapped = toolCalls.map(tc => {
+                const call = tc as Record<string, unknown>;
+                const name = typeof call.name === 'string' ? call.name : '';
+                return { ...call, name: name.includes('_') ? name : `memoryManager_${name}` };
+              });
+              return executor.executeToolCalls(mapped as never, context as never);
+            },
+          });
+        }
+      } catch (error) {
+        console.warn('[ChatView] Failed to lazy-init preservationService:', error);
+      }
+    }
+    await this.sendCoordinator.compactCurrentConversation();
+  }
+
+  private async handleOpenAgentStatus(): Promise<void> {
+    if (!this.branchViewCoordinator) return;
+
+    // Lazy-init subagent infrastructure if it hasn't loaded yet
+    if (!this.subagentController) {
+      try {
+        await this.initializeSubagentInfrastructure();
+      } catch (error) {
+        console.warn('[ChatView] Failed to lazy-init subagent infrastructure for agent status:', error);
+        new Notice('Subagent system unavailable', 2500);
+        return;
+      }
+    }
+
+    try {
+      this.branchViewCoordinator.openAgentStatusModal();
+    } catch (error) {
+      console.warn('[ChatView] Failed to open agent status modal:', error);
+      new Notice('Subagent system unavailable', 2500);
     }
   }
 
@@ -744,7 +987,9 @@ export class ChatView extends ItemView {
     const conversation = this.conversationManager.getCurrentConversation();
 
     if (this.layoutElements.chatTitle) {
-      this.layoutElements.chatTitle.textContent = conversation?.title || 'Nexus Chat';
+      const title = conversation?.title || 'Nexus Chat';
+      this.layoutElements.chatTitle.textContent = title;
+      this.layoutElements.chatTitle.setAttr('title', title);
     }
   }
 
@@ -781,7 +1026,7 @@ export class ChatView extends ItemView {
     this.conversationList?.cleanup();
     this.messageDisplay?.cleanup();
     this.chatInput?.cleanup();
-    this.contextProgressBar?.cleanup();
+    this.toolStatusBar?.cleanup();
     this.uiStateController?.cleanup();
     this.streamingController?.cleanup();
     this.nexusLoadingController?.unload();

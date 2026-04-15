@@ -19,7 +19,8 @@ import type { ConversationMessage as LegacyConversationMessage, ToolCall as Lega
 export type { IndividualConversation, ConversationMessage } from '../types/storage/StorageTypes';
 import { IStorageAdapter } from '../database/interfaces/IStorageAdapter';
 import { PaginationParams, PaginatedResult, calculatePaginationMetadata } from '../types/pagination/PaginationTypes';
-import { StorageAdapterOrGetter, resolveAdapter, withDualBackend } from './helpers/DualBackendExecutor';
+import type { ToolCallMessageHistoryOptions } from '../database/repositories/interfaces/IMessageRepository';
+import { StorageAdapterOrGetter, resolveAdapter, withDualBackend, withReadableBackend } from './helpers/DualBackendExecutor';
 import { convertToLegacyMetadata, convertToLegacyConversation, populateMessageBranches } from './helpers/ConversationTypeConverters';
 
 type ConversationMessageResult = MessageData;
@@ -122,7 +123,7 @@ export class ConversationService {
    * List conversations (uses index only - lightweight and fast)
    */
   async listConversations(vaultName?: string, limit?: number, page?: number): Promise<LegacyConversationMetadata[]> {
-    return withDualBackend(
+    return withReadableBackend(
       this.storageAdapterOrGetter,
       async (adapter) => {
         const result = await adapter.getConversations({
@@ -163,7 +164,7 @@ export class ConversationService {
     id: string,
     paginationOptions?: PaginationParams
   ): Promise<IndividualConversation | null> {
-    return withDualBackend(
+    return withReadableBackend(
       this.storageAdapterOrGetter,
       async (adapter) => {
         const metadata = await adapter.getConversation(id);
@@ -240,7 +241,7 @@ export class ConversationService {
     conversationId: string,
     options?: PaginationParams
   ): Promise<PaginatedResult<ConversationMessageResult>> {
-    return withDualBackend<PaginatedResult<ConversationMessageResult>>(
+    return withReadableBackend<PaginatedResult<ConversationMessageResult>>(
       this.storageAdapterOrGetter,
       async (adapter) => {
         const messagesResult = await adapter.getMessages(conversationId, {
@@ -298,6 +299,81 @@ export class ConversationService {
   }
 
   /**
+   * Get conversation-wide tool call history using a sequence-number cursor.
+   *
+   * The newest tool-call messages are returned first when no cursor is given.
+   * Subsequent requests pass the oldest returned sequenceNumber as cursor to fetch older history.
+   */
+  async getToolCallMessagesForConversation(
+    conversationId: string,
+    options?: ToolCallMessageHistoryOptions
+  ): Promise<PaginatedResult<ConversationMessageResult>> {
+    return withReadableBackend<PaginatedResult<ConversationMessageResult>>(
+      this.storageAdapterOrGetter,
+      async (adapter) => {
+        if (adapter.messages?.getToolCallMessagesForConversation) {
+          return adapter.messages.getToolCallMessagesForConversation(conversationId, options);
+        }
+
+        return {
+          items: [],
+          page: 0,
+          pageSize: options?.pageSize ?? 50,
+          totalItems: 0,
+          totalPages: 0,
+          hasNextPage: false,
+          hasPreviousPage: false
+        };
+      },
+      async () => {
+        const conversation = await this.fileSystem.readConversation(conversationId);
+        if (!conversation) {
+          return {
+            items: [],
+            page: 0,
+            pageSize: options?.pageSize ?? 50,
+            totalItems: 0,
+            totalPages: 0,
+            hasNextPage: false,
+            hasPreviousPage: false
+          };
+        }
+
+        const pageSize = Math.max(1, Math.min(options?.pageSize ?? 50, 200));
+        const cursorSequenceNumber = this.parseToolCallHistoryCursor(options?.cursor);
+
+        const toolCallMessages = conversation.messages
+          .map((message, index) => toMessageData(message, conversationId, index))
+          .filter((message) => (message.toolCalls?.length ?? 0) > 0);
+
+        const totalItems = toolCallMessages.length;
+        const newerItemCount = cursorSequenceNumber === undefined
+          ? 0
+          : toolCallMessages.filter((message) => message.sequenceNumber >= cursorSequenceNumber).length;
+
+        const availableMessages = cursorSequenceNumber === undefined
+          ? toolCallMessages
+          : toolCallMessages.filter((message) => message.sequenceNumber < cursorSequenceNumber);
+
+        const items = availableMessages.slice(-pageSize);
+        const consumedItems = newerItemCount + items.length;
+        const olderRemaining = Math.max(0, totalItems - consumedItems);
+
+        return {
+          items,
+          page: cursorSequenceNumber === undefined ? 0 : Math.floor(newerItemCount / pageSize),
+          pageSize,
+          totalItems,
+          totalPages: Math.ceil(totalItems / pageSize),
+          hasNextPage: olderRemaining > 0,
+          hasPreviousPage: newerItemCount > 0,
+          nextCursor: olderRemaining > 0 && items.length > 0 ? String(items[0].sequenceNumber) : undefined
+        };
+      }
+    );
+  }
+
+  /**
    * Get all conversations with full data (expensive - avoid if possible)
    */
   async getAllConversations(): Promise<IndividualConversation[]> {
@@ -315,7 +391,7 @@ export class ConversationService {
   }
 
   async hasRunKey(runKey: string): Promise<boolean> {
-    return withDualBackend(
+    return withReadableBackend(
       this.storageAdapterOrGetter,
       async (adapter) => {
         const result = await adapter.getConversations({
@@ -530,6 +606,19 @@ export class ConversationService {
     return messages;
   }
 
+  private parseToolCallHistoryCursor(cursor?: string): number | undefined {
+    if (cursor === undefined || cursor.trim() === '') {
+      return undefined;
+    }
+
+    const parsed = Number.parseInt(cursor, 10);
+    if (!Number.isInteger(parsed) || parsed < 0) {
+      throw new Error(`[ConversationService] Invalid tool call history cursor: ${cursor}`);
+    }
+
+    return parsed;
+  }
+
   /**
    * Delete conversation (deletes from adapter or legacy storage)
    */
@@ -701,7 +790,7 @@ export class ConversationService {
       return this.listConversations(undefined, limit);
     }
 
-    return withDualBackend(
+    return withReadableBackend(
       this.storageAdapterOrGetter,
       async (adapter) => {
         const results = await adapter.searchConversations(query);
@@ -774,7 +863,7 @@ export class ConversationService {
    * Count total conversations (excludes branches)
    */
   async count(): Promise<number> {
-    return withDualBackend(
+    return withReadableBackend(
       this.storageAdapterOrGetter,
       async (adapter) => {
         const result = await adapter.getConversations({
@@ -847,24 +936,33 @@ export class ConversationService {
    * @returns Array of branch conversations
    */
   async getBranchConversations(parentConversationId: string): Promise<IndividualConversation[]> {
-    return withDualBackend(
+    return withReadableBackend(
       this.storageAdapterOrGetter,
       async (adapter) => {
-        const result = await adapter.getConversations({
-          pageSize: 100,
-          page: 0,
-          sortBy: 'created',
-          sortOrder: 'asc',
-          includeBranches: true
-        });
-
         const branches: IndividualConversation[] = [];
-        for (const item of result.items) {
-          if (item.metadata?.parentConversationId === parentConversationId) {
-            const conv = await this.getConversation(item.id);
-            if (conv) branches.push(conv);
+        let page = 0;
+        let hasNextPage = true;
+
+        while (hasNextPage) {
+          const result = await adapter.getConversations({
+            pageSize: 100,
+            page,
+            sortBy: 'created',
+            sortOrder: 'asc',
+            includeBranches: true
+          });
+
+          for (const item of result.items) {
+            if (item.metadata?.parentConversationId === parentConversationId) {
+              const conv = await this.getConversation(item.id);
+              if (conv) branches.push(conv);
+            }
           }
+
+          hasNextPage = result.hasNextPage;
+          page += 1;
         }
+
         return branches;
       },
       async () => {
@@ -938,7 +1036,7 @@ export class ConversationService {
         branchType,
         subagentTask: task,
         subagent: subagentMetadata,  // Full subagent state (atomic creation)
-        inheritContext: false,
+        inheritContext: branchType === 'alternative',
       }
     });
 

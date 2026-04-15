@@ -4,9 +4,9 @@ This file is the authoritative record of every file in `my-custom-branch` that i
 diverges from upstream (`ProfSynapse/nexus`). Load it at the start of every upstream merge
 session to know which files require manual resolution and which can be auto-merged.
 
-**Last audited against:** upstream/main HEAD (`b801175d`) — PRs #123, #126, #128  
-**Audit date:** 2026-04-09  
-**Next merge target:** next upstream/main HEAD (watch for PRs touching ContextProgressBar.ts / chat input area — design plan for status bar + context badge is in docs/plans/)
+**Last audited against:** upstream/main HEAD (`3f57f235`) — v5.7.3–v5.7.4 (PRs #129–#138)  
+**Audit date:** 2026-04-15  
+**Next merge target:** next upstream/main HEAD
 
 ---
 
@@ -17,8 +17,7 @@ requires manual resolution using the pattern: accept upstream base, then layer b
 
 | File | Fork change | Resolution pattern |
 |------|-------------|-------------------|
-| `src/ui/chat/components/MessageBubble.ts` | Action bar: `import MessageActionBar`, `private actionBar` field, `appendActionBar()`, `cleanupActionBar()`, call sites in createElement/updateWithNewMessage/cleanup. `appendActionBar()` also queries `.message-content` and passes it as `contentEl` to the `MessageActionBar` constructor (selection-aware feature). | Take upstream as base; layer back all action bar insertions; fix `createTextBubble` call back to 3-arg; restore `contentEl` query line in `appendActionBar`. |
-| `src/ui/chat/components/factories/ToolBubbleFactory.ts` | `createTextBubble` is 3-param (onCopy/showCopyFeedback removed — action bar owns copy). **Note:** upstream base is 7-param but upstream has not changed this file — git auto-keeps our 3-param. The recurring risk is the **call site in MessageBubble.ts** — every merge where upstream touches MessageBubble risks reverting it to 7 args. Always check after merge and fix if needed. | Git auto-keeps 3-param; verify MessageBubble.ts call site is 3-arg |
+| `src/ui/chat/components/MessageBubble.ts` | Action bar: `import MessageActionBar`, `private actionBar` field, `appendActionBar()`, `cleanupActionBar()`, call sites in `createElement`/`updateWithNewMessage`/`rebuildElement`/`cleanup`. `appendActionBar()` queries `.message-content` and passes it as `contentEl` to the `MessageActionBar` constructor (selection-aware feature). Based on upstream's glass redesign — uses `ThinkingLoader`, no `ProgressiveToolAccordion`, no `ToolBubbleFactory`. | Take upstream as base; add `import { MessageActionBar }`, `private actionBar` field; insert `appendActionBar()` calls after each `this.element = ...` assignment in `createElement()`; add call at end of `updateWithNewMessage()`; add `cleanupActionBar()` in `rebuildElement()` before `branchNavigatorBinder.destroy()`; add `cleanupActionBar()` in `cleanup()`; add `appendActionBar()` and `cleanupActionBar()` method bodies. |
 
 **Fork-only files (no upstream counterpart — always rebase cleanly):**
 - `src/ui/chat/components/MessageActionBar.ts` — Copy / Insert / Append / Create buttons. Selection-aware: reads `window.getSelection()` scoped to the bubble's `.message-content` element; falls back to full message text when no selection. All four buttons have `mousedown → preventDefault()` to preserve selection/cursor through click.
@@ -33,8 +32,8 @@ they do a conflict will occur. Resolution is always: take upstream base, then re
 
 | File | Fork change | Fork block to restore |
 |------|-------------|----------------------|
-| `styles.css` | Sticky assistant header rule | CSS rule block labelled `/* fork: sticky assistant header */` |
-| `src/ui/chat/builders/ChatLayoutBuilder.ts` | Banner removal (beta/experimental warning stripped) | Remove the banner call after taking upstream |
+| `styles.css` | ~~Sticky assistant header rule~~ — **RETIRED 2026-04-15**: `.message-header` is now `display: none` in upstream's glass redesign; sticky rule was moot. No fork CSS divergence in this file beyond the fork's action button styles (which auto-merged). | No action needed for this entry |
+| `src/ui/chat/builders/ChatLayoutBuilder.ts` | Banner removal (beta/experimental warning stripped) | Remove the `createWarningBanner` method and any call site after taking upstream |
 | `src/database/schema/SchemaMigrator.ts` | Convention comment + fork migrations v17–v19 (v12–v16 removed 2026-04-08) | Restore convention comment block + migrations v17–v19. When upstream ships their v12, renumber it to 20 and set `CURRENT_SCHEMA_VERSION = 20`. |
 
 **Note:** `HybridStorageAdapter.ts` had a fork prune block (removed 2026-04-08). No fork changes remain. Upstream touches this file frequently — take upstream as base with nothing to restore.
@@ -64,8 +63,8 @@ uses upstream's tombstone approach (no fork divergence); pre-tombstone orphan pr
 | File | Change |
 |------|--------|
 | ~~`src/database/repositories/MessageRepository.ts`~~ | ~~Skips JSONL write during streaming states (`draft`/`streaming`)~~ — **RETIRED 2026-04-09**: superseded by upstream PR #123 `hasChanges()` dirty-check (more complete fix) |
-| `src/database/storage/JSONLWriter.ts` | `readEventsStreaming()` fallback via Node.js readline for files >50 MB; `stat?.()` optional-chain safe for test environments |
-| `eslint.config.mjs` | Added `JSONLWriter.ts` to `import/no-nodejs-modules` exceptions (uses `require('fs')`, `require('readline')`) |
+| ~~`src/database/storage/JSONLWriter.ts`~~ | ~~`readEventsStreaming()` fallback for >50 MB files~~ — **RETIRED 2026-04-15**: upstream PR #134 vault-root storage rewrote `readEvents()` to delegate to `StorageRouter`. The fork's streaming fallback was removed in this merge. No fork divergence remains in this file. |
+| ~~`eslint.config.mjs`~~ | ~~JSONLWriter.ts readline exception~~ — **RETIRED 2026-04-15**: readline usage removed from JSONLWriter along with streaming fallback. Verify eslint.config.mjs no longer has this exception. |
 
 ### Provider / HTTP fixes
 
@@ -78,7 +77,7 @@ uses upstream's tombstone approach (no fork divergence); pre-tombstone orphan pr
 
 | File | Change |
 |------|--------|
-| `src/ui/chat/components/ContextProgressBar.ts` | Uses `removeAttribute('class') + addClass()` instead of `className =` (Obsidian API correctness). **⚠️ RETIRE ON NEXT CONFLICT:** upstream design plan `docs/plans/chat-status-bar-and-context-badge-plan.md` replaces ContextProgressBar entirely with a status bar + context badge. When that PR lands, take upstream wholesale — do not re-apply this fix. |
+| ~~`src/ui/chat/components/ContextProgressBar.ts`~~ | ~~Obsidian API correctness fix~~ — **RETIRED 2026-04-15**: file deleted by upstream PR #131 (glass redesign replaced ContextProgressBar with ContextBadge + ToolStatusBar). File is gone. |
 | `src/components/shared/ChatSettingsRenderer.ts` | Removed `void` from `this.syncWorkspacePrompt(value)` call |
 **Retired entries (absorbed by upstream PR #119):**
 - `ChatView.ts` — `active-leaf-change` handler: now in upstream's ChatView (line 607). No longer fork-divergent.

@@ -9,6 +9,7 @@ import type {
   ContextStatusInfo,
   LoadedWorkspaceData,
   SystemPromptBuilder,
+  ToolCatalogEntry,
 } from './SystemPromptBuilder';
 
 interface ContextTokenTrackerLike {
@@ -31,6 +32,10 @@ export interface ModelAgentPromptContextSnapshot {
   currentSystemPrompt: string | null;
   thinkingSettings: ThinkingSettings;
   temperature: number;
+  imageProvider: 'google' | 'openrouter';
+  imageModel: string;
+  transcriptionProvider: string | null;
+  transcriptionModel: string | null;
   contextTokenTracker: ContextTokenTrackerLike | null;
   compactionFrontier: CompactionFrontierRecord[];
   latestCompactionRecord: CompactedContext | null;
@@ -45,11 +50,16 @@ export interface ModelAgentMessageOptions {
   enableThinking?: boolean;
   thinkingEffort?: 'low' | 'medium' | 'high';
   temperature?: number;
+  imageProvider?: 'google' | 'openrouter';
+  imageModel?: string;
+  transcriptionProvider?: string;
+  transcriptionModel?: string;
 }
 
 interface ModelAgentPromptContextAssemblerDependencies {
   systemPromptBuilder: Pick<SystemPromptBuilder, 'build'>;
   getSessionId: () => Promise<string | undefined>;
+  getToolCatalog?: () => ToolCatalogEntry[];
 }
 
 export class ModelAgentPromptContextAssembler {
@@ -69,7 +79,8 @@ export class ModelAgentPromptContextAssembler {
       skipToolsSection: !shouldPassToolSchemasToProvider(snapshot.selectedModel?.providerId),
       contextStatus: this.buildContextStatus(snapshot.contextTokenTracker),
       compactionFrontier: snapshot.compactionFrontier,
-      legacyCompactionRecord: snapshot.latestCompactionRecord
+      legacyCompactionRecord: snapshot.latestCompactionRecord,
+      toolCatalog: this.deps.getToolCatalog?.(),
     });
   }
 
@@ -86,7 +97,11 @@ export class ModelAgentPromptContextAssembler {
       sessionId,
       enableThinking: snapshot.thinkingSettings.enabled,
       thinkingEffort: snapshot.thinkingSettings.effort,
-      temperature: snapshot.temperature
+      temperature: snapshot.temperature,
+      imageProvider: snapshot.imageProvider,
+      imageModel: snapshot.imageModel,
+      transcriptionProvider: snapshot.transcriptionProvider || undefined,
+      transcriptionModel: snapshot.transcriptionModel || undefined
     };
   }
 

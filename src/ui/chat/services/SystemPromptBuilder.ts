@@ -73,15 +73,31 @@ export interface LoadedWorkspaceData {
   [key: string]: unknown;
 }
 
+export interface BuiltInDocsWorkspaceInfo {
+  id: string;
+  name: string;
+  description: string;
+  rootFolder: string;
+  entrypoint: string;
+}
+
+export interface ToolCatalogEntry {
+  agent: string;
+  tools: string[];
+}
+
 export interface SystemPromptOptions {
   sessionId?: string;
   workspaceId?: string;
+  /** Live agent→tools catalog, populated from the agent registry at call time */
+  toolCatalog?: ToolCatalogEntry[];
   contextNotes?: string[];
   messageEnhancement?: MessageEnhancement | null;
   customPrompt?: string | null;
   workspaceContext?: WorkspaceContext | null;
   // Full comprehensive workspace data from LoadWorkspaceTool (when workspace selected in settings)
   loadedWorkspaceData?: LoadedWorkspaceData | null;
+  builtInDocsWorkspace?: BuiltInDocsWorkspaceInfo | null;
   // Skip the tools section for models that are pre-trained on the toolset (e.g., Nexus)
   skipToolsSection?: boolean;
   // Context status for token-limited models (enables context awareness)
@@ -97,7 +113,8 @@ export interface SystemPromptOptions {
 export class SystemPromptBuilder {
   constructor(
     private readNoteContent: (notePath: string) => Promise<string>,
-    private loadWorkspace?: (workspaceId: string) => Promise<LoadedWorkspaceData | null>
+    private loadWorkspace?: (workspaceId: string) => Promise<LoadedWorkspaceData | null>,
+    private getBuiltInDocsWorkspaceInfo?: () => Promise<BuiltInDocsWorkspaceInfo | null>
   ) {}
 
   /**
@@ -130,7 +147,7 @@ export class SystemPromptBuilder {
 
     // 1. Session context with tools overview (skip for pre-trained models like Nexus)
     if (!options.skipToolsSection) {
-      const sessionSection = this.buildSessionContext(options.sessionId, options.workspaceId);
+      const sessionSection = this.buildSessionContext(options.sessionId, options.workspaceId, options.toolCatalog);
       if (sessionSection) {
         sections.push(sessionSection);
       }
@@ -140,6 +157,13 @@ export class SystemPromptBuilder {
     const workingStrategySection = this.buildWorkingStrategySection();
     if (workingStrategySection) {
       sections.push(workingStrategySection);
+    }
+
+    const builtInDocsWorkspace = options.builtInDocsWorkspace ??
+      (this.getBuiltInDocsWorkspaceInfo ? await this.getBuiltInDocsWorkspaceInfo() : null);
+    const builtInDocsWorkspaceSection = this.buildBuiltInDocsWorkspaceSection(builtInDocsWorkspace);
+    if (builtInDocsWorkspaceSection) {
+      sections.push(builtInDocsWorkspaceSection);
     }
 
     // 3. Context files section
@@ -191,14 +215,14 @@ export class SystemPromptBuilder {
    * Build session context section for tool calls
    * Includes tools overview and context parameter instructions
    */
-  private buildSessionContext(sessionId?: string, workspaceId?: string): string | null {
+  private buildSessionContext(sessionId?: string, workspaceId?: string, toolCatalog?: ToolCatalogEntry[]): string | null {
     const effectiveSessionId = sessionId || `session_${Date.now()}`;
     const effectiveWorkspaceId = workspaceId || 'default';
 
     let prompt = '<tools_and_context>\n';
 
     prompt += `You have two meta-tools:
-- getTools: discover the tools and schemas needed for the next step
+- getTools: discover the exact parameter schemas for tools before calling them
 - useTools: execute tool calls
 
 Context (REQUIRED in every useTools call):
@@ -209,8 +233,20 @@ Context (REQUIRED in every useTools call):
 - constraints: (optional) any rules or limits
 
 Calls array: [{ agent: "agentName", tool: "toolName", params: {...} }]
+`;
 
-Use getTools narrowly. Do not assume schemas from memory. Use "params" for tool arguments.
+    // Inject the live agent→tools catalog so the LLM knows what's available
+    if (toolCatalog && toolCatalog.length > 0) {
+      prompt += '\nAvailable agents and tools:\n';
+      for (const entry of toolCatalog) {
+        if (entry.tools.length > 0) {
+          prompt += `${entry.agent}: [${entry.tools.join(', ')}]\n`;
+        }
+      }
+    }
+
+    prompt += `
+Call getTools first to get the exact schema, then useTools with correct params.
 Keep workspaceId and sessionId exactly as shown.
 `;
 
@@ -238,7 +274,30 @@ Gather context progressively:
 3. then write or edit once you have enough context
 
 Prefer targeted context gathering over large dumps.
+
+If you are unclear on capabilities or how to approach a request, load the Assistant guides workspace (__system_guides__) and review the relevant guide files.
 </working_strategy>`;
+  }
+
+  private buildBuiltInDocsWorkspaceSection(
+    workspace: BuiltInDocsWorkspaceInfo | null | undefined
+  ): string | null {
+    if (!workspace) {
+      return null;
+    }
+
+    return `<built_in_docs_workspace>
+A built-in documentation workspace is available when you need guidance about built-in capabilities, workflows, or product behavior.
+
+- workspaceId: "${this.escapeXmlAttribute(workspace.id)}"
+- name: "${this.escapeXmlAttribute(workspace.name)}"
+- rootFolder: "${this.escapeXmlAttribute(workspace.rootFolder)}"
+- entrypoint: "${this.escapeXmlAttribute(workspace.entrypoint)}"
+
+Do not treat this as the selected user workspace.
+Use loadWorkspace with the workspaceId above only when documentation is relevant.
+Start with the entrypoint and load deeper guide files selectively.
+</built_in_docs_workspace>`;
   }
 
   /**

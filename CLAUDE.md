@@ -3,7 +3,7 @@ Last Updated: 2026-04-06
 
 ## Project Overview
 - **Name**: Nexus (package: claudesidian-mcp)
-- **Version**: 5.7.2
+- **Version**: 5.7.4
 - **Type**: Obsidian Community Plugin
 - **Purpose**: MCP integration for Obsidian with AI-powered vault operations
 - **Architecture**: Agent-Tool pattern with domain-driven design
@@ -43,10 +43,13 @@ Full guidelines: `docs/obsidian-plugin-guidelines.md`
 
 ## Recent Changes
 
-**Current Version**: 5.7.2
+**Current Version**: 5.7.4
 Full changelog: `docs/changelog.md`
 
 **Latest features** (Apr 2026):
+- v5.7.4 — Glass chrome redesign: ToolStatusBar, ContextBadge, ThinkingLoader, ToolInspectionModal; mobile chat glass phase 1 (PR #131); branch management fixes (PR #136); chat media model settings (PR #137); JSONL→SQLite sync on Obsidian Sync (PR #138)
+- v5.7.3 — Vault-root storage with sharding, migration, data-tab UI (PR #134); robust Node.js detection fix (PR #133); project manager async loaders (PR #130)
+- v5.7.2 — Provider save reliability fix, streaming chunk fix (PRs #123, #126, #128)
 - v5.7.1 — Claude Code desktop auth status/login fix for Electron renderer imports (issue #120)
 - v5.7.0 — Plugin-scoped storage migration, mobile support (experimental), major refactors (PRs #102–#119)
 - v5.6.9 (PR #99) — Conversation list pagination ("Load More") + FTS title search in sidebar

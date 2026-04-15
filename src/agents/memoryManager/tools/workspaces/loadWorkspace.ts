@@ -15,6 +15,8 @@ import { JSONSchema } from '../../../../types/schema/JSONSchemaTypes';
 
 import { BaseTool } from '../../../baseTool';
 import type { MemoryManagerAgent } from '../../memoryManager';
+import { labelWithId, verbs } from '../../../utils/toolStatusLabels';
+import type { ToolStatusTense } from '../../../interfaces/ITool';
 import {
   LoadWorkspaceParameters,
   LoadWorkspaceResult
@@ -92,6 +94,39 @@ export class LoadWorkspaceTool extends BaseTool<LoadWorkspaceParameters, LoadWor
       }
 
       // Get the workspace by ID or name (unified lookup)
+      const limit = params.limit ?? 5;
+
+      if (workspaceService.isSystemWorkspaceId(params.id)) {
+        const systemWorkspace = await workspaceService.loadSystemGuidesWorkspace(limit);
+        if (!systemWorkspace) {
+          return this.createErrorResult(`Workspace '${params.id}' is unavailable`, params);
+        }
+
+        return {
+          success: true,
+          data: systemWorkspace.data,
+          workspaceContext: systemWorkspace.workspaceContext,
+          pagination: {
+            sessions: {
+              page: 0,
+              pageSize: limit,
+              totalItems: 0,
+              totalPages: 0,
+              hasNextPage: false,
+              hasPreviousPage: false
+            },
+            states: {
+              page: 0,
+              pageSize: limit,
+              totalItems: 0,
+              totalPages: 0,
+              hasNextPage: false,
+              hasPreviousPage: false
+            }
+          }
+        };
+      }
+
       let workspace: IndividualWorkspace | null = null;
       try {
         workspace = await workspaceService.getWorkspaceByNameOrId(params.id);
@@ -115,9 +150,6 @@ export class LoadWorkspaceTool extends BaseTool<LoadWorkspaceParameters, LoadWor
       } catch {
         // Continue - this is not critical
       }
-
-      // Get limit from params (default to 5)
-      const limit = params.limit ?? 5;
 
       // Get memory service for data operations
       const memoryService = this.agent.getMemoryService();
@@ -278,6 +310,10 @@ export class LoadWorkspaceTool extends BaseTool<LoadWorkspaceParameters, LoadWor
         ? parseWorkspaceContext(params.workspaceContext) || undefined
         : params.workspaceContext
     };
+  }
+
+  getStatusLabel(params: Record<string, unknown> | undefined, tense: ToolStatusTense): string | undefined {
+    return labelWithId(verbs('Loading workspace', 'Loaded workspace', 'Failed to load workspace'), params, tense, { keys: ['id'], fallback: 'workspace' });
   }
 
   /**

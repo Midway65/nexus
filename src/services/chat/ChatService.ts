@@ -19,6 +19,7 @@ import type { DirectToolExecutor } from './DirectToolExecutor';
 import type { PaginatedResult } from '../../types/pagination/PaginationTypes';
 import type { LLMService } from '../llm/core/LLMService';
 import type { JSONSchema } from '../../types/schema/JSONSchemaTypes';
+import type { ToolCallMessageHistoryOptions } from '../../database/repositories/interfaces/IMessageRepository';
 
 interface ConversationListItem {
   id: string;
@@ -109,6 +110,10 @@ interface ConversationServiceDependency {
   createConversation: (data: unknown) => Promise<ConversationData>;
   deleteConversation: (id: string) => Promise<void>;
   getMessages?: (conversationId: string, options?: { page?: number; pageSize?: number }) => Promise<PaginatedResult<ChatMessage>>;
+  getToolCallMessagesForConversation?: (
+    conversationId: string,
+    options?: ToolCallMessageHistoryOptions
+  ) => Promise<PaginatedResult<ChatMessage>>;
   getRepository?: () => ConversationRepositoryLike;
   count?: () => Promise<number>;
 }
@@ -373,6 +378,11 @@ export class ChatService {
       excludeFromMessageId?: string;
       enableThinking?: boolean;
       thinkingEffort?: 'low' | 'medium' | 'high';
+      temperature?: number;
+      imageProvider?: 'google' | 'openrouter';
+      imageModel?: string;
+      transcriptionProvider?: string;
+      transcriptionModel?: string;
     }
   ): AsyncGenerator<ChatStreamingChunk, void, unknown> {
     // Store current provider and session for backward compatibility
@@ -424,6 +434,14 @@ export class ChatService {
     options?: { page?: number; pageSize?: number }
   ): Promise<PaginatedResult<ChatMessage>> {
     return this.conversationQueryService.getMessages(conversationId, options);
+  }
+
+  /** Get conversation-wide tool call history (cursor-paginated by sequence number) */
+  async getToolCallMessagesForConversation(
+    conversationId: string,
+    options?: ToolCallMessageHistoryOptions
+  ): Promise<PaginatedResult<ChatMessage>> {
+    return this.conversationQueryService.getToolCallMessagesForConversation(conversationId, options);
   }
 
   /** List conversations with pagination */

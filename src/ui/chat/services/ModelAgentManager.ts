@@ -7,6 +7,9 @@ import { ModelOption, PromptOption } from '../types/SelectionTypes';
 import { WorkspaceContext } from '../../../database/types/workspace/WorkspaceTypes';
 import { MessageEnhancement } from '../components/suggesters/base/SuggesterInterfaces';
 import { SystemPromptBuilder } from './SystemPromptBuilder';
+import { getNexusPlugin } from '../../../utils/pluginLocator';
+import type { AgentManager } from '../../../services/AgentManager';
+import type { IAgent } from '../../../agents/interfaces/IAgent';
 import { ContextNotesManager } from './ContextNotesManager';
 import {
   ModelAgentConversationSettingsStore,
@@ -66,6 +69,10 @@ export class ModelAgentManager {
   private agentProvider: string | null = null;
   private agentModel: string | null = null;
   private agentThinkingSettings: ThinkingSettings = { enabled: false, effort: 'medium' };
+  private imageProvider: 'google' | 'openrouter' = 'google';
+  private imageModel = 'gemini-2.5-flash-image';
+  private transcriptionProvider: string | null = null;
+  private transcriptionModel: string | null = null;
   private thinkingSettings: ThinkingSettings = { enabled: false, effort: 'medium' };
   private temperature = 0.5;
   private contextTokenTracker: ContextTokenTracker | null = null; // For token-limited models
@@ -94,11 +101,27 @@ export class ModelAgentManager {
     });
     this.systemPromptBuilder = new SystemPromptBuilder(
       this.workspaceIntegration.readNoteContent.bind(this.workspaceIntegration),
-      this.workspaceIntegration.loadWorkspace.bind(this.workspaceIntegration)
+      this.workspaceIntegration.loadWorkspace.bind(this.workspaceIntegration),
+      this.workspaceIntegration.getBuiltInDocsWorkspaceInfo.bind(this.workspaceIntegration)
     );
     this.promptContextAssembler = new ModelAgentPromptContextAssembler({
       systemPromptBuilder: this.systemPromptBuilder,
-      getSessionId: async () => await this.getCurrentSessionId()
+      getSessionId: async () => await this.getCurrentSessionId(),
+      getToolCatalog: () => {
+        try {
+          const plugin = getNexusPlugin(this.app) as { getServiceIfReady?<T>(name: string): T | null } | null;
+          const agentManager = plugin?.getServiceIfReady?.<AgentManager>('agentManager');
+          if (!agentManager) return [];
+          return agentManager.getAgents()
+            .filter((a: IAgent) => a.name !== 'toolManager')
+            .map((a: IAgent) => ({
+              agent: a.name,
+              tools: a.getTools().map(t => t.slug),
+            }));
+        } catch {
+          return [];
+        }
+      },
     });
   }
 
@@ -223,6 +246,20 @@ export class ModelAgentManager {
       };
     }
 
+    // Restore image model
+    if ('imageProvider' in settings && settings.imageProvider) {
+      this.imageProvider = settings.imageProvider;
+    }
+    if ('imageModel' in settings && settings.imageModel) {
+      this.imageModel = settings.imageModel;
+    }
+
+    // Restore transcription model
+    if ('transcriptionProvider' in settings || 'transcriptionModel' in settings) {
+      this.transcriptionProvider = settings.transcriptionProvider || null;
+      this.transcriptionModel = settings.transcriptionModel || null;
+    }
+
     // Restore thinking settings
     if ('thinking' in settings && settings.thinking) {
       this.thinkingSettings = {
@@ -269,6 +306,10 @@ export class ModelAgentManager {
       this.agentProvider = defaultState.agentProvider;
       this.agentModel = defaultState.agentModel;
       this.agentThinkingSettings = { ...defaultState.agentThinkingSettings };
+      this.imageProvider = defaultState.imageProvider;
+      this.imageModel = defaultState.imageModel;
+      this.transcriptionProvider = defaultState.transcriptionProvider;
+      this.transcriptionModel = defaultState.transcriptionModel;
       this.temperature = defaultState.temperature;
 
       this.events.onPromptChanged(defaultState.selectedPrompt);
@@ -508,6 +549,50 @@ export class ModelAgentManager {
    */
   setAgentThinkingSettings(settings: ThinkingSettings): void {
     this.agentThinkingSettings = { ...settings };
+  }
+
+  /**
+   * Get image provider
+   */
+  getImageProvider(): 'google' | 'openrouter' {
+    return this.imageProvider;
+  }
+
+  /**
+   * Get image model
+   */
+  getImageModel(): string {
+    return this.imageModel;
+  }
+
+  /**
+   * Set image model (provider and model)
+   */
+  setImageModel(provider: 'google' | 'openrouter', model: string): void {
+    this.imageProvider = provider;
+    this.imageModel = model;
+  }
+
+  /**
+   * Get transcription provider
+   */
+  getTranscriptionProvider(): string | null {
+    return this.transcriptionProvider;
+  }
+
+  /**
+   * Get transcription model
+   */
+  getTranscriptionModel(): string | null {
+    return this.transcriptionModel;
+  }
+
+  /**
+   * Set transcription model (provider and model)
+   */
+  setTranscriptionModel(provider: string | null, model: string | null): void {
+    this.transcriptionProvider = provider;
+    this.transcriptionModel = model;
   }
 
   /**
@@ -756,7 +841,11 @@ export class ModelAgentManager {
       temperature: this.temperature,
       agentProvider: this.agentProvider,
       agentModel: this.agentModel,
-      agentThinking: this.agentThinkingSettings
+      agentThinking: this.agentThinkingSettings,
+      imageProvider: this.imageProvider,
+      imageModel: this.imageModel,
+      transcriptionProvider: this.transcriptionProvider,
+      transcriptionModel: this.transcriptionModel
     };
   }
 
@@ -771,6 +860,10 @@ export class ModelAgentManager {
       currentSystemPrompt: this.currentSystemPrompt,
       thinkingSettings: this.thinkingSettings,
       temperature: this.temperature,
+      imageProvider: this.imageProvider,
+      imageModel: this.imageModel,
+      transcriptionProvider: this.transcriptionProvider,
+      transcriptionModel: this.transcriptionModel,
       contextTokenTracker: this.compactionState.getContextTokenTracker(),
       compactionFrontier: this.compactionState.getCompactionFrontier(),
       latestCompactionRecord: this.compactionState.getLatestCompactionRecord()
