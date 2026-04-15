@@ -80,6 +80,21 @@ export class Settings {
         } catch {
             // Continue with defaults - plugin should still function
         }
+
+        // Clear stale update notification if stored version <= current version
+        const stored = this.settings.availableUpdateVersion;
+        if (stored) {
+            const parts1 = stored.split('.').map(Number);
+            const parts2 = this.plugin.manifest.version.split('.').map(Number);
+            let newer = false;
+            for (let i = 0; i < 3; i++) {
+                if ((parts1[i] ?? 0) > (parts2[i] ?? 0)) { newer = true; break; }
+                if ((parts1[i] ?? 0) < (parts2[i] ?? 0)) { break; }
+            }
+            if (!newer) {
+                this.settings.availableUpdateVersion = undefined;
+            }
+        }
     }
 
     /**
