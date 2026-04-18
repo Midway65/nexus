@@ -7,12 +7,13 @@
  * - Building header with hamburger, title, and settings buttons
  * - Creating message display, input, and context containers
  * - Building sidebar with conversation list
+ * - Auto-hiding experimental warning banner
  *
  * Used by ChatView to build the initial DOM structure,
  * following the Builder pattern for complex UI construction.
  */
 
-import { setIcon } from 'obsidian';
+import { Component, setIcon } from 'obsidian';
 
 export interface ChatLayoutElements {
   messageContainer: HTMLElement;
@@ -34,7 +35,7 @@ export class ChatLayoutBuilder {
   /**
    * Build the complete chat interface layout
    */
-  static buildLayout(container: HTMLElement): ChatLayoutElements {
+  static buildLayout(container: HTMLElement, _component: Component): ChatLayoutElements {
     container.empty();
     container.addClass('chat-view-container');
 
@@ -120,7 +121,6 @@ export class ChatLayoutBuilder {
     return overlay;
   }
 
-  /**
   /**
    * Create chat header with hamburger, title, and settings
    */

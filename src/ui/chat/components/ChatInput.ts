@@ -12,6 +12,8 @@ import { MessageEnhancement } from './suggesters/base/SuggesterInterfaces';
 import { MessageEnhancer } from '../services/MessageEnhancer';
 import { isMobile, isIOS } from '../../../utils/platform';
 import { ChatVoiceInputController, ChatVoiceInputState } from '../controllers/ChatVoiceInputController';
+import { ManagedTimeoutTracker } from '../utils/ManagedTimeoutTracker';
+import { ChatKeyboardViewportController } from '../controllers/ChatKeyboardViewportController';
 
 export class ChatInput {
   private element: HTMLElement | null = null;
@@ -26,6 +28,8 @@ export class ChatInput {
   private voiceInputState: ChatVoiceInputState = 'idle';
   private voiceInputController: ChatVoiceInputController | null = null;
   private voiceVisualResizeObserver: ResizeObserver | null = null;
+  private timeouts: ManagedTimeoutTracker | null = null;
+  private keyboardViewportController: ChatKeyboardViewportController | null = null;
 
   constructor(
     private container: HTMLElement,
@@ -40,6 +44,9 @@ export class ChatInput {
     private getHasConversation?: () => boolean,
     private component?: Component
   ) {
+    if (component) {
+      this.timeouts = new ManagedTimeoutTracker(component);
+    }
     this.render();
   }
 
@@ -119,12 +126,18 @@ export class ChatInput {
       this.updateUI();
     };
 
-    // iOS: Scroll input into view when keyboard opens
+    // iOS: keep the focused input visible while the keyboard animates.
+    // The controller's own focus handler schedules settling probes at
+    // 0/60/180/320ms so we only need to scroll the input into view here.
     const focusHandler = () => {
-      // Wait for keyboard animation to complete
-      setTimeout(() => {
-        this.inputElement?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      }, 300);
+      const run = () => {
+        this.inputElement?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      };
+      if (this.timeouts) {
+        this.timeouts.setTimeout(run, 300);
+      } else {
+        setTimeout(run, 300);
+      }
     };
 
     // Register events with component for auto-cleanup
@@ -139,6 +152,7 @@ export class ChatInput {
     // Mobile: Add mobile-specific class for styling
     if (isMobile()) {
       this.inputWrapper.addClass('chat-input-mobile');
+      this.initializeKeyboardViewportHandling();
     }
 
     // Send button - embedded inside the input wrapper (bottom-right)
@@ -257,15 +271,24 @@ export class ChatInput {
     if (!this.inputElement) return;
 
     // Reset height to auto to get the correct scrollHeight
-    this.inputElement.style.removeProperty('height');
+    this.inputElement.style.removeProperty('--chat-input-height');
 
     // Set height limits - matches CSS min/max heights
-    const minHeight = isMobile() ? 64 : 72;
-    const maxHeight = isMobile() ? 160 : 200;
+    const keyboardActive = isMobile() && (this.keyboardViewportController?.isActive() ?? false);
+    const keyboardEditorHeight = this.keyboardViewportController?.getEditorHeight() ?? 0;
+    const visualHeight = window.visualViewport?.height ?? window.innerHeight;
+    const keyboardMinHeight = keyboardEditorHeight > 0
+      ? keyboardEditorHeight
+      : Math.min(280, Math.max(185, Math.round(visualHeight * 0.42)));
+    const keyboardMaxHeight = keyboardEditorHeight > 0
+      ? keyboardEditorHeight
+      : Math.min(320, Math.max(235, Math.round(visualHeight * 0.54)));
+    const minHeight = keyboardActive ? keyboardMinHeight : isMobile() ? 64 : 72;
+    const maxHeight = keyboardActive ? keyboardMaxHeight : isMobile() ? 160 : 200;
     const newHeight = Math.min(Math.max(this.inputElement.scrollHeight, minHeight), maxHeight);
 
-    // Set specific height
-    this.inputElement.style.setProperty('height', newHeight + 'px');
+    // Write computed height as a CSS custom property consumed by styles.css
+    this.inputElement.style.setProperty('--chat-input-height', newHeight + 'px');
 
     // Enable scrolling if content exceeds max height
     if (this.inputElement.scrollHeight > maxHeight) {
@@ -441,6 +464,8 @@ export class ChatInput {
    * Cleanup resources
    */
   cleanup(): void {
+    this.keyboardViewportController?.detach();
+    this.keyboardViewportController = null;
     this.voiceVisualResizeObserver?.disconnect();
     this.voiceVisualResizeObserver = null;
     this.voiceInputController?.cleanup();
@@ -456,6 +481,22 @@ export class ChatInput {
     this.inputWrapper = null;
     this.voiceVisualElement = null;
     this.sendButton = null;
+  }
+
+  private initializeKeyboardViewportHandling(): void {
+    if (!this.component || !this.inputElement) {
+      return;
+    }
+
+    this.keyboardViewportController?.detach();
+    this.keyboardViewportController = new ChatKeyboardViewportController({
+      container: this.container,
+      inputElement: this.inputElement,
+      getSendButton: () => this.sendButton,
+      onOffsetChanged: () => this.autoResizeInput(),
+      component: this.component,
+    });
+    this.keyboardViewportController.attach();
   }
 
   private canUseVoiceInput(): boolean {

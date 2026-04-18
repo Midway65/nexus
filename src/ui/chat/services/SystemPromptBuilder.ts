@@ -15,6 +15,7 @@ import { WorkspaceContext } from '../../../database/types/workspace/WorkspaceTyp
 import { MessageEnhancement } from '../components/suggesters/base/SuggesterInterfaces';
 import { CompactedContext } from '../../../services/chat/ContextCompactionService';
 import { CompactionFrontierRecord } from '../../../services/chat/CompactionFrontierService';
+import { toKebabCase } from '../../../agents/toolManager/services/ToolCliNormalizer';
 
 /**
  * Vault structure for system prompt context
@@ -232,22 +233,44 @@ Context (REQUIRED in every useTools call):
 - goal: brief statement of the current objective
 - constraints: (optional) any rules or limits
 
-Calls array: [{ agent: "agentName", tool: "toolName", params: {...} }]
+Exact getTools payload shape:
+{
+  "workspaceId": "${effectiveWorkspaceId}",
+  "sessionId": "${effectiveSessionId}",
+  "memory": "brief summary of the conversation so far",
+  "goal": "brief statement of the current objective",
+  "constraints": "optional rules or limits",
+  "tool": "storage move, content read"
+}
+
+Exact useTools payload shape:
+{
+  "workspaceId": "${effectiveWorkspaceId}",
+  "sessionId": "${effectiveSessionId}",
+  "memory": "brief summary of the conversation so far",
+  "goal": "brief statement of the current objective",
+  "constraints": "optional rules or limits",
+  "tool": "storage move --path notes/a.md --new-path archive/a.md, content read --path archive/a.md"
+}
 `;
 
-    // Inject the live agent→tools catalog so the LLM knows what's available
+    // Inject the live agent→tools catalog so the LLM knows what's available.
+    // Format mirrors the CLI shape used in the example payloads ("agent tool")
+    // so the LLM composes "storage open" rather than "storageManager.open".
     if (toolCatalog && toolCatalog.length > 0) {
-      prompt += '\nAvailable agents and tools:\n';
+      prompt += '\nAvailable agents and tools (invoke as `agent tool`, never `agent.tool`):\n';
       for (const entry of toolCatalog) {
         if (entry.tools.length > 0) {
-          prompt += `${entry.agent}: [${entry.tools.join(', ')}]\n`;
+          const agentAlias = toKebabCase(entry.agent);
+          const toolList = entry.tools.map(toKebabCase).join('  ');
+          prompt += `  ${agentAlias}  ${toolList}\n`;
         }
       }
     }
 
     prompt += `
-Call getTools first to get the exact schema, then useTools with correct params.
-Keep workspaceId and sessionId exactly as shown.
+Call getTools first to get the exact command metadata, then useTools with correct CLI arguments.
+Keep workspaceId and sessionId at the top level exactly as shown. Do not place them inside the "tool" string as CLI flags.
 `;
 
     prompt += '</tools_and_context>';
@@ -268,10 +291,33 @@ For multi-step or ongoing work, suggest using TaskManager to track it. Ask befor
 
 Before major structured action, check whether a useful custom prompt already exists. If the pattern seems reusable or recurring, suggest creating a custom prompt or workflow. Ask before creating either. If a workflow is created, consider attaching the right prompt or agent.
 
-Gather context progressively:
-1. list or search to narrow scope
-2. read the most relevant files, notes, workspace data, prompts, or tasks
-3. then write or edit once you have enough context
+Follow a two-phase approach — EXPLORE first, then ACT:
+
+EXPLORE phase (gather context before making changes):
+- "find/search notes about X" → searchManager.searchContent (full-text search across vault)
+- "where is file X" / "find file named X" → searchManager.searchDirectory (search by filename/path)
+- "what's in this folder" / "list files" → storageManager.list (directory listing)
+- "show me / read file X" → contentManager.read (read a specific known file)
+
+ACT phase (modify only after you have context):
+- "write/create/save" → contentManager.write (create or overwrite a file)
+- "add to / append / insert into" → contentManager.insert (add content to existing file)
+- "replace/change X to Y in file" → contentManager.replace (find-and-replace in a file)
+- "move/rename" → storageManager.move
+- "copy/duplicate" → storageManager.copy
+- "archive" → storageManager.archive
+- "create folder" → storageManager.createFolder
+
+Critical decision rule — does the user give a specific file path?
+- YES (e.g., "read notes/meeting.md") → contentManager.read — you know the exact file.
+- NO (e.g., "find notes about X", "search for Y") → searchManager.searchContent FIRST. Do NOT guess a file path. You must search the vault to discover which files are relevant, then read the results.
+
+This means: "find notes about the project roadmap" → searchManager.searchContent, NOT contentManager.read. The user hasn't told you which file to read — you need to search first.
+
+Additional routing rules:
+- "list" or "what's in [folder]" → storageManager.list, not searchManager.
+- "read the file" / "show me [path]" → contentManager.read — only when a path is provided.
+- For multi-step requests (e.g., "find notes about X and summarize them"), get tools for ALL agents you'll need upfront in a single getTools call.
 
 Prefer targeted context gathering over large dumps.
 

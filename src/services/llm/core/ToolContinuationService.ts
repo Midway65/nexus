@@ -6,13 +6,13 @@
  * - Building tool results for continuation
  * - Recursive tool call handling (pingpong pattern)
  * - Tool iteration limits and safety guards
- * - Dynamic tool schema merging from get_tools
  */
 
 import { BaseAdapter } from '../adapters/BaseAdapter';
 import { ConversationContextBuilder } from '../../chat/ConversationContextBuilder';
 import { MCPToolExecution, IToolExecutor, ToolResult } from '../adapters/shared/ToolExecutionUtils';
-import { Tool, TokenUsage, SupportedProvider, ToolCall as AdapterToolCall, GenerateOptions } from '../adapters/types';
+import { ProviderHttpError } from '../adapters/shared/ProviderHttpClient';
+import { TokenUsage, SupportedProvider, ToolCall as AdapterToolCall, GenerateOptions, LLMProviderError } from '../adapters/types';
 import { ToolCall as ChatToolCall } from '../../../types/chat/ChatTypes';
 import { checkForTerminalTool } from './TerminalToolHandler';
 import {
@@ -69,71 +69,6 @@ export class ToolContinuationService {
     if (options?.onResponsesApiId) {
       options.onResponsesApiId(rawResponseId);
     }
-  }
-
-  /**
-   * Parse get_tools results and merge with existing tools
-   */
-  parseAndMergeTools(
-    existingTools: Tool[],
-    toolCalls: ToolCallUnion[],
-    toolResults: ToolResult[]
-  ): Tool[] {
-    const newTools = [...existingTools];
-
-    // Build a set of existing tool names for fast deduplication
-    const existingNames = new Set<string>();
-    for (const tool of existingTools) {
-      const name = tool.function?.name;
-      if (name) existingNames.add(name);
-    }
-
-    for (let i = 0; i < toolCalls.length; i++) {
-      const toolCall = toolCalls[i];
-      const result = toolResults[i];
-      const returnedTools = (result?.result as { tools?: Array<Tool | { name: string; description?: string; inputSchema?: Record<string, unknown> }> } | undefined)?.tools;
-
-      // Check if this was a get_tools call
-      if (toolCall.function?.name === 'get_tools' && result?.success && returnedTools) {
-        // Handle both MCP format and OpenAI format tools
-        for (const tool of returnedTools) {
-          // Type guard to check if it's already a Tool type
-          const isToolType = (t: typeof tool): t is Tool => 'type' in t && 'function' in t;
-
-          // Extract tool name - handle both formats
-          const toolName = isToolType(tool) ? tool.function?.name : 'name' in tool ? tool.name : undefined;
-
-          if (!toolName) {
-            continue;
-          }
-
-          // Skip if already exists
-          if (existingNames.has(toolName)) {
-            continue;
-          }
-
-          // Mark as added to prevent duplicates within this batch
-          existingNames.add(toolName);
-
-          // Normalize to Tool format
-          if (isToolType(tool)) {
-            newTools.push(tool);
-          } else {
-            // MCP format - convert
-            newTools.push({
-              type: 'function',
-              function: {
-                name: tool.name,
-                description: tool.description || '',
-                parameters: tool.inputSchema || { type: 'object', properties: {} }
-              }
-            });
-          }
-        }
-      }
-    }
-
-    return newTools;
   }
 
   /**
@@ -213,17 +148,6 @@ export class ToolContinuationService {
           usage: initialUsage
         };
         return;
-      }
-
-      // Step 1.6: Parse get_tools results and update generateOptions BEFORE building continuation
-      const beforeCount = generateOptions.tools?.length || 0;
-      const updatedTools = this.parseAndMergeTools(
-        generateOptions.tools || [],
-        detectedToolCalls,
-        toolResults
-      );
-      if (updatedTools.length > beforeCount) {
-        generateOptions = { ...generateOptions, tools: updatedTools };
       }
 
       // Step 2: Build continuation for pingpong pattern
@@ -323,7 +247,13 @@ export class ToolContinuationService {
       console.error('Streaming tool execution error:', {
         error: toolError,
         message: toolError instanceof Error ? toolError.message : String(toolError),
-        stack: toolError instanceof Error ? toolError.stack : undefined
+        stack: toolError instanceof Error ? toolError.stack : undefined,
+        // Surface provider error response body for debugging (e.g., OpenRouter 500s)
+        ...(toolError instanceof LLMProviderError && toolError.originalError instanceof ProviderHttpError && {
+          status: toolError.originalError.response.status,
+          responseBody: toolError.originalError.response.text,
+          responseJson: toolError.originalError.response.json
+        })
       });
 
       yield {
@@ -426,17 +356,6 @@ export class ToolContinuationService {
           toolCalls: completeToolCallsWithResults
         };
         return;
-      }
-
-      // Parse get_tools results and update generateOptions
-      const beforeCount = generateOptions.tools?.length || 0;
-      const updatedTools = this.parseAndMergeTools(
-        generateOptions.tools || [],
-        recursiveToolCalls,
-        recursiveToolResults
-      );
-      if (updatedTools.length > beforeCount) {
-        generateOptions = { ...generateOptions, tools: updatedTools };
       }
 
       // Build continuation for recursive pingpong

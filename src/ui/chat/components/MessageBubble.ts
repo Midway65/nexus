@@ -21,7 +21,6 @@ import { MessageBubbleBranchNavigatorBinder } from './helpers/MessageBubbleBranc
 import { MessageBubbleImageRenderer } from './helpers/MessageBubbleImageRenderer';
 import { MessageBubbleStateResolver } from './helpers/MessageBubbleStateResolver';
 import { ThinkingLoader } from './ThinkingLoader';
-import { MessageActionBar } from './MessageActionBar';
 
 export class MessageBubble extends Component {
   private element: HTMLElement | null = null;
@@ -32,7 +31,6 @@ export class MessageBubble extends Component {
   private imageRenderer: MessageBubbleImageRenderer;
   private textBubbleElement: HTMLElement | null = null;
   private imageBubbleElement: HTMLElement | null = null;
-  private actionBar: MessageActionBar | null = null;
 
   constructor(
     private message: ConversationMessage,
@@ -52,8 +50,6 @@ export class MessageBubble extends Component {
       component: this,
       getMessage: () => this.message,
       getElement: () => this.element,
-      getToolBubbleElement: () => null,
-      getTextBubbleElement: () => this.textBubbleElement,
       getImageBubbleElement: () => this.imageBubbleElement,
       setImageBubbleElement: (element) => {
         this.imageBubbleElement = element;
@@ -92,13 +88,11 @@ export class MessageBubble extends Component {
       }
 
       this.element = wrapper;
-      this.appendActionBar(wrapper, this.message);
       return wrapper;
     }
 
     const messageContainer = this.createStandardMessageContainer(activeContent);
     this.element = messageContainer;
-    this.appendActionBar(messageContainer, this.message);
     return messageContainer;
   }
 
@@ -141,22 +135,22 @@ export class MessageBubble extends Component {
       // Edit button for user messages
       if (this.onEdit) {
         const editBtn = actions.createEl('button', {
-          cls: 'message-action-btn clickable-icon',
-          attr: { title: 'Edit message' }
+          cls: 'message-action-btn clickable-icon nexus-user-msg-action',
+          attr: { title: 'Edit message', 'aria-label': 'Edit message' }
         });
         setIcon(editBtn, 'edit');
         const onEdit = this.onEdit;
         this.registerDomEvent(editBtn, 'click', () => {
           if (onEdit) {
-            MessageEditController.handleEdit(this.message, this.element, onEdit, this);
+            MessageEditController.handleEdit(this.message, this.element, onEdit, this.onRetry.bind(this), this);
           }
         });
       }
 
       // Retry button for user messages
       const retryBtn = actions.createEl('button', {
-        cls: 'message-action-btn clickable-icon',
-        attr: { title: 'Retry message' }
+        cls: 'message-action-btn clickable-icon nexus-user-msg-action',
+        attr: { title: 'Retry message', 'aria-label': 'Retry message' }
       });
       setIcon(retryBtn, 'rotate-ccw');
       this.registerDomEvent(retryBtn, 'click', (event) => {
@@ -170,7 +164,7 @@ export class MessageBubble extends Component {
       // Tool messages get minimal actions - just copy for debugging
       const copyBtn = actions.createEl('button', {
         cls: 'message-action-btn clickable-icon',
-        attr: { title: 'Copy tool execution details' }
+        attr: { title: 'Copy tool execution details', 'aria-label': 'Copy tool execution details' }
       });
       setIcon(copyBtn, 'copy');
       this.registerDomEvent(copyBtn, 'click', () => {
@@ -181,7 +175,7 @@ export class MessageBubble extends Component {
       // Copy button for AI messages
       const copyBtn = actions.createEl('button', {
         cls: 'message-action-btn clickable-icon',
-        attr: { title: 'Copy message' }
+        attr: { title: 'Copy message', 'aria-label': 'Copy message' }
       });
       setIcon(copyBtn, 'copy');
       this.registerDomEvent(copyBtn, 'click', () => {
@@ -407,8 +401,6 @@ export class MessageBubble extends Component {
     if (newMessage.isLoading && newMessage.role === 'assistant') {
       this.appendLoadingIndicator(contentElement);
     }
-
-    this.appendActionBar(this.element, newMessage);
   }
 
   /**
@@ -420,7 +412,6 @@ export class MessageBubble extends Component {
     const parentElement = previousElement?.parentElement ?? null;
 
     this.stopLoadingAnimation();
-    this.cleanupActionBar();
 
     this.branchNavigatorBinder.destroy();
 
@@ -452,6 +443,7 @@ export class MessageBubble extends Component {
 
     const loader = new ThinkingLoader();
     this.thinkingLoader = loader;
+    this.addChild(loader);
     loader.start(container);
   }
 
@@ -465,50 +457,14 @@ export class MessageBubble extends Component {
     }
 
     const originalTitle = button.getAttribute('title') || '';
-    setIcon(button, 'check');
     button.setAttribute('title', 'Copied!');
     button.classList.add('copy-success');
 
     this.copyFeedbackTimeout = setTimeout(() => {
       this.copyFeedbackTimeout = null;
-      setIcon(button, 'copy');
       button.setAttribute('title', originalTitle);
       button.classList.remove('copy-success');
     }, 1500);
-  }
-
-  /**
-   * Append action bar buttons (Insert, Append, Create File) into the existing
-   * .message-actions-external container. Only created once per message lifecycle.
-   * Only appears for completed assistant messages with non-empty text content.
-   */
-  private appendActionBar(container: HTMLElement | null, message: ConversationMessage): void {
-    if (!container) return;
-    if (message.role !== 'assistant') return;
-    if (message.isLoading || message.state === 'streaming') return;
-
-    const activeContent = MessageBubbleStateResolver.resolve(message).activeContent;
-    if (!activeContent.trim()) return;
-
-    // Only create once per message lifecycle — rebuildElement resets this.actionBar
-    if (this.actionBar !== null) return;
-
-    const actionsEl = container.querySelector('.message-actions-external');
-    if (!(actionsEl instanceof HTMLElement)) return;
-
-    const contentEl = container.querySelector('.message-content');
-    this.actionBar = new MessageActionBar(activeContent, this.app, contentEl instanceof HTMLElement ? contentEl : null);
-    this.actionBar.renderInto(actionsEl);
-  }
-
-  /**
-   * Remove action bar buttons from the container and unload event handlers.
-   */
-  private cleanupActionBar(): void {
-    if (!this.actionBar) return;
-    this.actionBar.removeFromContainer();
-    this.actionBar.unload();
-    this.actionBar = null;
   }
 
   /**
@@ -523,7 +479,6 @@ export class MessageBubble extends Component {
       this.copyFeedbackTimeout = null;
     }
     this.stopLoadingAnimation();
-    this.cleanupActionBar();
     this.imageRenderer.clear();
 
     this.branchNavigatorBinder.destroy();

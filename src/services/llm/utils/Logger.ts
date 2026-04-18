@@ -262,6 +262,11 @@ export class Logger {
       case 'error':
         console.error(output);
         break;
+      case 'warn':
+      case 'info':
+      case 'debug':
+        console.warn(output);
+        break;
     }
   }
 

@@ -286,7 +286,7 @@ export class LLMService {
 
   /** Generate streaming LLM response with tool execution support */
   async* generateResponseStream(
-    messages: Array<{ role: string; content: string }>,
+    messages: Array<ConversationMessage>,
     options?: StreamingOptions
   ): AsyncGenerator<StreamYield, void, unknown> {
     const orchestrator = new StreamingOrchestrator(
@@ -294,22 +294,12 @@ export class LLMService {
       this.settings,
       this.toolExecutor
     );
-    // Convert messages to ConversationMessage format
-    const conversationMessages: ConversationMessage[] = messages.map(msg => {
-      // Type guard to check for tool_calls property
-      if ('tool_calls' in msg && Array.isArray((msg as { tool_calls?: unknown }).tool_calls)) {
-        return {
-          role: msg.role as 'user' | 'assistant' | 'system' | 'tool',
-          content: msg.content,
-          tool_calls: (msg as { tool_calls: ConversationMessage['tool_calls'] }).tool_calls
-        };
-      }
-      return {
-        role: msg.role as 'user' | 'assistant' | 'system' | 'tool',
-        content: msg.content
-      };
-    });
-    yield* orchestrator.generateResponseStream(conversationMessages, options);
+    // Pass messages straight through — input is already `ConversationMessage[]`
+    // post-M7, so the previous shallow-copy remap was a vestigial no-op. The
+    // 5-field preservation (tool_call_id / tool_calls / reasoning_details /
+    // thought_signature / name) is now guaranteed by type, not by an inline
+    // mapper. See docs/plans/canonical-message-pipeline-plan.md (Phase 3).
+    yield* orchestrator.generateResponseStream(messages, options);
   }
 
   /** Get a specific adapter instance for direct access */

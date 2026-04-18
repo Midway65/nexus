@@ -37,7 +37,7 @@ export class BranchHeader {
   constructor(
     private container: HTMLElement,
     private callbacks: BranchHeaderCallbacks,
-    private component?: Component
+    private component: Component
   ) {}
 
   /**
@@ -103,6 +103,7 @@ export class BranchHeader {
     // Back button
     const backBtn = header.createEl('button', {
       cls: 'nexus-branch-back clickable-icon',
+      attr: { 'aria-label': 'Back to parent conversation' },
     });
     const backIcon = backBtn.createSpan('nexus-branch-back-icon');
     setIcon(backIcon, 'arrow-left');
@@ -112,11 +113,7 @@ export class BranchHeader {
       this.callbacks.onNavigateToParent();
     };
 
-    if (this.component) {
-      this.component.registerDomEvent(backBtn, 'click', handleBack);
-    } else {
-      backBtn.addEventListener('click', handleBack);
-    }
+    this.component.registerDomEvent(backBtn, 'click', handleBack);
 
     // Branch info container
     const info = header.createDiv('nexus-branch-info');
@@ -149,36 +146,26 @@ export class BranchHeader {
         const cancelBtn = header.createEl('button', {
           cls: 'nexus-branch-action-btn nexus-branch-cancel-btn clickable-icon',
           text: 'Cancel',
+          attr: { 'aria-label': 'Cancel subagent' },
         });
         const subagentId = metadata.subagentId;
         const onCancel = this.callbacks.onCancel;
-        if (this.component) {
-          this.component.registerDomEvent(cancelBtn, 'click', () => {
-            onCancel(subagentId);
-          });
-        } else {
-          cancelBtn.addEventListener('click', () => {
-            onCancel(subagentId);
-          });
-        }
+        this.component.registerDomEvent(cancelBtn, 'click', () => {
+          onCancel(subagentId);
+        });
       }
 
       if (metadata.state === 'max_iterations' && this.callbacks.onContinue) {
         const continueBtn = header.createEl('button', {
           cls: 'nexus-branch-action-btn nexus-branch-continue-btn mod-cta',
           text: 'Continue',
+          attr: { 'aria-label': 'Continue subagent' },
         });
         const branchId = this.context.branchId;
         const onContinue = this.callbacks.onContinue;
-        if (this.component) {
-          this.component.registerDomEvent(continueBtn, 'click', () => {
-            onContinue(branchId);
-          });
-        } else {
-          continueBtn.addEventListener('click', () => {
-            onContinue(branchId);
-          });
-        }
+        this.component.registerDomEvent(continueBtn, 'click', () => {
+          onContinue(branchId);
+        });
       }
     } else {
       // Human branch
