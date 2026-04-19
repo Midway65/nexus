@@ -4,8 +4,8 @@ This file is the authoritative record of every file in `my-custom-branch` that i
 diverges from upstream (`ProfSynapse/nexus`). Load it at the start of every upstream merge
 session to know which files require manual resolution and which can be auto-merged.
 
-**Last audited against:** upstream/main HEAD (`b03e7630`) — v5.8.0 (PRs #141–#157)  
-**Audit date:** 2026-04-18  
+**Last audited against:** upstream/main HEAD (`7e90a8f7`) — v5.8.1 (PRs #163–#168)  
+**Audit date:** 2026-04-19  
 **Next merge target:** next upstream/main HEAD
 
 ---
@@ -41,29 +41,19 @@ These files contain fixes for bugs present in upstream or data-quality issues sp
 installation. They are unlikely to conflict because upstream is not touching the same lines, but
 they must be reviewed on each merge to ensure upstream hasn't shipped a conflicting fix.
 
-### Null-safe `workspace.name` fixes
-Upstream has a historical record with `name: null` that crashes `.toLowerCase()`. Fixed with
-optional chaining. If upstream fixes this themselves, take their version and drop ours.
-
-| File | Change |
-|------|--------|
-| `src/agents/searchManager/services/MemorySearchProcessor.ts` | `state.name?.toLowerCase()`, `workspace.name?.toLowerCase()` |
-| `src/agents/toolManager/services/ToolBatchExecutionService.ts` | `workspace.name?.toLowerCase()` |
-| `src/services/WorkspaceService.ts` | `(a.name ?? '').localeCompare(b.name ?? '')`, two `ws.name?.toLowerCase()` guards |
-
-### UI / UX fixes
-
-| File | Change |
-|------|--------|
-| `src/components/shared/ChatSettingsRenderer.ts` | Removed `void` from `this.syncWorkspacePrompt(value)` call |
+*No active Tier 3 entries.* All null-safety guards and UI fixes were absorbed by upstream in v5.8.1 (see retired entries below).
 
 **Retired entries:**
+- `src/agents/searchManager/services/MemorySearchProcessor.ts` — **RETIRED 2026-04-19**: upstream dropped `?.` guards (v5.8.1); taking upstream version
+- `src/agents/toolManager/services/ToolBatchExecutionService.ts` — **RETIRED 2026-04-19**: upstream dropped `workspace.name?.` guard (v5.8.1)
+- `src/services/WorkspaceService.ts` — **RETIRED 2026-04-19**: upstream dropped `name ?? ''` and `name?.` guards (v5.8.1)
+- `src/components/shared/ChatSettingsRenderer.ts` — **RETIRED 2026-04-19**: upstream added `void` back (v5.8.1); taking upstream version
 - `src/ui/chat/components/MessageActionBar.ts` — **RETIRED 2026-04-18**: action bar feature deprecated and removed in v5.8.0 merge
 - `src/ui/chat/components/CreateFileModal.ts` — **RETIRED 2026-04-18**: action bar feature deprecated and removed in v5.8.0 merge
 - `src/ui/chat/components/MessageBubble.ts` — **RETIRED 2026-04-18**: no longer fork-divergent after dropping action bar
 - `styles.css` — **RETIRED 2026-04-15**: no fork CSS divergence; action button styles absorbed by upstream
-- `src/database/storage/JSONLWriter.ts` — **RETIRED 2026-04-15**: streaming fallback removed in v5.7.4 merge
-- `eslint.config.mjs` — **RETIRED 2026-04-15**: readline exception removed
+- `src/database/storage/JSONLWriter.ts` — **RETIRED 2026-04-19**: `readEventsStreaming()` dead code fully removed by upstream in v5.8.1 (was documented retired 2026-04-15 but lingered in fork)
+- `eslint.config.mjs` — **RETIRED 2026-04-19**: JSONLWriter readline exclusion removed by upstream in v5.8.1
 - `src/settings/tabs/ProvidersTab.ts` — **RETIRED 2026-04-09**: superseded by upstream PR #126
 - `src/components/LLMProviderModal.ts` — **RETIRED 2026-04-09**: superseded by upstream PR #126
 - `src/database/repositories/MessageRepository.ts` — **RETIRED 2026-04-09**: superseded by upstream PR #123
