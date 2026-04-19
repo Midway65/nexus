@@ -60,6 +60,7 @@ export class WorkspacesTab {
 
     // Loading state
     private isLoading = true;
+    private loadingPromise: Promise<void> | null = null;
 
     constructor(
         container: HTMLElement,
@@ -182,7 +183,16 @@ export class WorkspacesTab {
         }
     }
 
-    private async loadWorkspaces(): Promise<void> {
+    private loadWorkspaces(): Promise<void> {
+        if (!this.loadingPromise) {
+            this.loadingPromise = this.doLoadWorkspaces().finally(() => {
+                this.loadingPromise = null;
+            });
+        }
+        return this.loadingPromise;
+    }
+
+    private async doLoadWorkspaces(): Promise<void> {
         let workspaceService = this.services.workspaceService;
 
         if (this.services.serviceManager) {
@@ -202,11 +212,10 @@ export class WorkspacesTab {
                     workspaceService = service;
                     this.services.workspaceService = workspaceService;
                 }
-                // The adapter is registered immediately but initializes in the background.
-                // Wait for it to finish so getAllWorkspaces() uses the SQLite path instead
-                // of falling back to the legacy JSONL path (which only handles .json files).
+                // Adapter registers before its async init completes; without this wait,
+                // getAllWorkspaces() falls back to the legacy JSONL path and returns empty.
                 if (adapter) {
-                    await Promise.race([adapter.waitForReady(), timeout(15000)]);
+                    await Promise.race([adapter.waitForReady(), timeout(10000)]);
                 }
             } catch {
                 // Service unavailable
