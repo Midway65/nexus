@@ -41,7 +41,9 @@ These files contain fixes for bugs present in upstream or data-quality issues sp
 installation. They are unlikely to conflict because upstream is not touching the same lines, but
 they must be reviewed on each merge to ensure upstream hasn't shipped a conflicting fix.
 
-*No active Tier 3 entries.* All null-safety guards and UI fixes were absorbed by upstream in v5.8.1 (see retired entries below).
+| File | Change |
+|------|--------|
+| `src/settings/tabs/WorkspacesTab.ts` | `loadWorkspaces()` now calls `adapter.waitForReady()` (capped 15s) before `getAllWorkspaces()`. Root cause: `hybridStorageAdapter` is registered as a service immediately but initializes in background; `getService()` resolved instantly so `getAllWorkspaces()` ran before `isReady()` — falling back to legacy JSONL path which only handles `.json` files (workspaces are `.jsonl`) → empty list. Commit `6d4f7615`. If upstream refactors `loadWorkspaces()`, restore this wait. |
 
 **Retired entries:**
 - `src/agents/searchManager/services/MemorySearchProcessor.ts` — **RETIRED 2026-04-19**: upstream dropped `?.` guards (v5.8.1); taking upstream version
