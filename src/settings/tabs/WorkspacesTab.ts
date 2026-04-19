@@ -188,19 +188,25 @@ export class WorkspacesTab {
         if (this.services.serviceManager) {
             const timeout = <T>(ms: number) => new Promise<T | undefined>(r => setTimeout(() => r(undefined), ms));
             try {
-                const [service] = await Promise.all([
+                const [service, adapter] = await Promise.all([
                     Promise.race([
                         this.services.serviceManager.getService<WorkspaceService>('workspaceService'),
                         timeout<WorkspaceService>(10000)
                     ]),
                     Promise.race([
-                        this.services.serviceManager.getService('hybridStorageAdapter'),
-                        timeout(10000)
+                        this.services.serviceManager.getService<HybridStorageAdapter>('hybridStorageAdapter'),
+                        timeout<HybridStorageAdapter>(10000)
                     ])
                 ]);
                 if (service) {
                     workspaceService = service;
                     this.services.workspaceService = workspaceService;
+                }
+                // The adapter is registered immediately but initializes in the background.
+                // Wait for it to finish so getAllWorkspaces() uses the SQLite path instead
+                // of falling back to the legacy JSONL path (which only handles .json files).
+                if (adapter) {
+                    await Promise.race([adapter.waitForReady(), timeout(15000)]);
                 }
             } catch {
                 // Service unavailable
