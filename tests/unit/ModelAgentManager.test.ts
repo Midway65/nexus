@@ -251,7 +251,11 @@ describe('ModelAgentManager', () => {
         temperature: 0.35,
         agentProvider: 'openai',
         agentModel: 'gpt-5',
-        agentThinking: { enabled: false, effort: 'medium' }
+        agentThinking: { enabled: false, effort: 'medium' },
+        imageProvider: 'google',
+        imageModel: 'gemini-2.5-flash-image',
+        transcriptionProvider: null,
+        transcriptionModel: null
       }
     });
   });
