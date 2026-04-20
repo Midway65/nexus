@@ -317,19 +317,22 @@ export class HybridStorageAdapter implements IStorageAdapter {
           (migrationResult.stats.workspacesMigrated > 0 || migrationResult.stats.conversationsMigrated > 0);
       }
 
-      let storagePlan = await this.storageCoordinator.prepareStoragePlan();
+      const storagePlan = await this.storageCoordinator.prepareStoragePlan();
       this.applyStoragePlan(storagePlan);
-      storagePlan = await this.backfillVaultEventStore(storagePlan);
+      // Fork: vault-root migration disabled — keep all I/O in plugin-scoped storage.
+      // applyStoragePlan sets write basePath to vault-root and installs a non-null
+      // VaultEventStore; StorageRouter.appendEvent writes to VaultEventStore
+      // unconditionally when it is non-null. Both must be overridden so no data
+      // lands in the vault-root folder regardless of persisted migration state.
+      this.jsonlWriter.setBasePath(storagePlan.roots.dataRoot);
+      this.jsonlWriter.setVaultEventStore(null);
 
       // 1. Initialize SQLite cache
       await this.sqliteCache.initialize();
 
-      const shouldBlockStartupHydration = await this.shouldBlockStartupHydration(storagePlan);
-      if (shouldBlockStartupHydration) {
-        this.startBlockingStartupHydration();
-      } else {
-        this.clearStartupHydrationState();
-      }
+      // Fork: never block startup for vault-root cutover
+      const shouldBlockStartupHydration = false;
+      this.clearStartupHydrationState();
 
 
       // 2. Ensure JSONL directories exist
@@ -429,9 +432,8 @@ export class HybridStorageAdapter implements IStorageAdapter {
     this.jsonlWriter.setBasePath(plan.vaultWriteBasePath);
     this.jsonlWriter.setReadBasePaths(plan.legacyReadBasePaths);
     this.jsonlWriter.setVaultEventStore(this.vaultEventStore);
-    this.jsonlWriter.setVaultEventStoreReadEnabled(
-      plan.state.migration.state === 'verified' || plan.state.migration.state === 'not_needed'
-    );
+    // Fork: always read from plugin-scoped legacy paths, never vault-root
+    this.jsonlWriter.setVaultEventStoreReadEnabled(false);
     this.sqliteCache.setDbPath(plan.pluginCacheDbPath);
   }
 

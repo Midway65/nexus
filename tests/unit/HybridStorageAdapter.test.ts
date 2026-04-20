@@ -103,7 +103,7 @@ describe('HybridStorageAdapter', () => {
         '.nexus'
       ]);
       expect(adapter.jsonlWriter.setVaultEventStore).toHaveBeenCalledWith(expect.any(Object));
-      expect(adapter.jsonlWriter.setVaultEventStoreReadEnabled).toHaveBeenCalledWith(true); // 'verified' migration state enables vault-root reads
+      expect(adapter.jsonlWriter.setVaultEventStoreReadEnabled).toHaveBeenCalledWith(false); // Fork: vault-root read always disabled
       expect(adapter.sqliteCache.setDbPath).toHaveBeenCalledWith('.obsidian/plugins/claudesidian-mcp/data/cache.db');
     });
   });
@@ -117,15 +117,12 @@ describe('HybridStorageAdapter', () => {
         legacyReadBasePaths: [],
         pluginCacheDbPath: 'test/cache.db',
         state: { migration: { state: 'pending' }, sourceOfTruthLocation: 'legacy-dotnexus' },
-        roots: {},
+        roots: { dataRoot: 'test/plugin-data' },
         vaultRoot: { configuredPath: 'test', resolvedPath: 'test', dataPath: 'test/data', guidesPath: 'test/guides', maxShardBytes: 1024 }
       };
 
       adapter.storageCoordinator = { prepareStoragePlan: jest.fn().mockResolvedValue(mockPlan) };
       adapter.applyStoragePlan = jest.fn();
-      adapter.backfillVaultEventStore = jest.fn(async (p: unknown) => p);
-      adapter.shouldBlockStartupHydration = jest.fn().mockResolvedValue(false);
-      adapter.startBlockingStartupHydration = jest.fn();
       adapter.clearStartupHydrationState = jest.fn();
       adapter.updateStartupHydrationProgress = jest.fn();
       adapter.failStartupHydration = jest.fn();
@@ -139,7 +136,9 @@ describe('HybridStorageAdapter', () => {
       };
       adapter.jsonlWriter = {
         ensureDirectory: jest.fn().mockResolvedValue(undefined),
-        getDeviceId: jest.fn().mockReturnValue('device-1')
+        getDeviceId: jest.fn().mockReturnValue('device-1'),
+        setBasePath: jest.fn(),
+        setVaultEventStore: jest.fn()
       };
       adapter.syncCoordinator = {
         fullRebuild: jest.fn().mockResolvedValue(undefined),
