@@ -350,30 +350,22 @@ export class HybridStorageAdapter implements IStorageAdapter {
       // This can take a long time for large vaults (168MB+ JSONL files).
       // The UI will show incrementally as data syncs in.
       const syncState = await this.sqliteCache.getSyncState(this.jsonlWriter.getDeviceId());
-      const FULL_REBUILD_TIMEOUT_MS = 30_000;
 
       if (!syncState || actuallyMigrated || shouldBlockStartupHydration) {
-        let rebuildTimeoutId: ReturnType<typeof setTimeout> | undefined;
+        // fullRebuild runs after initResolve() so it never blocks the UI.
+        // No timeout — a timeout that fires mid-rebuild leaves SQLite empty
+        // (clearAllData was already called) and causes the same wipe on the
+        // next startup because sync_state is never written.
         try {
-          await Promise.race([
-            this.syncCoordinator.fullRebuild({
-              onProgress: (stage, progress, total) => {
-                this.updateStartupHydrationProgress(stage, progress, total, shouldBlockStartupHydration);
-              }
-            }),
-            new Promise<never>((_, reject) => {
-              rebuildTimeoutId = setTimeout(
-                () => reject(new Error(`fullRebuild timed out after ${FULL_REBUILD_TIMEOUT_MS / 1000}s`)),
-                FULL_REBUILD_TIMEOUT_MS
-              );
-            })
-          ]);
+          await this.syncCoordinator.fullRebuild({
+            onProgress: (stage, progress, total) => {
+              this.updateStartupHydrationProgress(stage, progress, total, shouldBlockStartupHydration);
+            }
+          });
         } catch (rebuildError) {
           const message = rebuildError instanceof Error ? rebuildError.message : String(rebuildError);
           console.error('[HybridStorageAdapter] Full rebuild failed:', message);
           this.failStartupHydration(message);
-        } finally {
-          clearTimeout(rebuildTimeoutId);
         }
       } else {
         try {
