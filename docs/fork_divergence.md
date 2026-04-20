@@ -4,8 +4,8 @@ This file is the authoritative record of every file in `my-custom-branch` that i
 diverges from upstream (`ProfSynapse/nexus`). Load it at the start of every upstream merge
 session to know which files require manual resolution and which can be auto-merged.
 
-**Last audited against:** upstream/main HEAD (`7e90a8f7`) — v5.8.1 (PRs #163–#168)  
-**Audit date:** 2026-04-19  
+**Last audited against:** upstream/main HEAD (`ffc55f30`) — v5.8.2 (PRs #169–#170)  
+**Audit date:** 2026-04-20  
 **Next merge target:** next upstream/main HEAD
 
 ---

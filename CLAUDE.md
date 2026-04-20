@@ -46,6 +46,14 @@ the main session (invoke the orchestrator bootstrap).
 
 ## Pinned Context
 
+<!-- pinned: 2026-04-20 -->
+### Line endings: LF canonical via `.gitattributes` (as of v5.8.2 / PR #169)
+Repo has `.gitattributes` declaring LF canonical across `.ts`/`.tsx`/`.js`/`.mjs`/`.cjs`/`.json`/`.md`/`.css`/`.html`/`.yml`/`.sh` + binary markers for images/audio/fonts/pdfs. If you see CRLF in the tree, it's a local-editor bug — fix the editor, don't chase it with tool normalization. Never reintroduce CRLF. If 500+ files show modified with tiny `--ignore-cr-at-eol` delta, someone's editor wrote CRLF — re-run `git add --renormalize .` on that subset, don't let it land.
+
+<!-- pinned: 2026-04-20 -->
+### ToolManager MCP contract: CLI-first only (as of v5.8.2 / PR #170)
+`useTools`/`getTools` accept ONLY top-level CLI shape: `tool` string + context fields (`workspaceId`, `sessionId`, `memory`, `goal`, `constraints?`) at top level. Legacy nested `{context: {...}, calls: [...]}` and `{request: [...]}` throw `Deprecated payload shape` at `src/agents/toolManager/services/ToolCliNormalizer.ts:444/462/495`. `UseToolParams` has no `calls`/`request` fields. `executePrompts` actions: `replace` uses `oldContent` + `startLine` + `endLine`; `position` deprecated (still accepted, normalized); `append`/`prepend` route to `insert`; `position < 1` rejected. CLI parser decodes `\uXXXX` in quoted strings.
+
 <!-- pinned: 2026-03-29 -->
 ### pdfjs-dist in Obsidian/Electron (legacy build + shared loader)
 PDF.js 5 expects a configured `workerSrc` in the Electron renderer. Use the legacy build with a shared loader that seeds `globalThis.pdfjsWorker`:
@@ -92,7 +100,7 @@ Last Updated: 2026-04-06
 
 ## Project Overview
 - **Name**: Nexus (package: claudesidian-mcp)
-- **Version**: 5.8.0
+- **Version**: 5.8.2
 - **Type**: Obsidian Community Plugin
 - **Purpose**: MCP integration for Obsidian with AI-powered vault operations
 - **Architecture**: Agent-Tool pattern with domain-driven design
@@ -132,11 +140,12 @@ Full guidelines: `docs/obsidian-plugin-guidelines.md`
 
 ## Recent Changes
 
-**Current Version**: 5.8.1
+**Current Version**: 5.8.2
 Full changelog: `docs/changelog.md`
 
 **Latest features** (Apr 2026):
-- v5.8.0 — CLI-first MCP tool-calling contract (PR #157), Claude Opus 4.7 added, LLM pipeline fixes (Azure call_id + field preservation), ManagedTimeoutTracker + component lifecycle cleanup, ChatKeyboardViewportController, message action button redesign + CSS specificity sweep, glass chrome Wave 3 a11y
+- v5.8.2 — ToolManager content alignment (PR #170): CLI-first contract finalized (nested `context`/`calls` rejected), CLI `\uXXXX` escape decoding, `executePrompts` action schema aligned with `insert`/`replace`/`write` (replace takes `oldContent`+`startLine`+`endLine`; `position` deprecated). Line-ending normalization (PR #169): `.gitattributes` establishes LF canonical.
+- v5.8.0 — Glass-chrome chat UI redesign (ToolStatusBar, ContextBadge, ThinkingLoader, ToolInspectionModal), CLI-first MCP tool-calling contract (PR #157), Claude Opus 4.7 added, LLM pipeline fixes (Azure call_id + latent field preservation), new OpenRouter models (GPT 5.4/5.4-pro, Gemini 3 family, GLM 5.1, MiMo v2, Qwen 3.5, MiniMax M2.7), SQLite-from-JSONL sync trigger, branch management fixes, chat media model persistence
 - v5.7.4 — Glass chrome redesign: ToolStatusBar, ContextBadge, ThinkingLoader, ToolInspectionModal (PR #131); mobile glass phase 1; branch management fixes (PR #136); chat media model settings (PR #137); JSONL→SQLite sync on Obsidian Sync (PR #138)
 - v5.7.3 — Vault-root storage with sharding, migration, data-tab UI (PR #134); robust Node.js detection fix (PR #133); project manager async loaders (PR #130)
 - v5.7.2 — Provider save reliability fix, streaming chunk fix (PRs #123, #126, #128)

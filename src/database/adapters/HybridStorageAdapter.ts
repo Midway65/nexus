@@ -334,7 +334,6 @@ export class HybridStorageAdapter implements IStorageAdapter {
       const shouldBlockStartupHydration = false;
       this.clearStartupHydrationState();
 
-
       // 2. Ensure JSONL directories exist
       await this.jsonlWriter.ensureDirectory('workspaces');
       await this.jsonlWriter.ensureDirectory('conversations');
@@ -1289,5 +1288,4 @@ export class HybridStorageAdapter implements IStorageAdapter {
 
     throw new Error('HybridStorageAdapter not initialized. Call initialize() first.');
   }
-
 }
