@@ -317,16 +317,19 @@ export class HybridStorageAdapter implements IStorageAdapter {
           (migrationResult.stats.workspacesMigrated > 0 || migrationResult.stats.conversationsMigrated > 0);
       }
 
-      const storagePlan = await this.storageCoordinator.prepareStoragePlan();
+      let storagePlan = await this.storageCoordinator.prepareStoragePlan();
       this.applyStoragePlan(storagePlan);
-      // Fork: vault-root migration disabled — keep data in plugin-scoped storage
+      storagePlan = await this.backfillVaultEventStore(storagePlan);
 
       // 1. Initialize SQLite cache
       await this.sqliteCache.initialize();
 
-      // Fork: never block startup for vault-root cutover
-      const shouldBlockStartupHydration = false;
-      this.clearStartupHydrationState();
+      const shouldBlockStartupHydration = await this.shouldBlockStartupHydration(storagePlan);
+      if (shouldBlockStartupHydration) {
+        this.startBlockingStartupHydration();
+      } else {
+        this.clearStartupHydrationState();
+      }
 
 
       // 2. Ensure JSONL directories exist
@@ -345,16 +348,30 @@ export class HybridStorageAdapter implements IStorageAdapter {
       // This can take a long time for large vaults (168MB+ JSONL files).
       // The UI will show incrementally as data syncs in.
       const syncState = await this.sqliteCache.getSyncState(this.jsonlWriter.getDeviceId());
+      const FULL_REBUILD_TIMEOUT_MS = 30_000;
+
       if (!syncState || actuallyMigrated || shouldBlockStartupHydration) {
+        let rebuildTimeoutId: ReturnType<typeof setTimeout> | undefined;
         try {
-          await this.syncCoordinator.fullRebuild({
-            onProgress: (stage, progress, total) => {
-              this.updateStartupHydrationProgress(stage, progress, total, shouldBlockStartupHydration);
-            }
-          });
+          await Promise.race([
+            this.syncCoordinator.fullRebuild({
+              onProgress: (stage, progress, total) => {
+                this.updateStartupHydrationProgress(stage, progress, total, shouldBlockStartupHydration);
+              }
+            }),
+            new Promise<never>((_, reject) => {
+              rebuildTimeoutId = setTimeout(
+                () => reject(new Error(`fullRebuild timed out after ${FULL_REBUILD_TIMEOUT_MS / 1000}s`)),
+                FULL_REBUILD_TIMEOUT_MS
+              );
+            })
+          ]);
         } catch (rebuildError) {
-          console.error('[HybridStorageAdapter] Full rebuild failed:', rebuildError);
-          this.failStartupHydration(rebuildError instanceof Error ? rebuildError.message : String(rebuildError));
+          const message = rebuildError instanceof Error ? rebuildError.message : String(rebuildError);
+          console.error('[HybridStorageAdapter] Full rebuild failed:', message);
+          this.failStartupHydration(message);
+        } finally {
+          clearTimeout(rebuildTimeoutId);
         }
       } else {
         try {
@@ -412,8 +429,9 @@ export class HybridStorageAdapter implements IStorageAdapter {
     this.jsonlWriter.setBasePath(plan.vaultWriteBasePath);
     this.jsonlWriter.setReadBasePaths(plan.legacyReadBasePaths);
     this.jsonlWriter.setVaultEventStore(this.vaultEventStore);
-    // Fork: always read from plugin-scoped legacy paths, never vault-root
-    this.jsonlWriter.setVaultEventStoreReadEnabled(false);
+    this.jsonlWriter.setVaultEventStoreReadEnabled(
+      plan.state.migration.state === 'verified' || plan.state.migration.state === 'not_needed'
+    );
     this.sqliteCache.setDbPath(plan.pluginCacheDbPath);
   }
 
