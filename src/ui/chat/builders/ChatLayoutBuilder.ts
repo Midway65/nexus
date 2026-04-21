@@ -35,13 +35,16 @@ export class ChatLayoutBuilder {
   /**
    * Build the complete chat interface layout
    */
-  static buildLayout(container: HTMLElement, _component: Component): ChatLayoutElements {
+  static buildLayout(container: HTMLElement, component: Component): ChatLayoutElements {
     container.empty();
     container.addClass('chat-view-container');
 
     // Create main layout structure
     const chatLayout = container.createDiv('chat-layout');
     const mainContainer = chatLayout.createDiv('chat-main');
+
+    // Experimental warning banner
+    this.createWarningBanner(mainContainer, component);
 
     // Header
     const { chatTitle, hamburgerButton, settingsButton } = this.createHeader(mainContainer);
@@ -119,6 +122,46 @@ export class ChatLayoutBuilder {
     progressText.dataset.progressTextEl = 'true';
 
     return overlay;
+  }
+
+  /**
+   * Create experimental warning banner with auto-hide
+   */
+  private static createWarningBanner(container: HTMLElement, component: Component): void {
+    const warningBanner = container.createDiv('chat-experimental-warning');
+
+    warningBanner.createEl('span', { cls: 'warning-icon', text: '⚠️' });
+    warningBanner.createEl('span', { cls: 'warning-text', text: 'This chat is in beta.' });
+    const link = warningBanner.createEl('a', { cls: 'warning-link', text: 'Report issues' });
+    link.href = 'https://github.com/ProfSynapse/nexus/issues';
+    link.target = '_blank';
+    link.rel = 'noopener noreferrer';
+    warningBanner.createEl('span', { cls: 'warning-text', text: 'Use at your own risk.' });
+
+    // Auto-hide warning after 5 seconds — guard against detached DOM
+    let fadeoutTimer: ReturnType<typeof setTimeout> | null = null;
+    const hideTimer = setTimeout(() => {
+      if (!warningBanner.isConnected) return;
+      warningBanner.addClass('chat-warning-banner-fadeout');
+      fadeoutTimer = setTimeout(() => {
+        if (!warningBanner.isConnected) return;
+        warningBanner.addClass('chat-loading-overlay-hidden');
+        fadeoutTimer = null;
+      }, 500);
+    }, 5000);
+
+    // Clear timers if the banner is removed early (e.g., view closed)
+    const observer = new MutationObserver(() => {
+      if (!warningBanner.isConnected) {
+        clearTimeout(hideTimer);
+        if (fadeoutTimer) clearTimeout(fadeoutTimer);
+        observer.disconnect();
+      }
+    });
+    if (warningBanner.parentElement) {
+      observer.observe(warningBanner.parentElement, { childList: true });
+    }
+    component.register(() => observer.disconnect());
   }
 
   /**

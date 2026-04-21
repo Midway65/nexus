@@ -60,7 +60,6 @@ export class WorkspacesTab {
 
     // Loading state
     private isLoading = true;
-    private loadingPromise: Promise<void> | null = null;
 
     constructor(
         container: HTMLElement,
@@ -183,39 +182,25 @@ export class WorkspacesTab {
         }
     }
 
-    private loadWorkspaces(): Promise<void> {
-        if (!this.loadingPromise) {
-            this.loadingPromise = this.doLoadWorkspaces().finally(() => {
-                this.loadingPromise = null;
-            });
-        }
-        return this.loadingPromise;
-    }
-
-    private async doLoadWorkspaces(): Promise<void> {
+    private async loadWorkspaces(): Promise<void> {
         let workspaceService = this.services.workspaceService;
 
         if (this.services.serviceManager) {
             const timeout = <T>(ms: number) => new Promise<T | undefined>(r => setTimeout(() => r(undefined), ms));
             try {
-                const [service, adapter] = await Promise.all([
+                const [service] = await Promise.all([
                     Promise.race([
                         this.services.serviceManager.getService<WorkspaceService>('workspaceService'),
                         timeout<WorkspaceService>(10000)
                     ]),
                     Promise.race([
-                        this.services.serviceManager.getService<HybridStorageAdapter>('hybridStorageAdapter'),
-                        timeout<HybridStorageAdapter>(10000)
+                        this.services.serviceManager.getService('hybridStorageAdapter'),
+                        timeout(10000)
                     ])
                 ]);
                 if (service) {
                     workspaceService = service;
                     this.services.workspaceService = workspaceService;
-                }
-                // Adapter registers before its async init completes; without this wait,
-                // getAllWorkspaces() falls back to the legacy JSONL path and returns empty.
-                if (adapter) {
-                    await Promise.race([adapter.waitForReady(), timeout(10000)]);
                 }
             } catch {
                 // Service unavailable
