@@ -28,24 +28,19 @@ they do a conflict will occur. Resolution is always: take upstream base, then re
 
 | File | Fork change | Fork block to restore |
 |------|-------------|----------------------|
-| `src/ui/chat/builders/ChatLayoutBuilder.ts` | Banner removal (beta/experimental warning stripped). Upstream re-added auto-hide banner in v5.8.0. | Take upstream base; delete the `this.createWarningBanner(mainContainer, component)` call and the `createWarningBanner()` method body; rename `component` param to `_component` to satisfy ESLint unused-vars rule. |
 | `src/database/adapters/HybridStorageAdapter.ts` | 5 fork patches keep all I/O in plugin-scoped storage (`.obsidian/plugins/nexus/data/`). `fullRebuild()` timeout **removed** (commit `6087f8b9`) — timeout caused clearAllData + incomplete rebuild cycle, wiping all data on each startup. | Take upstream base; restore all 5 patches. Do NOT add a timeout to fullRebuild. See `e0f0ad9f` (all 5 patches). Patch summary: (1) remove `backfillVaultEventStore()` call; (2) `shouldBlockStartupHydration = false`; (3) `setVaultEventStoreReadEnabled(false)` in `applyStoragePlan`; (4) `setBasePath(storagePlan.roots.dataRoot)` after `applyStoragePlan`; (5) `setVaultEventStore(null)` after `applyStoragePlan`. |
-| `src/settings.ts` | Stale update badge fix: clears `availableUpdateVersion` if stored value ≤ current manifest version. | Restore the 15-line version comparison block at end of `applyLoadedData()` (see commit `2c30fd2e`). |
 | `src/database/schema/SchemaMigrator.ts` | Convention comment + fork migrations v17–v19 (v12–v16 removed 2026-04-08) | Restore convention comment block + migrations v17–v19. When upstream ships their v12, renumber it to 20 and set `CURRENT_SCHEMA_VERSION = 20`. |
 
 ---
 
 ## Tier 3 — Fork bug fixes (low conflict risk, but track for awareness)
 
-These files contain fixes for bugs present in upstream or data-quality issues specific to this
-installation. They are unlikely to conflict because upstream is not touching the same lines, but
-they must be reviewed on each merge to ensure upstream hasn't shipped a conflicting fix.
-
-| File | Change |
-|------|--------|
-| `src/settings/tabs/WorkspacesTab.ts` | `loadWorkspaces()` now calls `adapter.waitForReady()` (capped 15s) before `getAllWorkspaces()`. Root cause: `hybridStorageAdapter` is registered as a service immediately but initializes in background; `getService()` resolved instantly so `getAllWorkspaces()` ran before `isReady()` — falling back to legacy JSONL path which only handles `.json` files (workspaces are `.jsonl`) → empty list. Commit `6d4f7615`. If upstream refactors `loadWorkspaces()`, restore this wait. |
+*No Tier 3 entries.* All Tier 3 patches retired as of 2026-04-20.
 
 **Retired entries:**
+- `src/ui/chat/builders/ChatLayoutBuilder.ts` — **RETIRED 2026-04-20** (commit `879bfede`): took upstream exactly; banner restored, `_component` rename removed
+- `src/settings/tabs/WorkspacesTab.ts` — **RETIRED 2026-04-20** (commit `879bfede`): took upstream exactly; upstream v5.8.2 has own race-condition mitigation, `waitForReady()` patch no longer needed
+- `src/settings.ts` — **RETIRED 2026-04-20** (commit `879bfede`): took upstream exactly; stale badge fix removed (upstream users not reporting this issue)
 - `src/agents/searchManager/services/MemorySearchProcessor.ts` — **RETIRED 2026-04-19**: upstream dropped `?.` guards (v5.8.1); taking upstream version
 - `src/agents/toolManager/services/ToolBatchExecutionService.ts` — **RETIRED 2026-04-19**: upstream dropped `workspace.name?.` guard (v5.8.1)
 - `src/services/WorkspaceService.ts` — **RETIRED 2026-04-19**: upstream dropped `name ?? ''` and `name?.` guards (v5.8.1)
