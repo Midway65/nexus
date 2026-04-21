@@ -317,22 +317,19 @@ export class HybridStorageAdapter implements IStorageAdapter {
           (migrationResult.stats.workspacesMigrated > 0 || migrationResult.stats.conversationsMigrated > 0);
       }
 
-      const storagePlan = await this.storageCoordinator.prepareStoragePlan();
+      let storagePlan = await this.storageCoordinator.prepareStoragePlan();
       this.applyStoragePlan(storagePlan);
-      // Fork: vault-root migration disabled — keep all I/O in plugin-scoped storage.
-      // applyStoragePlan sets write basePath to vault-root and installs a non-null
-      // VaultEventStore; StorageRouter.appendEvent writes to VaultEventStore
-      // unconditionally when it is non-null. Both must be overridden so no data
-      // lands in the vault-root folder regardless of persisted migration state.
-      this.jsonlWriter.setBasePath(storagePlan.roots.dataRoot);
-      this.jsonlWriter.setVaultEventStore(null);
+      storagePlan = await this.backfillVaultEventStore(storagePlan);
 
       // 1. Initialize SQLite cache
       await this.sqliteCache.initialize();
 
-      // Fork: never block startup for vault-root cutover
-      const shouldBlockStartupHydration = false;
-      this.clearStartupHydrationState();
+      const shouldBlockStartupHydration = await this.shouldBlockStartupHydration(storagePlan);
+      if (shouldBlockStartupHydration) {
+        this.startBlockingStartupHydration();
+      } else {
+        this.clearStartupHydrationState();
+      }
 
       // 2. Ensure JSONL directories exist
       await this.jsonlWriter.ensureDirectory('workspaces');
@@ -350,12 +347,7 @@ export class HybridStorageAdapter implements IStorageAdapter {
       // This can take a long time for large vaults (168MB+ JSONL files).
       // The UI will show incrementally as data syncs in.
       const syncState = await this.sqliteCache.getSyncState(this.jsonlWriter.getDeviceId());
-
       if (!syncState || actuallyMigrated || shouldBlockStartupHydration) {
-        // fullRebuild runs after initResolve() so it never blocks the UI.
-        // No timeout — a timeout that fires mid-rebuild leaves SQLite empty
-        // (clearAllData was already called) and causes the same wipe on the
-        // next startup because sync_state is never written.
         try {
           await this.syncCoordinator.fullRebuild({
             onProgress: (stage, progress, total) => {
@@ -363,9 +355,8 @@ export class HybridStorageAdapter implements IStorageAdapter {
             }
           });
         } catch (rebuildError) {
-          const message = rebuildError instanceof Error ? rebuildError.message : String(rebuildError);
-          console.error('[HybridStorageAdapter] Full rebuild failed:', message);
-          this.failStartupHydration(message);
+          console.error('[HybridStorageAdapter] Full rebuild failed:', rebuildError);
+          this.failStartupHydration(rebuildError instanceof Error ? rebuildError.message : String(rebuildError));
         }
       } else {
         try {
@@ -423,8 +414,9 @@ export class HybridStorageAdapter implements IStorageAdapter {
     this.jsonlWriter.setBasePath(plan.vaultWriteBasePath);
     this.jsonlWriter.setReadBasePaths(plan.legacyReadBasePaths);
     this.jsonlWriter.setVaultEventStore(this.vaultEventStore);
-    // Fork: always read from plugin-scoped legacy paths, never vault-root
-    this.jsonlWriter.setVaultEventStoreReadEnabled(false);
+    this.jsonlWriter.setVaultEventStoreReadEnabled(
+      plan.state.migration.state === 'verified' || plan.state.migration.state === 'not_needed'
+    );
     this.sqliteCache.setDbPath(plan.pluginCacheDbPath);
   }
 
