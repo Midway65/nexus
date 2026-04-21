@@ -83,3 +83,21 @@ Do not treat timestamp-only diffs as fork divergences.
 3. Files not listed here should match upstream exactly — investigate any that don't
 4. After resolving conflicts, re-run the diff to confirm no unintended divergences remain
 5. If new fork additions are made, add them to this file before committing
+
+---
+
+## Post-deploy checklist
+
+After every `npm run deploy` + Obsidian reload:
+
+1. Open the Nexus UI — workspaces and conversations should appear within ~5 seconds
+2. If the UI shows only "Default" workspace or is empty, **do not reload**. Wait 3–4 minutes for fullRebuild to complete in the background.
+3. If still empty after 4 minutes, the sync_state loop has re-triggered. Run the repair script with Obsidian closed:
+   ```
+   node scripts/repair_sqlite_cache.js
+   ```
+   Then reopen Obsidian. Data appears immediately (no wait).
+
+**Root cause of the loop:** `sync_state` empty in `cache.db` → `fullRebuild` → `clearAllData()` → rebuild interrupted → `sync_state` never written → same loop on next startup. The JSONL source files are never touched; only SQLite is affected.
+
+**All vault data is in plugin-scoped storage** (`.obsidian/plugins/nexus/data/`). The `00-System/Nexus` path in the Nexus Data tab is ignored by the fork patches. `Nexus_vault_root_REVIEW/` and `NEXUS/` in the vault root are stale backup folders — confirmed up-to-date with plugin-scoped as of 2026-04-20.
