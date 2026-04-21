@@ -28,7 +28,7 @@ they do a conflict will occur. Resolution is always: take upstream base, then re
 
 | File | Fork change | Fork block to restore |
 |------|-------------|----------------------|
-| ~~`src/database/adapters/HybridStorageAdapter.ts`~~ | **RETIRED 2026-04-20** (commit `ba27d293`): took upstream exactly. All 5 patches removed. | |
+| `src/database/adapters/HybridStorageAdapter.ts` | 5 fork patches keep all I/O in plugin-scoped storage (`.obsidian/plugins/nexus/data/`). `fullRebuild()` timeout removed (commit `6087f8b9`). | Take upstream base; restore all 5 patches. Do NOT add timeout to fullRebuild. See `e0f0ad9f`. **⚠ Phase 2 BLOCKED**: upstream `backfillVaultEventStore()` reads from `.nexus/` only — our data is in plugin-scoped storage (migrated v5.7.0), so backfill finds nothing, marks 'verified', routes reads to empty vault-root → empty UI. Reverted `593f345b`. |
 | `src/database/schema/SchemaMigrator.ts` | Convention comment + fork migrations v17–v19 (v12–v16 removed 2026-04-08) | Restore convention comment block + migrations v17–v19. When upstream ships their v12, renumber it to 20 and set `CURRENT_SCHEMA_VERSION = 20`. |
 
 ---
@@ -38,7 +38,7 @@ they do a conflict will occur. Resolution is always: take upstream base, then re
 *No Tier 3 entries.* All Tier 3 patches retired as of 2026-04-20.
 
 **Retired entries:**
-- `src/database/adapters/HybridStorageAdapter.ts` — **RETIRED 2026-04-20** (commit `ba27d293`): took upstream exactly; all 5 vault-root patches removed. On first deploy, backfillVaultEventStore() copies data to 00-System/Nexus/data/.
+- `src/database/adapters/HybridStorageAdapter.ts` — **ATTEMPTED RETIREMENT 2026-04-20** (commit `ba27d293`), **REVERTED** (`593f345b`): backfill reads from `.nexus/` not plugin-scoped; vault-root got incomplete data; empty UI. Patches re-applied. Blocked pending upstream fix.
 - `src/ui/chat/builders/ChatLayoutBuilder.ts` — **RETIRED 2026-04-20** (commit `879bfede`): took upstream exactly; banner restored, `_component` rename removed
 - `src/settings/tabs/WorkspacesTab.ts` — **RETIRED 2026-04-20** (commit `879bfede`): took upstream exactly; upstream v5.8.2 has own race-condition mitigation, `waitForReady()` patch no longer needed
 - `src/settings.ts` — **RETIRED 2026-04-20** (commit `879bfede`): took upstream exactly; stale badge fix removed (upstream users not reporting this issue)
