@@ -4,8 +4,13 @@ This file is the authoritative record of every file in `my-custom-branch` that i
 diverges from upstream (`ProfSynapse/nexus`). Load it at the start of every upstream merge
 session to know which files require manual resolution and which can be auto-merged.
 
-**Last audited against:** upstream/main HEAD (`ffc55f30`) — v5.8.2 (PRs #169–#170)  
-**Audit date:** 2026-04-20  
+**Goal:** Full congruence with upstream wherever possible. Fork-specific additions should be
+retired as soon as they are no longer needed or superseded by upstream. The only permanent
+divergences are files that are fork-infrastructure by nature (deploy scripts, fork docs) or
+that carry data migrations specific to this vault.
+
+**Last audited against:** upstream/main HEAD (`011343f9`) — v5.8.4 (PRs #172–#176)  
+**Audit date:** 2026-04-24  
 **Next merge target:** next upstream/main HEAD
 
 ---
@@ -29,6 +34,8 @@ they do a conflict will occur. Resolution is always: take upstream base, then re
 | File | Fork change | Fork block to restore |
 |------|-------------|----------------------|
 | `src/database/schema/SchemaMigrator.ts` | Convention comment + fork migrations v17–v19 (v12–v16 removed 2026-04-08) | Restore convention comment block + migrations v17–v19. When upstream ships their v12, renumber it to 20 and set `CURRENT_SCHEMA_VERSION = 20`. |
+| `src/database/storage/JSONLWriter.ts` | `readEventsStreaming()` private method using Node.js `readline` for streaming large JSONL files. Marked retired 2026-04-19 prematurely — method is still present. **Retirement candidate (Phase 4)**: verify no callers, then remove method and take upstream exactly. |
+| `eslint.config.mjs` | `"src/database/storage/JSONLWriter.ts"` added to Node.js modules exemption list. Required as long as JSONLWriter.ts carries `readEventsStreaming()`. **Retire together with JSONLWriter.ts.** |
 
 ---
 
@@ -49,8 +56,12 @@ they do a conflict will occur. Resolution is always: take upstream base, then re
 - `src/ui/chat/components/CreateFileModal.ts` — **RETIRED 2026-04-18**: action bar feature deprecated and removed in v5.8.0 merge
 - `src/ui/chat/components/MessageBubble.ts` — **RETIRED 2026-04-18**: no longer fork-divergent after dropping action bar
 - `styles.css` — **RETIRED 2026-04-15**: no fork CSS divergence; action button styles absorbed by upstream
-- `src/database/storage/JSONLWriter.ts` — **RETIRED 2026-04-19**: `readEventsStreaming()` dead code fully removed by upstream in v5.8.1 (was documented retired 2026-04-15 but lingered in fork)
-- `eslint.config.mjs` — **RETIRED 2026-04-19**: JSONLWriter readline exclusion removed by upstream in v5.8.1
+- `src/database/storage/JSONLWriter.ts` — **INCORRECTLY RETIRED 2026-04-19**: method was never removed from fork. Re-listed as active Tier 2 divergence 2026-04-24.
+- `eslint.config.mjs` — **INCORRECTLY RETIRED 2026-04-19**: exemption was never removed from fork. Re-listed as active Tier 2 divergence 2026-04-24.
+- `src/agents/searchManager/services/MemorySearchProcessor.ts` — **RE-RETIRED 2026-04-24** (commit `2ecafad2`): `?.` guards re-introduced after v5.8.1 retirement; removed again to match upstream.
+- `src/agents/toolManager/services/ToolBatchExecutionService.ts` — **RE-RETIRED 2026-04-24** (commit `2ecafad2`): same as above.
+- `src/ui/chat/components/BranchHeader.ts` — **RETIRED 2026-04-24** (commit `2ecafad2`): verbose JSDoc trimmed to match upstream's single-line form.
+- `src/database/storage/SQLiteMaintenanceService.ts` — **RETIRED 2026-04-24** (commit `2ecafad2`): trailing blank line removed to match upstream.
 - `src/settings/tabs/ProvidersTab.ts` — **RETIRED 2026-04-09**: superseded by upstream PR #126
 - `src/components/LLMProviderModal.ts` — **RETIRED 2026-04-09**: superseded by upstream PR #126
 - `src/database/repositories/MessageRepository.ts` — **RETIRED 2026-04-09**: superseded by upstream PR #123
