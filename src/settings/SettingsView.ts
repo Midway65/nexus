@@ -266,6 +266,21 @@ export class SettingsView extends PluginSettingTab {
         void UpdateManager.isStoreAvailable(this.plugin.manifest.id).then((storeAvailable) => {
             if (storeAvailable) return;
 
+            // Clear stale update notification if we already have this version or newer
+            const storedAvailable = this.settingsManager.settings.availableUpdateVersion;
+            if (storedAvailable) {
+                const cur = this.plugin.manifest.version.split('.').map(Number);
+                const avail = storedAvailable.split('.').map(Number);
+                const alreadyInstalled =
+                    cur[0] > avail[0] ||
+                    (cur[0] === avail[0] && cur[1] > avail[1]) ||
+                    (cur[0] === avail[0] && cur[1] === avail[1] && cur[2] >= avail[2]);
+                if (alreadyInstalled) {
+                    this.settingsManager.settings.availableUpdateVersion = undefined;
+                    void this.settingsManager.saveSettings();
+                }
+            }
+
             // Update notification if available
             if (this.settingsManager.settings.availableUpdateVersion) {
                 const updateBadge = versionRow.createSpan({ cls: 'nexus-update-badge' });
