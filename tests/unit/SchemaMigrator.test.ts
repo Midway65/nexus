@@ -34,26 +34,31 @@ class FakeDatabase implements MigratableDatabase {
   }
 }
 
-describe('SchemaMigrator v11 -> v12 shard_cursors migration', () => {
-  it('declares CURRENT_SCHEMA_VERSION as 12', () => {
-    expect(CURRENT_SCHEMA_VERSION).toBe(12);
+// Fork-adjusted: upstream's v12 shard_cursors migration was renumbered to
+// v20 to satisfy the FORK MIGRATION NUMBERING CONVENTION (fork's local stubs
+// occupy v13–v19). Numeric assertions here track the renumber. To isolate
+// the renumbered migration in the "starting from prior version" test we
+// seed at v19 instead of v11.
+describe('SchemaMigrator v19 -> v20 shard_cursors migration (upstream v12, renumbered for fork)', () => {
+  it('declares CURRENT_SCHEMA_VERSION as 20', () => {
+    expect(CURRENT_SCHEMA_VERSION).toBe(20);
   });
 
-  it('includes a v12 migration with the shard_cursors DDL', () => {
-    const v12 = MIGRATIONS.find(m => m.version === 12);
-    expect(v12).toBeDefined();
-    expect(v12!.description.toLowerCase()).toContain('shard_cursors');
+  it('includes a v20 migration with the shard_cursors DDL', () => {
+    const v20 = MIGRATIONS.find(m => m.version === 20);
+    expect(v20).toBeDefined();
+    expect(v20!.description.toLowerCase()).toContain('shard_cursors');
 
-    const joined = v12!.sql.join('\n');
+    const joined = v20!.sql.join('\n');
     expect(joined).toContain('CREATE TABLE IF NOT EXISTS shard_cursors');
     expect(joined).toContain('PRIMARY KEY (deviceId, shardPath)');
     expect(joined).toContain('CREATE INDEX IF NOT EXISTS idx_shard_cursors_path');
     expect(joined).toContain('CREATE INDEX IF NOT EXISTS idx_shard_cursors_kind');
   });
 
-  it('uses additive-only DDL for v12 (no DROP / no RENAME / IF NOT EXISTS)', () => {
-    const v12 = MIGRATIONS.find(m => m.version === 12)!;
-    for (const sql of v12.sql) {
+  it('uses additive-only DDL for v20 (no DROP / no RENAME / IF NOT EXISTS)', () => {
+    const v20 = MIGRATIONS.find(m => m.version === 20)!;
+    for (const sql of v20.sql) {
       const upper = sql.toUpperCase();
       expect(upper).not.toContain('DROP TABLE');
       expect(upper).not.toContain('DROP INDEX');
@@ -63,20 +68,20 @@ describe('SchemaMigrator v11 -> v12 shard_cursors migration', () => {
     }
   });
 
-  it('runs only the v12 migration when starting at v11', async () => {
+  it('runs only the v20 migration when starting at v19', async () => {
     const db = new FakeDatabase();
 
-    // Pretend schema_version table exists and currently reports v11.
+    // Pretend schema_version table exists and currently reports v19.
     db.execResponders.push(
       { match: /sqlite_master.*schema_version/i, rows: [['schema_version']] },
-      { match: /MAX\(version\)/i, rows: [[11]] }
+      { match: /MAX\(version\)/i, rows: [[19]] }
     );
 
     const migrator = new SchemaMigrator(db);
     const result = await migrator.migrate();
 
-    expect(result.fromVersion).toBe(11);
-    expect(result.toVersion).toBe(12);
+    expect(result.fromVersion).toBe(19);
+    expect(result.toVersion).toBe(20);
     expect(result.applied).toBe(1);
 
     const ddlRun = db.runCalls.map(c => c.sql).filter(s => /shard_cursors/.test(s));
@@ -86,7 +91,7 @@ describe('SchemaMigrator v11 -> v12 shard_cursors migration', () => {
 
     const versionStamp = db.runCalls.find(
       c => /INSERT OR REPLACE INTO schema_version/.test(c.sql) &&
-           Array.isArray(c.params) && c.params[0] === 12
+           Array.isArray(c.params) && c.params[0] === 20
     );
     expect(versionStamp).toBeDefined();
   });
@@ -95,15 +100,15 @@ describe('SchemaMigrator v11 -> v12 shard_cursors migration', () => {
     const db = new FakeDatabase();
     db.execResponders.push(
       { match: /sqlite_master.*schema_version/i, rows: [['schema_version']] },
-      { match: /MAX\(version\)/i, rows: [[12]] }
+      { match: /MAX\(version\)/i, rows: [[20]] }
     );
 
     const migrator = new SchemaMigrator(db);
     const result = await migrator.migrate();
 
     expect(result.applied).toBe(0);
-    expect(result.fromVersion).toBe(12);
-    expect(result.toVersion).toBe(12);
+    expect(result.fromVersion).toBe(20);
+    expect(result.toVersion).toBe(20);
     expect(db.runCalls.find(c => /shard_cursors/.test(c.sql))).toBeUndefined();
   });
 });
