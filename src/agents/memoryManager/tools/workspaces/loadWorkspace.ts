@@ -96,10 +96,10 @@ export class LoadWorkspaceTool extends BaseTool<LoadWorkspaceParameters, LoadWor
       // Get the workspace by ID or name (unified lookup)
       const limit = params.limit ?? 5;
 
-      if (workspaceService.isSystemWorkspaceId(params.id)) {
+      if (workspaceService.isSystemWorkspaceId(params.workspace)) {
         const systemWorkspace = await workspaceService.loadSystemGuidesWorkspace(limit);
         if (!systemWorkspace) {
-          return this.createErrorResult(`Workspace '${params.id}' is unavailable`, params);
+          return this.createErrorResult(`Workspace '${params.workspace}' is unavailable`, params);
         }
 
         return {
@@ -129,7 +129,7 @@ export class LoadWorkspaceTool extends BaseTool<LoadWorkspaceParameters, LoadWor
 
       let workspace: IndividualWorkspace | null = null;
       try {
-        workspace = await workspaceService.getWorkspaceByNameOrId(params.id);
+        workspace = await workspaceService.getWorkspaceByNameOrId(params.workspace);
       } catch (queryError) {
         console.error('[LoadWorkspaceMode] Failed to load workspace:', queryError);
         return this.createErrorResult(
@@ -139,8 +139,8 @@ export class LoadWorkspaceTool extends BaseTool<LoadWorkspaceParameters, LoadWor
       }
 
       if (!workspace) {
-        console.error('[LoadWorkspaceMode] Workspace not found:', params.id);
-        return this.createErrorResult(`Workspace '${params.id}' not found (searched by both name and ID)`, params);
+        console.error('[LoadWorkspaceMode] Workspace not found:', params.workspace);
+        return this.createErrorResult(`Workspace '${params.workspace}' not found (searched by both name and ID)`, params);
       }
       const projectWorkspace = workspace as ProjectWorkspace;
 
@@ -205,7 +205,7 @@ export class LoadWorkspaceTool extends BaseTool<LoadWorkspaceParameters, LoadWor
 
       // Collect files using file collector
       const cacheManager = this.agent.getCacheManager();
-      const recentFiles = this.fileCollector.getRecentFilesInWorkspace(workspace, cacheManager);
+      const recentFiles = this.fileCollector.getRecentFilesInWorkspace(workspace, cacheManager, app);
 
       // Build workspace structure using file collector
       // recursive defaults to false (top-level only)
@@ -313,7 +313,7 @@ export class LoadWorkspaceTool extends BaseTool<LoadWorkspaceParameters, LoadWor
   }
 
   getStatusLabel(params: Record<string, unknown> | undefined, tense: ToolStatusTense): string | undefined {
-    return labelWithId(verbs('Loading workspace', 'Loaded workspace', 'Failed to load workspace'), params, tense, { keys: ['id'], fallback: 'workspace' });
+    return labelWithId(verbs('Loading workspace', 'Loaded workspace', 'Failed to load workspace'), params, tense, { keys: ['workspace'], fallback: 'workspace' });
   }
 
   /**
@@ -323,9 +323,9 @@ export class LoadWorkspaceTool extends BaseTool<LoadWorkspaceParameters, LoadWor
     const toolSchema = {
       type: 'object',
       properties: {
-        id: {
+        workspace: {
           type: 'string',
-          description: 'Workspace ID or name to load (REQUIRED). Accepts either the unique workspace ID or the workspace name. Using the name returned by create-workspace is fine; you do not need to call list-workspaces just to find the UUID.'
+          description: 'Workspace name or ID to load (REQUIRED). Accepts either the workspace name or the unique workspace ID. Using the name returned by create-workspace is fine; you do not need to call list-workspaces just to find the UUID.'
         },
         limit: {
           type: 'number',
@@ -340,7 +340,7 @@ export class LoadWorkspaceTool extends BaseTool<LoadWorkspaceParameters, LoadWor
           default: false
         }
       },
-      required: ['id']
+      required: ['workspace']
     };
 
     // Merge with common schema (adds sessionId, workspaceContext)
@@ -468,25 +468,9 @@ export class LoadWorkspaceTool extends BaseTool<LoadWorkspaceParameters, LoadWor
               items: {
                 type: 'object',
                 properties: {
-                  id: {
-                    type: 'string',
-                    description: 'State ID'
-                  },
                   name: {
                     type: 'string',
-                    description: 'State name'
-                  },
-                  description: {
-                    type: 'string',
-                    description: 'State description'
-                  },
-                  sessionId: {
-                    type: 'string',
-                    description: 'Session ID this state belongs to'
-                  },
-                  created: {
-                    type: 'number',
-                    description: 'State creation timestamp'
+                    description: 'State name. Use this name with load-state while scoped to the same workspace.'
                   },
                   tags: {
                     type: 'array',
@@ -494,9 +478,9 @@ export class LoadWorkspaceTool extends BaseTool<LoadWorkspaceParameters, LoadWor
                     description: 'State tags'
                   }
                 },
-                required: ['id', 'name', 'created']
+                required: ['name']
               },
-              description: 'States in this workspace (paginated)'
+              description: 'Saved states in this workspace (paginated). State names are valid handles for load-state; IDs and session IDs are intentionally omitted.'
             },
             prompt: {
               type: 'object',

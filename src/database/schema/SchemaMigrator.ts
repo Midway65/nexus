@@ -73,7 +73,7 @@ export interface MigratableDatabase {
 // Alias for backward compatibility
 type Database = MigratableDatabase;
 
-export const CURRENT_SCHEMA_VERSION = 19;
+export const CURRENT_SCHEMA_VERSION = 20;
 
 export interface Migration {
   version: number;
@@ -408,12 +408,13 @@ export const MIGRATIONS: Migration[] = [
   // ========================================================================
   // FORK MIGRATION NUMBERING CONVENTION
   //
-  // This fork's local stubs occupy versions 13–19. Upstream (nexus published plugin)
-  // is currently at v11 and will release v12, v13, ... in future updates.
+  // This fork's local stubs occupy versions 13–19, and upstream renumbers
+  // continue from version 20 upward.
   //
   // RULE: When merging an upstream migration numbered N where N ≤ 19, renumber it
-  // to the next available version above 19 (i.e. 20, 21, 22 ...) in this array.
-  // Once upstream's version counter exceeds 19, merge their migrations as-is.
+  // to the next available version above the current MAX (i.e. 20, 21, 22 ...).
+  // Once upstream's version counter exceeds the fork's MAX, merge their migrations
+  // as-is.
   //
   // Example — upstream publishes v12:
   //   {
@@ -481,6 +482,32 @@ export const MIGRATIONS: Migration[] = [
     sql: [
       'DROP TABLE IF EXISTS semantic_feedback',
       'DROP TABLE IF EXISTS block_embedding_metadata',
+    ]
+  },
+
+  // Version 19 -> 20: [upstream v12] Add shard_cursors table for sync-safe reconcile fast-path.
+  // Renumbered from upstream's v12 per the FORK MIGRATION NUMBERING CONVENTION above.
+  // PK is (deviceId, shardPath) where shardPath is the FULL filename — canonical
+  // OR conflict-suffixed. A canonical shard and a conflict sibling are physically
+  // distinct files holding disjoint event sets, so each gets its own cursor row.
+  // Do NOT collapse cursors by baseIndex.
+  {
+    version: 20,
+    description: '[upstream v12] Add shard_cursors table for per-file reconcile fast-path (sync-safe storage reconcile Phase 1)',
+    sql: [
+      `CREATE TABLE IF NOT EXISTS shard_cursors (
+        deviceId TEXT NOT NULL,
+        shardPath TEXT NOT NULL,
+        lastEventId TEXT,
+        lastOffset INTEGER NOT NULL DEFAULT 0,
+        lastTimestamp INTEGER NOT NULL DEFAULT 0,
+        kind TEXT NOT NULL,
+        workspaceKey TEXT,
+        updatedAt INTEGER NOT NULL,
+        PRIMARY KEY (deviceId, shardPath)
+      )`,
+      'CREATE INDEX IF NOT EXISTS idx_shard_cursors_path ON shard_cursors(shardPath)',
+      'CREATE INDEX IF NOT EXISTS idx_shard_cursors_kind ON shard_cursors(kind)'
     ]
   },
 ];

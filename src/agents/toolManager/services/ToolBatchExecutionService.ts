@@ -368,10 +368,15 @@ export class ToolBatchExecutionService {
     toolSlug: string | undefined,
     params: Record<string, unknown>
   ): Record<string, unknown> {
+    const shouldInjectSessionId =
+      !(agentName === 'searchManager' &&
+        toolSlug === 'memory' &&
+        params.sessionId === undefined &&
+        params.sessionName === undefined);
     const defaulted: Record<string, unknown> = {
       ...params,
       workspaceId: params.workspaceId || context.workspaceId,
-      sessionId: params.sessionId || context.sessionId
+      ...(shouldInjectSessionId ? { sessionId: params.sessionId || context.sessionId } : {})
     };
 
     if (agentName === 'promptManager' && toolSlug === 'generateImage') {
@@ -382,7 +387,7 @@ export class ToolBatchExecutionService {
       };
     }
 
-    if (agentName === 'ingestManager' && toolSlug === 'ingest') {
+    if (agentName === 'ingestManager' && toolSlug === 'run') {
       return {
         ...defaulted,
         transcriptionProvider: params.transcriptionProvider || context.transcriptionProvider,

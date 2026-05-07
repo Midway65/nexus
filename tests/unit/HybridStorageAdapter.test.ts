@@ -1,9 +1,4 @@
 jest.mock('@dao-xyz/sqlite3-vec/wasm', () => jest.fn(), { virtual: true });
-jest.mock('../../src/database/migration/LegacyMigrator', () => ({
-  LegacyMigrator: jest.fn().mockImplementation(() => ({
-    isMigrationNeeded: jest.fn().mockResolvedValue(false)
-  }))
-}));
 
 import {
   HybridStorageAdapter,
@@ -103,99 +98,88 @@ describe('HybridStorageAdapter', () => {
         '.nexus'
       ]);
       expect(adapter.jsonlWriter.setVaultEventStore).toHaveBeenCalledWith(expect.any(Object));
-      expect(adapter.jsonlWriter.setVaultEventStoreReadEnabled).toHaveBeenCalledWith(false); // Fork: vault-root read always disabled
+      expect(adapter.jsonlWriter.setVaultEventStoreReadEnabled).toHaveBeenCalledWith(true);
       expect(adapter.sqliteCache.setDbPath).toHaveBeenCalledWith('.obsidian/plugins/claudesidian-mcp/data/cache.db');
     });
   });
 
-  describe('performInitialization — fullRebuild timeout', () => {
-    function makeAdapter() {
-      const adapter = Object.create(HybridStorageAdapter.prototype) as any;
+  describe('waitForQueryReady (event-based)', () => {
+    type AdapterPrivates = HybridStorageAdapter & {
+      initialized: boolean;
+      initError: Error | null;
+      initPromise?: Promise<void>;
+      startupHydrationState: { phase: 'idle' | 'running' | 'complete' | 'error'; [k: string]: unknown };
+      queryReadyWaiters: Array<(ready: boolean) => void>;
+      completeStartupHydration: () => void;
+      failStartupHydration: (error: string) => void;
+      clearStartupHydrationState: () => void;
+    };
 
-      const mockPlan = {
-        vaultWriteBasePath: 'test/data',
-        legacyReadBasePaths: [],
-        pluginCacheDbPath: 'test/cache.db',
-        state: { migration: { state: 'pending' }, sourceOfTruthLocation: 'legacy-dotnexus' },
-        roots: { dataRoot: 'test/plugin-data' },
-        vaultRoot: { configuredPath: 'test', resolvedPath: 'test', dataPath: 'test/data', guidesPath: 'test/guides', maxShardBytes: 1024 }
+    function makeAdapter(phase: 'idle' | 'running' | 'complete' | 'error' = 'running'): AdapterPrivates {
+      const a = Object.create(HybridStorageAdapter.prototype) as AdapterPrivates;
+      a.initialized = true;
+      a.initError = null;
+      a.startupHydrationState = {
+        phase,
+        isBlocking: phase === 'running',
+        stage: '',
+        progress: 0,
+        total: 1,
+        percent: 0,
+        statusText: ''
       };
-
-      adapter.storageCoordinator = { prepareStoragePlan: jest.fn().mockResolvedValue(mockPlan) };
-      adapter.applyStoragePlan = jest.fn();
-      adapter.clearStartupHydrationState = jest.fn();
-      adapter.updateStartupHydrationProgress = jest.fn();
-      adapter.failStartupHydration = jest.fn();
-      adapter.completeStartupHydration = jest.fn();
-      adapter.startJsonlVaultWatcher = jest.fn();
-      adapter.initialized = false;
-      adapter.initResolve = jest.fn();
-      adapter.sqliteCache = {
-        initialize: jest.fn().mockResolvedValue(undefined),
-        getSyncState: jest.fn().mockResolvedValue(null)
-      };
-      adapter.jsonlWriter = {
-        ensureDirectory: jest.fn().mockResolvedValue(undefined),
-        getDeviceId: jest.fn().mockReturnValue('device-1'),
-        setBasePath: jest.fn(),
-        setVaultEventStore: jest.fn()
-      };
-      adapter.syncCoordinator = {
-        fullRebuild: jest.fn().mockResolvedValue(undefined),
-        sync: jest.fn().mockResolvedValue(undefined)
-      };
-      return adapter;
+      a.queryReadyWaiters = [];
+      return a;
     }
 
-    it('resolves cleanly when fullRebuild completes within timeout', async () => {
-      const adapter = makeAdapter();
-      adapter.syncCoordinator.fullRebuild.mockImplementation(
-        () => new Promise(resolve => setTimeout(resolve, 100))
-      );
-
-      await (adapter as any).performInitialization();
-
-      expect(adapter.failStartupHydration).not.toHaveBeenCalled();
-      expect(adapter.syncCoordinator.fullRebuild).toHaveBeenCalledTimes(1);
+    it('returns true immediately when already query-ready', async () => {
+      const a = makeAdapter('idle');
+      await expect(a.waitForQueryReady(50)).resolves.toBe(true);
     });
 
-    it('calls failStartupHydration when fullRebuild exceeds 30s timeout', async () => {
-      jest.useFakeTimers();
-      const adapter = makeAdapter();
-      adapter.syncCoordinator.fullRebuild.mockImplementation(
-        () => new Promise(() => { /* never resolves */ })
-      );
-
-      const initPromise = (adapter as any).performInitialization();
-      await jest.advanceTimersByTimeAsync(30_001);
-      await initPromise;
-
-      expect(adapter.failStartupHydration).toHaveBeenCalledWith(
-        expect.stringContaining('timed out')
-      );
-      jest.useRealTimers();
+    it('resolves true when completeStartupHydration fires', async () => {
+      const a = makeAdapter('running');
+      const pending = a.waitForQueryReady(5_000);
+      expect(a.queryReadyWaiters).toHaveLength(1);
+      a.completeStartupHydration();
+      await expect(pending).resolves.toBe(true);
+      expect(a.queryReadyWaiters).toHaveLength(0);
     });
 
-    it('calls failStartupHydration when fullRebuild throws', async () => {
-      const adapter = makeAdapter();
-      adapter.syncCoordinator.fullRebuild.mockRejectedValue(new Error('disk full'));
-
-      await (adapter as any).performInitialization();
-
-      expect(adapter.failStartupHydration).toHaveBeenCalledWith('disk full');
+    it('resolves true when clearStartupHydrationState fires', async () => {
+      const a = makeAdapter('running');
+      const pending = a.waitForQueryReady(5_000);
+      a.clearStartupHydrationState();
+      await expect(pending).resolves.toBe(true);
     });
 
-    it('skips fullRebuild and uses incremental sync when syncState exists', async () => {
-      const adapter = makeAdapter();
-      adapter.sqliteCache.getSyncState.mockResolvedValue({ lastSyncedAt: Date.now() });
-      adapter.reconcileMissingWorkspaces = jest.fn().mockResolvedValue(undefined);
-      adapter.reconcileMissingConversations = jest.fn().mockResolvedValue(undefined);
-      adapter.reconcileMissingTasks = jest.fn().mockResolvedValue(undefined);
+    it('resolves false when failStartupHydration fires', async () => {
+      const a = makeAdapter('running');
+      const pending = a.waitForQueryReady(5_000);
+      a.failStartupHydration('boom');
+      await expect(pending).resolves.toBe(false);
+    });
 
-      await (adapter as any).performInitialization();
+    it('resolves false on timeout when no transition fires', async () => {
+      const a = makeAdapter('running');
+      const errSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined);
+      try {
+        await expect(a.waitForQueryReady(20)).resolves.toBe(false);
+        expect(a.queryReadyWaiters).toHaveLength(0);
+      } finally {
+        errSpy.mockRestore();
+      }
+    });
 
-      expect(adapter.syncCoordinator.fullRebuild).not.toHaveBeenCalled();
-      expect(adapter.syncCoordinator.sync).toHaveBeenCalledTimes(1);
+    it('settles all concurrent waiters at the same transition', async () => {
+      const a = makeAdapter('running');
+      const p1 = a.waitForQueryReady(5_000);
+      const p2 = a.waitForQueryReady(5_000);
+      const p3 = a.waitForQueryReady(5_000);
+      expect(a.queryReadyWaiters).toHaveLength(3);
+      a.completeStartupHydration();
+      await expect(Promise.all([p1, p2, p3])).resolves.toEqual([true, true, true]);
+      expect(a.queryReadyWaiters).toHaveLength(0);
     });
   });
 
