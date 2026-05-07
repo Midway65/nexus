@@ -9,8 +9,8 @@ retired as soon as they are no longer needed or superseded by upstream. The only
 divergences are files that are fork-infrastructure by nature (deploy scripts, fork docs) or
 that carry data migrations specific to this vault.
 
-**Last audited against:** upstream/main HEAD (`011343f9`) — v5.8.4 (PRs #172–#176)  
-**Audit date:** 2026-04-24  
+**Last audited against:** upstream/main HEAD (`eaff5388`) — v5.8.12 (PRs #192–#202)  
+**Audit date:** 2026-05-07  
 **Next merge target:** next upstream/main HEAD
 
 ---
@@ -33,7 +33,7 @@ they do a conflict will occur. Resolution is always: take upstream base, then re
 
 | File | Fork change | Fork block to restore |
 |------|-------------|----------------------|
-| `src/database/schema/SchemaMigrator.ts` | Convention comment + fork migrations v17–v19 (v12–v16 removed 2026-04-08) | Restore convention comment block + migrations v17–v19. When upstream ships their v12, renumber it to 20 and set `CURRENT_SCHEMA_VERSION = 20`. |
+| `src/database/schema/SchemaMigrator.ts` | Convention comment + fork migrations v17–v19 (v12–v16 removed 2026-04-08) + v20 (renumbered from upstream v12 `shard_cursors`, merged 2026-05-07). `CURRENT_SCHEMA_VERSION = 20`. | Restore convention comment block + migrations v17–v20. When upstream ships their next migration (v13 in upstream numbering), renumber it to 21 and set `CURRENT_SCHEMA_VERSION = 21`. |
 | `src/database/storage/JSONLWriter.ts` | `readEventsStreaming()` private method using Node.js `readline` for streaming large JSONL files. Marked retired 2026-04-19 prematurely — method is still present. **Retirement candidate (Phase 4)**: verify no callers, then remove method and take upstream exactly. |
 | `eslint.config.mjs` | `"src/database/storage/JSONLWriter.ts"` added to Node.js modules exemption list. Required as long as JSONLWriter.ts carries `readEventsStreaming()`. **Retire together with JSONLWriter.ts.** |
 
@@ -41,7 +41,11 @@ they do a conflict will occur. Resolution is always: take upstream base, then re
 
 ## Tier 3 — Fork bug fixes (low conflict risk, but track for awareness)
 
-*No Tier 3 entries.* All Tier 3 patches retired as of 2026-04-20.
+| File | Fork change | Notes |
+|------|-------------|-------|
+| `src/settings/SettingsView.ts` | `availableUpdateVersion` stale-clear guard in `renderHeader` (commit `a4922ef4`, 2026-04-28). | When the plugin is deployed directly (not via in-app updater), the persisted `availableUpdateVersion` stays set even after the installed version reaches it. Guard clears it and saves settings so the badge/button don't show stale update prompts. Upstream-eligible. |
+| `tests/unit/ModelAgentManager.test.ts` | Snapshot adjusted for fork's `imageProvider` / `imageModel` / `transcriptionProvider` / `transcriptionModel` fields (v5.8.1-era fork-adjusted snapshot). | Re-check on every upstream merge that touches `ModelAgentManager`. |
+| `tests/unit/SchemaMigrator.test.ts` | Numeric assertions track v20 renumber (upstream tests it at v12). Seed in "starting at prior version" test changed v11 → v19 so only the renumbered migration applies. (commit `be4dd26b`, 2026-05-07) | Will need re-adjustment whenever upstream lands another migration that the fork renumbers. |
 
 **Retired entries:**
 - `src/database/adapters/HybridStorageAdapter.ts` — **RETIRED 2026-04-20** (commit `ebd13dba`): pre-migrated 59 files/22,872 events to vault-root via `scripts/migrate_to_vault_root.js`, then took upstream exactly. All 5 patches removed. Data now in `00-System/Nexus/data/`.
