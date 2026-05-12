@@ -9,8 +9,8 @@ retired as soon as they are no longer needed or superseded by upstream. The only
 divergences are files that are fork-infrastructure by nature (deploy scripts, fork docs) or
 that carry data migrations specific to this vault.
 
-**Last audited against:** upstream/main HEAD (`eaff5388`) — v5.8.12 (PRs #192–#202)  
-**Audit date:** 2026-05-07  
+**Last audited against:** upstream/main HEAD (`165cda28`) — v5.9.0 (PRs #203–#206 + DeepSeek follow-up)  
+**Audit date:** 2026-05-12  
 **Next merge target:** next upstream/main HEAD
 
 ---
