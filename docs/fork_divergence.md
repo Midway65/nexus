@@ -9,8 +9,8 @@ retired as soon as they are no longer needed or superseded by upstream. The only
 divergences are files that are fork-infrastructure by nature (deploy scripts, fork docs) or
 that carry data migrations specific to this vault.
 
-**Last audited against:** upstream/main HEAD (`165cda28`) — v5.9.0 (PRs #203–#206 + DeepSeek follow-up)  
-**Audit date:** 2026-05-12  
+**Last audited against:** upstream/main HEAD (`b40be807`) — v5.9.3 (Obsidian release-review + source-review compliance)  
+**Audit date:** 2026-05-13  
 **Next merge target:** next upstream/main HEAD
 
 ---
@@ -43,11 +43,11 @@ they do a conflict will occur. Resolution is always: take upstream base, then re
 
 | File | Fork change | Notes |
 |------|-------------|-------|
-| `src/settings/SettingsView.ts` | `availableUpdateVersion` stale-clear guard in `renderHeader` (commit `a4922ef4`, 2026-04-28). | When the plugin is deployed directly (not via in-app updater), the persisted `availableUpdateVersion` stays set even after the installed version reaches it. Guard clears it and saves settings so the badge/button don't show stale update prompts. Upstream-eligible. |
-| `tests/unit/ModelAgentManager.test.ts` | Snapshot adjusted for fork's `imageProvider` / `imageModel` / `transcriptionProvider` / `transcriptionModel` fields (v5.8.1-era fork-adjusted snapshot). | Re-check on every upstream merge that touches `ModelAgentManager`. |
+| `src/settings/SettingsView.ts` | `availableUpdateVersion` stale-clear guard in `renderHeader` (commit `a4922ef4`, 2026-04-28). | As of v5.9.x upstream removed the in-plugin auto-updater and the "Update" button just opens the GitHub release page in a browser — `availableUpdateVersion` is still persisted but never cleared after the user installs, so this guard is universally useful now (not just for direct-deploy users). More upstream-eligible than ever. |
 | `tests/unit/SchemaMigrator.test.ts` | Numeric assertions track v20 renumber (upstream tests it at v12). Seed in "starting at prior version" test changed v11 → v19 so only the renumbered migration applies. (commit `be4dd26b`, 2026-05-07) | Will need re-adjustment whenever upstream lands another migration that the fork renumbers. |
 
 **Retired entries:**
+- `tests/unit/ModelAgentManager.test.ts` — **RETIRED 2026-05-13** (v5.9.3 merge `f4fe29f1`): upstream switched the assertion from strict `toHaveBeenCalledWith({...})` to `expect.objectContaining({...})`, which tolerates the fork's extra `imageProvider`/`imageModel`/`transcriptionProvider`/`transcriptionModel` fields without adjustment. Took upstream entirely.
 - `src/database/adapters/HybridStorageAdapter.ts` — **RETIRED 2026-04-20** (commit `ebd13dba`): pre-migrated 59 files/22,872 events to vault-root via `scripts/migrate_to_vault_root.js`, then took upstream exactly. All 5 patches removed. Data now in `00-System/Nexus/data/`.
 - `src/ui/chat/builders/ChatLayoutBuilder.ts` — **RETIRED 2026-04-20** (commit `879bfede`): took upstream exactly; banner restored, `_component` rename removed
 - `src/settings/tabs/WorkspacesTab.ts` — **RETIRED 2026-04-20** (commit `879bfede`): took upstream exactly; upstream v5.8.2 has own race-condition mitigation, `waitForReady()` patch no longer needed
