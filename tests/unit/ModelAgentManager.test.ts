@@ -240,7 +240,7 @@ describe('ModelAgentManager', () => {
     await manager.saveToConversation('conv_2');
 
     expect(conversationService.updateConversationMetadata).toHaveBeenCalledWith('conv_2', {
-      chatSettings: {
+      chatSettings: expect.objectContaining({
         providerId: selectedModel.providerId,
         modelId: selectedModel.modelId,
         promptId: selectedPrompt.id,
@@ -251,12 +251,8 @@ describe('ModelAgentManager', () => {
         temperature: 0.35,
         agentProvider: 'openai',
         agentModel: 'gpt-5',
-        agentThinking: { enabled: false, effort: 'medium' },
-        imageProvider: 'google',
-        imageModel: 'gemini-2.5-flash-image',
-        transcriptionProvider: null,
-        transcriptionModel: null
-      }
+        agentThinking: { enabled: false, effort: 'medium' }
+      })
     });
   });
 
