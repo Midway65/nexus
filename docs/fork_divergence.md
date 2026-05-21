@@ -9,8 +9,8 @@ retired as soon as they are no longer needed or superseded by upstream. The only
 divergences are files that are fork-infrastructure by nature (deploy scripts, fork docs) or
 that carry data migrations specific to this vault.
 
-**Last audited against:** upstream/main HEAD (`b40be807`) — v5.9.3 (Obsidian release-review + source-review compliance)  
-**Audit date:** 2026-05-13  
+**Last audited against:** upstream/main HEAD (`a74d8521`) — v5.9.5 (HybridStorageAdapter lifecycle-controller refactor + plugin-store compliance)  
+**Audit date:** 2026-05-21  
 **Next merge target:** next upstream/main HEAD
 
 ---
