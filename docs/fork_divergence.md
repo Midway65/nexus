@@ -9,8 +9,8 @@ retired as soon as they are no longer needed or superseded by upstream. The only
 divergences are files that are fork-infrastructure by nature (deploy scripts, fork docs) or
 that carry data migrations specific to this vault.
 
-**Last audited against:** upstream/main HEAD (`a74d8521`) — v5.9.5 (HybridStorageAdapter lifecycle-controller refactor + plugin-store compliance)  
-**Audit date:** 2026-05-21  
+**Last audited against:** upstream/main HEAD (`f16356ac`) — v5.9.6 (recover stalled startup hydration: idle watchdog + DataTab rebuild-cache button + TraceEventRetentionPlanner scaffold)  
+**Audit date:** 2026-05-22  
 **Next merge target:** next upstream/main HEAD
 
 ---
