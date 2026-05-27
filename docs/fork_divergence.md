@@ -9,7 +9,7 @@ retired as soon as they are no longer needed or superseded by upstream. The only
 divergences are files that are fork-infrastructure by nature (deploy scripts, fork docs) or
 that carry data migrations specific to this vault.
 
-**Last audited against:** upstream/main HEAD (`f16356ac`) — v5.9.6 (recover stalled startup hydration: idle watchdog + DataTab rebuild-cache button + TraceEventRetentionPlanner scaffold)  
+**Last audited against:** upstream/main HEAD (`14abf46b`) — v5.9.8 (state CRUA tools + states management UI + Wave 3 PR1 BoxedSection/ConfirmModal foundation)  
 **Audit date:** 2026-05-22  
 **Next merge target:** next upstream/main HEAD
 
