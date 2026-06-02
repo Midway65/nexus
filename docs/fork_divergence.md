@@ -9,7 +9,7 @@ retired as soon as they are no longer needed or superseded by upstream. The only
 divergences are files that are fork-infrastructure by nature (deploy scripts, fork docs) or
 that carry data migrations specific to this vault.
 
-**Last audited against:** upstream/main HEAD (`14abf46b`) — v5.9.8 (state CRUA tools + states management UI + Wave 3 PR1 BoxedSection/ConfirmModal foundation)  
+**Last audited against:** upstream/main HEAD (`e0a62c6f`) — v5.9.9 (Data Analysis app + Skills app + Wave 3 PR2/PR4 workspace UI + Claude Opus 4.8)  
 **Audit date:** 2026-05-22  
 **Next merge target:** next upstream/main HEAD
 
@@ -33,7 +33,7 @@ they do a conflict will occur. Resolution is always: take upstream base, then re
 
 | File | Fork change | Fork block to restore |
 |------|-------------|----------------------|
-| `src/database/schema/SchemaMigrator.ts` | Convention comment + fork migrations v17–v19 (v12–v16 removed 2026-04-08) + v20 (renumbered from upstream v12 `shard_cursors`, merged 2026-05-07). `CURRENT_SCHEMA_VERSION = 20`. | Restore convention comment block + migrations v17–v20. When upstream ships their next migration (v13 in upstream numbering), renumber it to 21 and set `CURRENT_SCHEMA_VERSION = 21`. |
+| `src/database/schema/SchemaMigrator.ts` | Convention comment + fork migrations v17–v19 (v12–v16 removed 2026-04-08) + v20 (renumbered from upstream v12 `shard_cursors`, merged 2026-05-07) + v21 (renumbered from upstream v13 `skills`, merged 2026-05-22). `CURRENT_SCHEMA_VERSION = 21`. | Restore convention comment block + migrations v17–v21. When upstream ships their next migration (v14 in upstream numbering), renumber it to 22 and set `CURRENT_SCHEMA_VERSION = 22`. |
 | `src/database/storage/JSONLWriter.ts` | `readEventsStreaming()` private method using Node.js `readline` for streaming large JSONL files. Marked retired 2026-04-19 prematurely — method is still present. **Retirement candidate (Phase 4)**: verify no callers, then remove method and take upstream exactly. |
 | `eslint.config.mjs` | `"src/database/storage/JSONLWriter.ts"` added to Node.js modules exemption list. Required as long as JSONLWriter.ts carries `readEventsStreaming()`. **Retire together with JSONLWriter.ts.** |
 
@@ -44,7 +44,7 @@ they do a conflict will occur. Resolution is always: take upstream base, then re
 | File | Fork change | Notes |
 |------|-------------|-------|
 | `src/settings/SettingsView.ts` | `availableUpdateVersion` stale-clear guard in `renderHeader` (commit `a4922ef4`, 2026-04-28). | As of v5.9.x upstream removed the in-plugin auto-updater and the "Update" button just opens the GitHub release page in a browser — `availableUpdateVersion` is still persisted but never cleared after the user installs, so this guard is universally useful now (not just for direct-deploy users). More upstream-eligible than ever. |
-| `tests/unit/SchemaMigrator.test.ts` | Numeric assertions track v20 renumber (upstream tests it at v12). Seed in "starting at prior version" test changed v11 → v19 so only the renumbered migration applies. (commit `be4dd26b`, 2026-05-07) | Will need re-adjustment whenever upstream lands another migration that the fork renumbers. |
+| `tests/unit/SchemaMigrator.test.ts` | Numeric assertions track v20 + v21 renumbers (upstream tests them at v12 + v13). Seed in "starting at v19" test now asserts both v20 + v21 run (applied=2). Added new describe block for v21 skills migration mirroring upstream's v13 test, renumbered. (last touched in v5.9.9 merge `6d4874ca`, 2026-05-22) | Will need re-adjustment whenever upstream lands another migration that the fork renumbers. |
 
 **Retired entries:**
 - `tests/unit/ModelAgentManager.test.ts` — **RETIRED 2026-05-13** (v5.9.3 merge `f4fe29f1`): upstream switched the assertion from strict `toHaveBeenCalledWith({...})` to `expect.objectContaining({...})`, which tolerates the fork's extra `imageProvider`/`imageModel`/`transcriptionProvider`/`transcriptionModel` fields without adjustment. Took upstream entirely.
