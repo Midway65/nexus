@@ -73,7 +73,7 @@ export interface MigratableDatabase {
 // Alias for backward compatibility
 type Database = MigratableDatabase;
 
-export const CURRENT_SCHEMA_VERSION = 20;
+export const CURRENT_SCHEMA_VERSION = 21;
 
 export interface Migration {
   version: number;
@@ -408,7 +408,7 @@ export const MIGRATIONS: Migration[] = [
   // ========================================================================
   // FORK MIGRATION NUMBERING CONVENTION
   //
-  // This fork's local stubs occupy versions 13–19, and upstream renumbers
+  // This fork's local stubs occupy versions 17–19, and upstream renumbers
   // continue from version 20 upward.
   //
   // RULE: When merging an upstream migration numbered N where N ≤ 19, renumber it
@@ -416,13 +416,13 @@ export const MIGRATIONS: Migration[] = [
   // Once upstream's version counter exceeds the fork's MAX, merge their migrations
   // as-is.
   //
-  // Example — upstream publishes v12:
+  // Example — fork merges upstream v13 (skills table) on top of fork v20:
   //   {
-  //     version: 20,  // renumbered from upstream v12
-  //     description: '[upstream v12] <their description>',
+  //     version: 21,  // renumbered from upstream v13
+  //     description: '[upstream v13] <their description>',
   //     sql: [ /* their SQL unchanged */ ]
   //   }
-  // Then set CURRENT_SCHEMA_VERSION = 20.
+  // Then set CURRENT_SCHEMA_VERSION = 21.
   //
   // This ensures the migrator (which skips anything ≤ MAX(schema_version) in the DB)
   // actually runs the upstream schema change on existing installs.
@@ -508,6 +508,33 @@ export const MIGRATIONS: Migration[] = [
       )`,
       'CREATE INDEX IF NOT EXISTS idx_shard_cursors_path ON shard_cursors(shardPath)',
       'CREATE INDEX IF NOT EXISTS idx_shard_cursors_kind ON shard_cursors(kind)'
+    ]
+  },
+
+  // Version 20 -> 21: [upstream v13] Add skills table (Skills app — derived cache
+  // of on-disk skill folders). Source of truth is the folder on disk; the index
+  // is always rebuildable by a re-scan. UNIQUE(provider, name) — same name allowed
+  // across providers. See docs/plans/skills-protocol-integration-plan.md §4.
+  // Renumbered from upstream's v13 per the FORK MIGRATION NUMBERING CONVENTION above.
+  {
+    version: 21,
+    description: '[upstream v13] Add skills table for the Skills app (derived index of on-disk SKILL.md folders)',
+    sql: [
+      `CREATE TABLE IF NOT EXISTS skills (
+        id            TEXT PRIMARY KEY,
+        provider      TEXT NOT NULL,
+        name          TEXT NOT NULL,
+        description   TEXT,
+        vault_path    TEXT NOT NULL,
+        origin_path   TEXT,
+        content_hash  TEXT NOT NULL,
+        is_archived   INTEGER DEFAULT 0,
+        last_loaded_at INTEGER,
+        created       INTEGER NOT NULL,
+        updated       INTEGER NOT NULL,
+        UNIQUE(provider, name)
+      )`,
+      'CREATE INDEX IF NOT EXISTS idx_skills_name ON skills(name)'
     ]
   },
 ];
