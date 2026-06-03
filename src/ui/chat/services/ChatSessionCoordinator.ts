@@ -63,7 +63,7 @@ interface UIStateControllerLike {
 }
 
 interface ChatSessionCoordinatorDependencies {
-  chatService: ChatService;
+  getChatService: () => ChatService;
   component: Component;
   getContainerEl: () => HTMLElement;
   getChatTitleEl: () => HTMLElement | null;
@@ -111,7 +111,7 @@ export class ChatSessionCoordinator {
       return;
     }
 
-    const conversation = await this.deps.chatService.getConversation(conversationId);
+    const conversation = await this.deps.getChatService().getConversation(conversationId);
     if (!conversation) {
       return;
     }
@@ -219,7 +219,7 @@ export class ChatSessionCoordinator {
 
     await modelAgentManager.initializeDefaults();
 
-    const hasProviders = this.deps.chatService.hasConfiguredProviders();
+    const hasProviders = this.deps.getChatService().hasConfiguredProviders();
     uiStateController.showWelcomeState(hasProviders);
 
     const chatTitle = this.deps.getChatTitleEl();

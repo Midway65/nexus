@@ -114,7 +114,7 @@ export class ChatView extends ItemView {
   constructor(leaf: WorkspaceLeaf, private chatService: ChatService) {
     super(leaf);
     this.sessionCoordinator = new ChatSessionCoordinator({
-      chatService: this.chatService,
+      getChatService: () => this.chatService,
       component: this,
       getContainerEl: () => this.containerEl,
       getChatTitleEl: () => this.layoutElements?.chatTitle ?? null,
@@ -134,7 +134,7 @@ export class ChatView extends ItemView {
     });
     this.sendCoordinator = new ChatSendCoordinator({
       app: this.app,
-      chatService: this.chatService,
+      getChatService: () => this.chatService,
       getContainerEl: () => this.containerEl,
       getConversationManager: () => this.conversationManager ?? null,
       getMessageManager: () => this.messageManager ?? null,
@@ -152,7 +152,7 @@ export class ChatView extends ItemView {
     this.subagentIntegration = new ChatSubagentIntegration({
       app: this.app,
       component: this,
-      chatService: this.chatService,
+      getChatService: () => this.chatService,
       getConversationManager: () => this.conversationManager ?? null,
       getModelAgentManager: () => this.modelAgentManager ?? null,
       getStreamingController: () => this.streamingController ?? null,

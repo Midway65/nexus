@@ -71,7 +71,7 @@ interface ChatSubagentIntegrationResult {
 interface ChatSubagentIntegrationDependencies {
   app: App;
   component: Component;
-  chatService: ChatService;
+  getChatService: () => ChatService;
   getConversationManager: () => ConversationManagerLike | null;
   getModelAgentManager: () => ModelAgentManagerLike | null;
   getStreamingController: () => StreamingController | null;
@@ -135,7 +135,13 @@ export class ChatSubagentIntegration {
         return { preservationService: null, subagentController: null };
       }
 
-      const llmService = this.deps.chatService.getLLMService();
+      const chatService = this.deps.getChatService();
+      if (!chatService) {
+        console.warn('[ChatSubagentIntegration] Cannot initialize: chatService not available');
+        return { preservationService: null, subagentController: null };
+      }
+
+      const llmService = chatService.getLLMService();
       if (!llmService) {
         console.warn('[ChatSubagentIntegration] Cannot initialize: llmService not available');
         return { preservationService: null, subagentController: null };
@@ -154,7 +160,7 @@ export class ChatSubagentIntegration {
       subagentController.initialize(
         {
           app: this.deps.app,
-          chatService: this.deps.chatService,
+          chatService,
           directToolExecutor,
           promptManagerAgent,
           storageAdapter,

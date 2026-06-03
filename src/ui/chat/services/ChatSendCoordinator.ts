@@ -101,7 +101,7 @@ interface StorageAdapterLike {
 
 interface ChatSendCoordinatorDependencies {
   app: App;
-  chatService: ChatService;
+  getChatService: () => ChatService;
   getContainerEl: () => HTMLElement;
   getConversationManager: () => ConversationManagerLike | null;
   getMessageManager: () => MessageManagerLike | null;
@@ -333,7 +333,7 @@ export class ChatSendCoordinator {
     // Save conversation with ALL messages intact — compaction is view-layer only.
     // The boundaryMessageId in metadata.compaction.frontier tells the LLM prompt
     // assembly layer which messages to include.
-    const conversationService = this.deps.chatService.getConversationService();
+    const conversationService = this.deps.getChatService().getConversationService();
     if (conversationService?.updateConversation) {
       await conversationService.updateConversation(conversation.id, {
         title: conversation.title,
@@ -341,7 +341,7 @@ export class ChatSendCoordinator {
         metadata: conversation.metadata
       });
     } else {
-      await this.deps.chatService.updateConversation(conversation);
+      await this.deps.getChatService().updateConversation(conversation);
     }
 
     this.deps.onUpdateContextProgress();
