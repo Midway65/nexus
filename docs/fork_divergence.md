@@ -9,8 +9,8 @@ retired as soon as they are no longer needed or superseded by upstream. The only
 divergences are files that are fork-infrastructure by nature (deploy scripts, fork docs) or
 that carry data migrations specific to this vault.
 
-**Last audited against:** upstream/main HEAD (`e0a62c6f`) — v5.9.9 (Data Analysis app + Skills app + Wave 3 PR2/PR4 workspace UI + Claude Opus 4.8)  
-**Audit date:** 2026-05-22  
+**Last audited against:** upstream/main HEAD (`e2db3ed7`) — v5.10.0 (Wave 3 PR3 task detail page + linked-notes/linkType AI surface + dep security bump MCP SDK 1.29.0)  
+**Audit date:** 2026-06-03  
 **Next merge target:** next upstream/main HEAD
 
 ---
@@ -45,6 +45,7 @@ they do a conflict will occur. Resolution is always: take upstream base, then re
 |------|-------------|-------|
 | `src/settings/SettingsView.ts` | `availableUpdateVersion` stale-clear guard in `renderHeader` (commit `a4922ef4`, 2026-04-28). | As of v5.9.x upstream removed the in-plugin auto-updater and the "Update" button just opens the GitHub release page in a browser — `availableUpdateVersion` is still persisted but never cleared after the user installs, so this guard is universally useful now (not just for direct-deploy users). More upstream-eligible than ever. |
 | `tests/unit/SchemaMigrator.test.ts` | Numeric assertions track v20 + v21 renumbers (upstream tests them at v12 + v13). Seed in "starting at v19" test now asserts both v20 + v21 run (applied=2). Added new describe block for v21 skills migration mirroring upstream's v13 test, renumbered. (last touched in v5.9.9 merge `6d4874ca`, 2026-05-22) | Will need re-adjustment whenever upstream lands another migration that the fork renumbers. |
+| `src/ui/chat/ChatView.ts` + `src/ui/chat/services/{ChatSendCoordinator,ChatSessionCoordinator,ChatSubagentIntegration}.ts` | `chatService` dependency injected as a lazy `getChatService: () => ChatService` thunk instead of a direct reference, plus a null-guard in `ChatSubagentIntegration` init (commit `d242630d`, 2026-06-03). Upstream does not touch `src/ui/chat/` so these auto-merge, but track for awareness. | Upstream-eligible — defensive lazy-getter pattern. Propose upstream or retire if a future refactor supersedes it. |
 
 **Retired entries:**
 - `tests/unit/ModelAgentManager.test.ts` — **RETIRED 2026-05-13** (v5.9.3 merge `f4fe29f1`): upstream switched the assertion from strict `toHaveBeenCalledWith({...})` to `expect.objectContaining({...})`, which tolerates the fork's extra `imageProvider`/`imageModel`/`transcriptionProvider`/`transcriptionModel` fields without adjustment. Took upstream entirely.
