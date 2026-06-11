@@ -26,6 +26,11 @@ export default defineConfig([
             "jest.config.js",
             "esbuild.config.mjs",
             "eslint.config.mjs",
+            // version script: typed obsidianmd rules (no-plugin-as-component) throw
+            // on it — no parserOptions.project coverage. Upstream bug (reproduces on
+            // pristine upstream/main); fork-local until upstream ignores it. See
+            // docs/fork_divergence.md v5.11.1 notes.
+            "version-bump.mjs",
             "scripts/",
             "docs/",
             // Test files — not covered by tsconfig.json include paths;
