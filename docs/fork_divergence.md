@@ -13,7 +13,7 @@ that carry data migrations specific to this vault.
 **Audit date:** 2026-06-11  
 **Next merge target:** next upstream/main HEAD
 
-> v5.11.1 merge notes: 2 conflicts only (CLAUDE.md kept-ours, connectorContent.ts took-theirs+regen). All Tier 2/3 divergences auto-merged. **No SchemaMigrator renumber** (upstream still v13; fork stays v21). `ChatView.ts` (Tier 3 `getChatService` thunk) auto-merged but is NOW a live-overlap file — v5.11 voice features edit `src/ui/chat/` heavily, so the "upstream never touches chat" assumption is retired. Dependency slimming dropped winston/uuid/web-llm/transformers/express/cors etc. → lockfile 854→710 packages, **0 vulnerabilities**. Known: `npm run lint` fails on `version-bump.mjs` (`obsidianmd/no-plugin-as-component` typed rule throws) — **pre-existing upstream issue, reproduces on pristine upstream checkout**, not caused by this merge.
+> v5.11.1 merge notes: 2 conflicts only (CLAUDE.md kept-ours, connectorContent.ts took-theirs+regen). All Tier 2/3 divergences auto-merged. **No SchemaMigrator renumber** (upstream still v13; fork stays v21). `ChatView.ts` (Tier 3 `getChatService` thunk) auto-merged but is NOW a live-overlap file — v5.11 voice features edit `src/ui/chat/` heavily, so the "upstream never touches chat" assumption is retired. Dependency slimming dropped winston/uuid/web-llm/transformers/express/cors etc. → lockfile 854→710 packages, **0 vulnerabilities**. Known: `obsidianmd/no-plugin-as-component` typed rule throws on `version-bump.mjs` — **pre-existing upstream issue, reproduces on pristine upstream checkout**, not caused by this merge. Fixed `da5d7072` by adding `version-bump.mjs` to eslint.config.mjs ignores (new small Tier-2 divergence; upstream-eligible). Full `npm run build` now green.
 
 ---
 
