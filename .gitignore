@@ -8,6 +8,7 @@ pyodide/
 cline_docs/
 
 main.js
+*.map
 
 .serena/
 
@@ -37,6 +38,9 @@ docs/mockups/*
 !docs/mockups/*.html
 !docs/mockups/*.css
 !docs/mockups/*.js
+!docs/audits/
+docs/audits/*
+!docs/audits/*.md
 
 Example Files/
 

@@ -34,6 +34,8 @@ import { UIStateController, UIStateControllerEvents } from './controllers/UIStat
 import { StreamingController } from './controllers/StreamingController';
 import { NexusLoadingController } from './controllers/NexusLoadingController';
 import { SubagentController } from './controllers/SubagentController';
+import { ChatLiveVoiceController } from './controllers/ChatLiveVoiceController';
+import { LiveVoiceContextBuilder } from '../../services/realtimeVoice/LiveVoiceContextBuilder';
 
 // Coordinators
 import { ToolStatusBar } from './components/ToolStatusBar';
@@ -52,6 +54,7 @@ import { ChatEventBinder } from './utils/ChatEventBinder';
 
 import { CHAT_VIEW_TYPES } from '../../constants/branding';
 import { getNexusPlugin } from '../../utils/pluginLocator';
+import { generateUUID } from '../../utils/uuid';
 
 // Nexus Lifecycle
 import { getWebLLMLifecycleManager } from '../../services/llm/adapters/webllm/WebLLMLifecycleManager';
@@ -89,6 +92,7 @@ export class ChatView extends ItemView {
   private uiStateController!: UIStateController;
   private streamingController!: StreamingController;
   private nexusLoadingController!: NexusLoadingController;
+  private liveVoiceController: ChatLiveVoiceController | null = null;
   private toolCallStateManager!: ToolCallStateManager;
   private toolEventCoordinator!: ToolEventCoordinator;
   private toolStatusBar!: ToolStatusBar;
@@ -661,8 +665,24 @@ export class ChatView extends ItemView {
         this.sendCoordinator.handleStopGeneration();
       },
       () => this.conversationManager.getCurrentConversation() !== null,
-      this // Pass Component for registerDomEvent
+      this, // Pass Component for registerDomEvent
+      () => this.liveVoiceController?.stop(),
+      () => this.getEffectiveVoiceLLMSettings()
     );
+
+    this.liveVoiceController = new ChatLiveVoiceController({
+      app: this.app,
+      chatInput: this.chatInput,
+      toolStatusBar: this.toolStatusBar,
+      liveVoiceButton: this.layoutElements.liveVoiceButton,
+      getHasConversation: () => this.conversationManager.getCurrentConversation() !== null,
+      getLLMSettings: () => this.getEffectiveVoiceLLMSettings(),
+      getConversationContext: () => new LiveVoiceContextBuilder().build(this.conversationManager.getCurrentConversation()),
+      onTranscriptMessage: (role, content) => {
+        void this.appendLiveVoiceTranscriptMessage(role, content);
+      },
+      component: this,
+    });
 
     // Update conversation list if conversations were already loaded
     const conversations = this.conversationManager.getConversations();
@@ -830,6 +850,12 @@ export class ChatView extends ItemView {
     modal.open();
   }
 
+  private getEffectiveVoiceLLMSettings() {
+    const plugin = getNexusPlugin<NexusPlugin>(this.app);
+    const llmSettings = plugin?.settings?.settings?.llmProviders ?? null;
+    return this.modelAgentManager.applyChatVoiceOverrides(llmSettings);
+  }
+
   /**
    * Load initial data
    */
@@ -851,6 +877,53 @@ export class ChatView extends ItemView {
 
   private handleAIMessageStarted(message: ConversationMessage): void {
     this.messageDisplay.addAIMessage(message);
+  }
+
+  private async appendLiveVoiceTranscriptMessage(role: 'user' | 'assistant', content: string): Promise<void> {
+    const normalizedContent = content.replace(/\s+/g, ' ').trim();
+    if (!normalizedContent) {
+      return;
+    }
+
+    const conversation = this.conversationManager.getCurrentConversation();
+    if (!conversation) {
+      return;
+    }
+
+    const message: ConversationMessage = {
+      id: generateUUID(),
+      role,
+      content: normalizedContent,
+      timestamp: Date.now(),
+      conversationId: conversation.id,
+      state: 'complete',
+      metadata: {
+        source: 'liveVoice',
+      },
+    };
+
+    const result = await this.chatService.addMessage({
+      conversationId: conversation.id,
+      role,
+      content: normalizedContent,
+      id: message.id,
+      metadata: message.metadata,
+    });
+
+    if (!result.success) {
+      console.error('[ChatView] Failed to append live voice transcript:', result.error);
+      this.toolStatusBar.pushLiveVoiceStatus(result.error || 'Failed to append live voice transcript.', 'failed');
+      return;
+    }
+
+    const updatedConversation: ConversationData = {
+      ...conversation,
+      messages: [...conversation.messages, message],
+      updated: Date.now(),
+    };
+    this.conversationManager.updateCurrentConversation(updatedConversation);
+    this.messageDisplay.setConversation(updatedConversation);
+    void this.updateContextProgress();
   }
 
   private handleStreamingUpdate(messageId: string, content: string, isComplete: boolean, isIncremental?: boolean): void {
@@ -1035,6 +1108,8 @@ export class ChatView extends ItemView {
     }
     this.conversationList?.cleanup();
     this.messageDisplay?.cleanup();
+    this.liveVoiceController?.cleanup();
+    this.liveVoiceController = null;
     this.chatInput?.cleanup();
     this.toolStatusBar?.cleanup();
     this.uiStateController?.cleanup();

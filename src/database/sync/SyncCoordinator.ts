@@ -256,7 +256,21 @@ export class SyncCoordinator {
    * Full rebuild of SQLite from JSONL files.
    *
    * NOTE: Uses smaller batch size (25) to avoid OOM errors with sql.js asm.js version.
-   * Saves after each file to prevent memory accumulation.
+   * Saves once after replay and FTS rebuild so cold-start cache rebuilds do not
+   * repeatedly export and rewrite the full SQLite blob.
+   *
+   * Error handling distinguishes two error classes so a single bad input file
+   * never permanently breaks cold-start:
+   * - Per-file / per-event errors (a malformed JSONL file, an event an applier
+   *   rejects) are RECOVERABLE: the offending file is skipped, accumulated in
+   *   `errors` as a warning, and the rebuild continues. The good cache is still
+   *   indexed, saved, and the sync state advanced, so cold-start does NOT re-run
+   *   the rebuild on every launch. The completed result is `success: true` and
+   *   `errors` carries the skipped-file warnings.
+   * - Fatal errors (clearAllData / rebuildFTSIndexes / updateSyncState / save
+   *   throwing — i.e. the rebuild engine itself failing) are NOT recoverable.
+   *   They propagate to the catch below, which returns `success: false` WITHOUT
+   *   saving, preserving the "never persist a half-built index" guarantee.
    */
   async fullRebuild(options: SyncOptions = {}): Promise<SyncResult> {
     const startTime = Date.now();
@@ -285,7 +299,21 @@ export class SyncCoordinator {
       eventsApplied += taskResult.applied;
       filesProcessed.push(...taskResult.files);
 
-      // Rebuild FTS and save
+      // Surface skipped files so a persistent bad input file is visible in the
+      // console, but do NOT abort: per-file errors are recoverable. Aborting
+      // here (the previous behavior) discarded the entire good rebuild and never
+      // saved, so cold-start re-ran fullRebuild on every launch — a permanent
+      // loop on a single malformed file.
+      if (errors.length > 0) {
+        console.warn(
+          `[SyncCoordinator] Full rebuild skipped ${errors.length} file(s)/event(s); ` +
+          `continuing with the good cache: ${errors.join('; ')}`
+        );
+      }
+
+      // Rebuild FTS and save. Reaching here means the rebuild engine itself
+      // succeeded, so the cache is valid and MUST be persisted (even if some
+      // input files were skipped above).
       options.onProgress?.('Rebuilding search indexes', 0, 1);
       await this.sqliteCache.rebuildFTSIndexes();
       await this.sqliteCache.updateSyncState(this.deviceId, Date.now(), {});
@@ -293,16 +321,14 @@ export class SyncCoordinator {
 
       options.onProgress?.('Complete', 1, 1);
 
-      return this.createResult(errors.length === 0, eventsApplied, 0, errors, startTime, filesProcessed);
+      // success: true even when `errors` is non-empty — those are skipped-file
+      // warnings, not a failed rebuild. Callers throw only on `!success`, so
+      // this persists the good cache and prevents the cold-start rebuild loop.
+      return this.createResult(true, eventsApplied, 0, errors, startTime, filesProcessed);
     } catch (error) {
+      // Fatal: the rebuild engine failed. Do not save — never persist a
+      // half-built index. success: false makes callers surface the failure.
       console.error('[SyncCoordinator] Full rebuild failed:', error);
-      // Still save sync state so we don't rebuild again on next restart
-      try {
-        await this.sqliteCache.updateSyncState(this.deviceId, Date.now(), {});
-        await this.sqliteCache.save();
-      } catch (saveError) {
-        console.error('[SyncCoordinator] Failed to save sync state:', saveError);
-      }
       return this.createResult(false, eventsApplied, 0, [...errors, `Rebuild failed: ${String(error)}`], startTime, filesProcessed);
     }
   }
@@ -472,8 +498,6 @@ export class SyncCoordinator {
         files.push(file);
         options.onProgress?.('Processing workspaces', i + 1, workspaceFiles.length);
 
-        // Save after each file to prevent memory accumulation (OOM prevention)
-        await this.sqliteCache.save();
       } catch (e) {
         errors.push(`Failed to process ${file}: ${String(e)}`);
       }
@@ -521,8 +545,6 @@ export class SyncCoordinator {
         files.push(file);
         options.onProgress?.('Processing conversations', i + 1, conversationFiles.length);
 
-        // Save after each file to prevent memory accumulation (OOM prevention)
-        await this.sqliteCache.save();
       } catch (e) {
         errors.push(`Failed to process ${file}: ${String(e)}`);
       }
@@ -621,8 +643,6 @@ export class SyncCoordinator {
         files.push(file);
         options.onProgress?.('Processing tasks', i + 1, taskFiles.length);
 
-        // Save after each file to prevent memory accumulation (OOM prevention)
-        await this.sqliteCache.save();
       } catch (e) {
         errors.push(`Failed to process ${file}: ${String(e)}`);
       }
