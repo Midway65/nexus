@@ -156,6 +156,7 @@ export interface SessionUpdatedEvent extends BaseStorageEvent {
   data: Partial<{
     name: string;
     description: string;
+    startTime: number;
     endTime: number;
     isActive: boolean;
     workspaceId: string;
@@ -640,7 +641,7 @@ export interface TaskUpdatedEvent extends BaseStorageEvent {
     status: string;
     priority: string;
     updated: number;
-    completedAt: number;
+    completedAt: number | null;
     dueDate: number;
     assignee: string;
     tagsJson: string;
