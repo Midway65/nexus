@@ -9,9 +9,11 @@ retired as soon as they are no longer needed or superseded by upstream. The only
 divergences are files that are fork-infrastructure by nature (deploy scripts, fork docs) or
 that carry data migrations specific to this vault.
 
-**Last audited against:** upstream/main HEAD (`3f0b7a7c`) — v5.11.1 (live voice OpenAI+Gemini, read-aloud save/embed, video-gen jobs, Claude Fable 5, dependency slimming + security/audit pass)  
-**Audit date:** 2026-06-11  
+**Last audited against:** upstream/main HEAD (`abf26e03`) — v5.11.2 (HybridStorageAdapter split refactor, opt-in secure key storage, LLM adapter dedup, session/task fixes, Requesty Gemini slug fix)  
+**Audit date:** 2026-06-12  
 **Next merge target:** next upstream/main HEAD
+
+> v5.11.2 merge notes: 2 conflicts only (CLAUDE.md kept-ours, connectorContent.ts took-theirs; regen matched upstream byte-for-byte). All Tier 2/3 divergences auto-merged. **No SchemaMigrator renumber** (upstream still v13; fork stays v21). **RETIRED the `version-bump.mjs` eslint ignore** (`5ca9487a`): upstream `c47d00d7` disabled obsidianmd typed rules for all `.js`/`.mjs` files, superseding the fork's `da5d7072` workaround one release later — `eslint.config.mjs` divergence now back to just the JSONLWriter exemption. **HybridStorageAdapter split** (#261/#262/#263) extracted ~370 lines into HybridStorageAssembly + StorageMaintenanceService; auto-merged (fork fully converged this file); path resolution untouched → data-folder reset risk LOW, but it's the adapter behind past `waitForQueryReady` hangs → storage smoke matters. Secure key storage (#254) is opt-in/default-off — keys stay in data.json. 0 vulnerabilities. Full `npm run build` green.
 
 > v5.11.1 merge notes: 2 conflicts only (CLAUDE.md kept-ours, connectorContent.ts took-theirs+regen). All Tier 2/3 divergences auto-merged. **No SchemaMigrator renumber** (upstream still v13; fork stays v21). `ChatView.ts` (Tier 3 `getChatService` thunk) auto-merged but is NOW a live-overlap file — v5.11 voice features edit `src/ui/chat/` heavily, so the "upstream never touches chat" assumption is retired. Dependency slimming dropped winston/uuid/web-llm/transformers/express/cors etc. → lockfile 854→710 packages, **0 vulnerabilities**. Known: `obsidianmd/no-plugin-as-component` typed rule throws on `version-bump.mjs` — **pre-existing upstream issue, reproduces on pristine upstream checkout**, not caused by this merge. Fixed `da5d7072` by adding `version-bump.mjs` to eslint.config.mjs ignores (new small Tier-2 divergence; upstream-eligible). Full `npm run build` now green.
 
