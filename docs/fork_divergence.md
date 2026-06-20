@@ -9,9 +9,11 @@ retired as soon as they are no longer needed or superseded by upstream. The only
 divergences are files that are fork-infrastructure by nature (deploy scripts, fork docs) or
 that carry data migrations specific to this vault.
 
-**Last audited against:** upstream/main HEAD (`949dc233`) — v5.12.0 (self-improving local retrieval adapter "dreaming embeddings", toolManager batch-read nudge, task-board cold-start fix + delete icon)  
-**Audit date:** 2026-06-13  
+**Last audited against:** upstream/main HEAD (`f9c31b44`) — v5.12.1 (model catalog refresh: +GLM 5.2 / Kimi K2.7 Code, prune stale models; eval+toolManager harness hardening + nexus-model-eval skill; useTools CLI guidance)  
+**Audit date:** 2026-06-20  
 **Next merge target:** next upstream/main HEAD
+
+> v5.12.1 merge notes: routine — **1 conflict only** (CLAUDE.md kept-ours). `connectorContent.ts` FF'd clean (regen timestamp-only). **Zero divergence-file touches** — every Tier 2/3 file auto-merged untouched. **No SchemaMigrator renumber** (upstream still v13; fork stays v21). **No dependency changes** (version bump only). Only user-visible change is the model-catalog prune (#268): removed Claude 4.5 Opus/Sonnet, GPT-5/5.1/Mini/Nano, Gemini 2.5 & 3.0-Preview, old Groq Llama/Gemma; added GLM 5.2 + Kimi K2.7 Code. **Verified NIL user impact** — all of this vault's configured models survive (default `claude-opus-4-7`, agent `claude-sonnet-4-6`, image `gemini-2.5-flash-image` [separate catalog], video/OCR/transcription/webllm all untouched). esbuild HIGH advisory (GHSA-gv7w-rqvm-qjhr) still carried — build-time devDep, not shipped, NOT applied. Full `npm run build` green.
 
 > v5.12.0 merge notes: cleanest merge in the series — **1 conflict only** (CLAUDE.md kept-ours). `connectorContent.ts` no longer divergent (converged v5.11.2) → fast-forwarded clean; regen timestamp-only. **Zero divergence-file touches by upstream** — every Tier 2/3 file auto-merged untouched. **No SchemaMigrator renumber** (upstream still v13; fork stays v21). **No dependency changes** (version bump only). Headline #265 "dreaming embeddings" (query-side low-rank adapter over frozen MiniLM, idle-time dream consolidation) ships IDENTITY by default + kill-switch + NO schema migration; persists to `<root>/data/embeddings/adapter.json` (→ `00-System/Nexus/Data/embeddings/adapter.json`, absent=identity). #267 fixes empty-task-board-on-cold-start. ⚠️ `npm audit` now reports 1 HIGH on esbuild (GHSA-gv7w-rqvm-qjhr) — **build-time-only devDep, not shipped; upstream pins same version (not a merge regression); fix is breaking → NOT applied** per standing no-`--force` rule. Full `npm run build` green.
 
