@@ -140,7 +140,7 @@ export class OpenAIAdapter extends BaseAdapter {
   private deepResearch: DeepResearchHandler;
 
   constructor(apiKey: string) {
-    super(apiKey, 'gpt-5.5');
+    super(apiKey, 'gpt-5.6-sol');
     this.deepResearch = new DeepResearchHandler(this.apiKey, this.baseUrl);
     this.initializeCache();
   }
@@ -231,7 +231,7 @@ export class OpenAIAdapter extends BaseAdapter {
               };
             }
             // Already in Responses API format
-            return tool as OpenAIResponsesTool;
+            return tool;
           });
         }
 

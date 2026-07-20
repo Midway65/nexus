@@ -158,7 +158,7 @@ export class OpenRouterAdapter extends BaseAdapter {
     apiKey: string,
     options?: { httpReferer?: string; xTitle?: string }
   ) {
-    super(apiKey, 'openai/gpt-5.5');
+    super(apiKey, 'openai/gpt-5.6-sol');
     this.httpReferer = options?.httpReferer?.trim() || 'https://synapticlabs.ai';
     this.xTitle = options?.xTitle?.trim() || BRAND_NAME;
     this.initializeCache();
@@ -429,7 +429,7 @@ export class OpenRouterAdapter extends BaseAdapter {
                   }
                 ) as unknown as OpenRouterToolCall[];
               }
-              return toolCalls as unknown as SSEToolCall[];
+              return toolCalls;
             }
           }
           return null;
@@ -863,7 +863,7 @@ function toOpenRouterResponse(value: unknown): OpenRouterResponse {
     return {};
   }
 
-  return value as OpenRouterResponse;
+  return value;
 }
 
 function parseToolArguments(value: unknown): Record<string, unknown> {

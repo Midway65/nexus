@@ -2,6 +2,33 @@
 
 ## July 2026
 
+**v5.15.0** — Local CLI bridge for shell agents (`nexus`)
+
+**Drive your vault from the shell — no MCP config**
+- New **Local CLI** bridge: install a machine-global `nexus` command from **Settings → Get started → External agents** so shell-based coding agents (Claude Code, Cursor, Codex) can discover and run your vault's tools directly, with no `connector.js` / MCP server entry to configure. It speaks the same two-tool protocol over the same local socket the MCP connector uses; the plugin server is unchanged. Everything installs outside your vault and is fully reversible. See the [Nexus CLI guide](../guide/nexus-cli.md).
+- A provider picker wires the CLI into the agents you choose — a Claude Code skill, a Cursor skill, and/or a Codex `AGENTS.md` pointer — defaulting to whatever it detects on your machine.
+- The **Get started → MCP integration** path is renamed **External agents** (MCP clients + CLI coding agents).
+
+**Vault-path confinement (security hardening)**
+- Caller-supplied paths for every write tool now pass through a single fused confinement resolver that rejects directory traversal (`..`), absolute, and home-expansion paths — closing a hole where `content write` / `storage createFolder` could escape the vault. An eslint architecture guard prevents new direct-mutation call sites from bypassing it.
+- **Windows hardening:** trailing-dot/space path segments (which Windows collapses to `..` at the syscall layer) are now rejected before they can escape; reserved device names (`CON`/`NUL`/`COM1`…), NTFS alternate-data-stream (`:`) paths, and control characters are rejected; and untrusted writes into executable-content directories (the Obsidian config folder, `.git`) are blocked to prevent config/hook code execution.
+
+**Local CLI installer & socket hardening**
+- The installer no longer overwrites (or, on uninstall, deletes) a pre-existing `nexus` command from another tool. The CLI verifies socket ownership before connecting, and the plugin's local socket is created owner-only with no permission-window race. On Windows the provider picker now reflects wired agents correctly and refreshes stale skill copies after an update.
+- On Windows, **Install CLI** now adds `%LOCALAPPDATA%\nexus` to the current user's PATH automatically. Uninstall removes the entry only when Nexus originally added it, and the status display now distinguishes a present shim from a command that is actually resolvable on PATH.
+- `nexus vaults` now discovers open Windows vaults through the local named-pipe namespace. This replaces the broken Node filesystem enumeration, which always returned `ENOTDIR`; `--vault <name>` remains available when local PowerShell policy blocks enumeration.
+- Windows provider-skill copies now carry an ownership marker. Install, refresh, and uninstall preserve any unmarked same-named skill directory; successful uninstall also removes the PATH marker and remaining CLI payload instead of leaving a partial installation behind.
+- Installation now requires a reachable Node.js 18+ runtime and reports when another `nexus` command takes precedence on PATH. JSON-RPC responses are shape-checked before use so valid non-object JSON cannot crash the CLI.
+
+**Storage cutover fix**
+- Once vault-root migration is verified (or no migration is needed), startup no longer merges legacy flat JSONL roots into normal reads. This prevents deleted legacy files and cloud-sync placeholders from being reopened after cutover; legacy roots remain enabled only while migration is pending or failed.
+
+**v5.14.2** — Clearer MCP integration setup
+
+- Reworked **Settings → Get started → MCP integration** so the `connector.js` bridge file is explained up front and the one-click buttons ("Connect Claude Desktop" / "Connect Codex") clearly generate it and wire it into the agent config for you.
+- After connecting, a confirmation card now shows what was created (the connector file + config entry) and the restart step; revisits collapse to a compact connected state.
+- Manual setup is now a collapsible with numbered steps — create the connector first, then add the config, then restart — so the connector file can't be skipped. Added an "Other agents" section (Cursor, Cline, Gemini CLI, Copilot…) linking to the full setup guide.
+
 **v5.14.0** — Mistral OCR (native) + PDF image extraction
 
 **PDF OCR now returns the full document** (fixes silent truncation)

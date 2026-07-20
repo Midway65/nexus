@@ -15,6 +15,7 @@ import { getPrimaryServerKey } from '../../constants/branding';
 import { ConfigStatus, getClaudeDesktopConfigPath, getConfigStatus } from '../getStartedStatus';
 import { resolveDesktopBinaryPath } from '../../utils/binaryDiscovery';
 import { CONNECTOR_JS_CONTENT } from '../../utils/connectorContent';
+import { LocalCliInstaller, CliProviderId, CliInstallTargets } from '../../services/cli/LocalCliInstaller';
 import {
     appendCodexMcpTomlSnippet,
     buildCodexMcpTomlSnippet,
@@ -51,11 +52,28 @@ export interface GetStartedTabServices {
     component?: Component;
 }
 
+interface ManualStepOptions {
+    code: string;
+    configLabel: string;
+    configPath: string | null;
+    known: boolean;
+    restartText: string;
+    summaryText?: string;
+}
+
+interface ConnectedCardOptions {
+    configPath: string;
+    configFileName: string;
+    restartText: string;
+}
+
 export class GetStartedTab {
     private container: HTMLElement;
     private services: GetStartedTabServices;
     private currentView: GetStartedView = 'paths';
     private cachedNodePath: string | null = null;
+    private justConnectedClaude = false;
+    private justConnectedCodex = false;
 
     constructor(
         container: HTMLElement,
@@ -73,6 +91,12 @@ export class GetStartedTab {
     render(): void {
         this.cachedNodePath = null;
         this.container.empty();
+
+        // "Just connected" confirmation cards only persist while on the MCP view.
+        if (this.currentView !== 'mcp-setup') {
+            this.justConnectedClaude = false;
+            this.justConnectedCodex = false;
+        }
 
         switch (this.currentView) {
             case 'paths':
@@ -145,11 +169,11 @@ export class GetStartedTab {
             component.registerDomEvent(chatPath, 'click', chatClickHandler);
         }
 
-        // Path 2: MCP Integration
+        // Path 2: External agents (MCP clients + CLI coding agents)
         const mcpPath = paths.createDiv('nexus-setup-path');
         mcpPath.createDiv('nexus-setup-path-icon').setText('🔗');
-        mcpPath.createDiv('nexus-setup-path-title').setText('MCP integration');
-        mcpPath.createDiv('nexus-setup-path-desc').setText('Connect Claude Desktop, LM Studio, etc.');
+        mcpPath.createDiv('nexus-setup-path-title').setText('External agents');
+        mcpPath.createDiv('nexus-setup-path-desc').setText('Connect Claude Desktop, Codex, Cursor, and more');
         const mcpClickHandler = () => {
             this.currentView = 'mcp-setup';
             this.render();
@@ -218,7 +242,7 @@ export class GetStartedTab {
     }
 
     /**
-     * Render MCP Integration setup view
+     * Render External agents setup view (MCP clients + CLI coding agents)
      */
     private renderMCPSetup(): void {
         new BackButton(
@@ -231,43 +255,28 @@ export class GetStartedTab {
             this.services.component
         );
 
-        this.container.createEl('h3', { text: 'MCP integration setup' });
+        this.container.createEl('h3', { text: 'External agent setup' });
 
-        // MCP setup requires Node.js modules (path, fs, child_process) — desktop only
+        // Setup requires Node.js modules (path, fs, child_process) — desktop only
         if (!Platform.isDesktop) {
             this.container.createEl('p', {
-                text: 'MCP integration requires a desktop environment.',
+                text: 'External agent setup requires a desktop environment.',
                 cls: 'setting-item-description'
             });
             return;
         }
 
-        this.container.createEl('h4', { text: 'Claude Desktop' });
+        this.container.createEl('p', {
+            text: 'Connect Nexus to external AI agents (Claude Desktop, Codex, Cursor, and more) so they can read and write your vault.',
+            cls: 'setting-item-description'
+        });
+
+        this.renderConnectorExplainer();
 
         // Check for Node.js availability
         const nodePath = this.resolveNodePath();
         if (!nodePath) {
-            const nodeWarning = this.container.createDiv('nexus-mcp-row nexus-mcp-node-warning');
-            nodeWarning.createEl('span', {
-                text: 'Node.js not found',
-                cls: 'nexus-mcp-status nexus-mcp-warning'
-            });
-            const actions = nodeWarning.createDiv('nexus-mcp-actions');
-            const downloadBtn = actions.createEl('button', { text: 'Install Node.js', cls: 'mod-cta' });
-            const downloadHandler = () => window.open('https://nodejs.org', '_blank');
-            const component = this.services.component;
-            if (component) {
-                component.registerDomEvent(downloadBtn, 'click', downloadHandler);
-            }
-            const refreshBtn = actions.createEl('button', { text: 'Refresh' });
-            const refreshHandler = () => this.render();
-            if (component) {
-                component.registerDomEvent(refreshBtn, 'click', refreshHandler);
-            }
-            this.container.createEl('p', {
-                text: 'Node.js is required to run the MCP connector. Install it, then click refresh.',
-                cls: 'nexus-mcp-help'
-            });
+            this.renderNodeWarning();
         }
 
         const configPath = getClaudeDesktopConfigPath();
@@ -279,263 +288,556 @@ export class GetStartedTab {
             return;
         }
 
-        const configStatus = this.checkConfigStatus();
+        this.renderClaudeSection(configPath);
 
-        // Compact status + action in one row
+        this.container.createEl('hr', { cls: 'nexus-divider' });
+        this.renderCodexSetupSection();
+
+        this.container.createEl('hr', { cls: 'nexus-divider' });
+        this.renderGenericAgentsSection();
+
+        this.container.createEl('hr', { cls: 'nexus-divider' });
+        this.renderLocalCliSection();
+    }
+
+    /**
+     * Short explainer for what connector.js is and that one-click handles it.
+     */
+    private renderConnectorExplainer(): void {
+        const box = this.container.createDiv('nexus-connector-explainer');
+        box.createSpan({ text: '🔌', cls: 'nx-icon' });
+        const p = box.createEl('p');
+        p.createSpan({ text: 'External agents talk to your vault through a small bridge file, ' });
+        p.createEl('code', { text: 'connector.js' });
+        p.createSpan({ text: ', that Nexus keeps in this plugin’s folder. The one-click buttons below create it and wire it into each agent’s config for you. Prefer to do it by hand? Each agent has a “Set up manually” section with numbered steps.' });
+    }
+
+    /**
+     * Node.js not found warning row.
+     */
+    private renderNodeWarning(): void {
+        const component = this.services.component;
+        const nodeWarning = this.container.createDiv('nexus-mcp-row nexus-mcp-node-warning');
+        nodeWarning.createSpan({
+            text: 'Node.js not found',
+            cls: 'nexus-mcp-status nexus-mcp-warning'
+        });
+        const actions = nodeWarning.createDiv('nexus-mcp-actions');
+        const downloadBtn = actions.createEl('button', { text: 'Install Node.js', cls: 'mod-cta' });
+        if (component) {
+            component.registerDomEvent(downloadBtn, 'click', () => window.open('https://nodejs.org', '_blank'));
+        }
+        const refreshBtn = actions.createEl('button', { text: 'Refresh' });
+        if (component) {
+            component.registerDomEvent(refreshBtn, 'click', () => this.render());
+        }
+        this.container.createEl('p', {
+            text: 'Node.js is required to run the MCP connector. Install it, then click refresh.',
+            cls: 'nexus-mcp-help'
+        });
+    }
+
+    /**
+     * Claude Desktop agent block: status-driven, with a manual fallback disclosure.
+     */
+    private renderClaudeSection(configPath: string): void {
+        const block = this.container.createDiv('nexus-agent-block');
+        const heading = block.createEl('h4');
+        heading.createSpan({ text: '🟣 ', cls: 'nx-agent-logo' });
+        heading.createSpan({ text: 'Claude Desktop' });
+
+        const configStatus = this.checkConfigStatus();
+        const component = this.services.component;
+
         if (configStatus === 'no-claude-folder') {
-            // Claude not installed - show inline warning with action
-            const row = this.container.createDiv('nexus-mcp-row');
-            row.createEl('span', {
+            const row = block.createDiv('nexus-mcp-row');
+            row.createSpan({
                 text: '⚠️ Claude Desktop not found',
                 cls: 'nexus-mcp-status nexus-mcp-warning'
             });
-
             const actions = row.createDiv('nexus-mcp-actions');
             const downloadBtn = actions.createEl('button', { text: 'Download', cls: 'mod-cta' });
-            const downloadHandler = () => window.open('https://claude.ai/download', '_blank');
-            const component = this.services.component;
             if (component) {
-                component.registerDomEvent(downloadBtn, 'click', downloadHandler);
+                component.registerDomEvent(downloadBtn, 'click', () => window.open('https://claude.ai/download', '_blank'));
             }
-
             const refreshBtn = actions.createEl('button', { text: 'Refresh' });
-            const refreshHandler = () => this.render();
             if (component) {
-                component.registerDomEvent(refreshBtn, 'click', refreshHandler);
+                component.registerDomEvent(refreshBtn, 'click', () => this.render());
             }
-
-            // Help text below
-            this.container.createEl('p', {
-                text: 'Install Claude Desktop, open it once, then enable settings → developer → MCP servers',
+            block.createEl('p', {
+                text: 'Install Claude Desktop, open it once, then enable settings → developer → MCP servers and click refresh.',
                 cls: 'nexus-mcp-help'
             });
-        } else if (configStatus === 'nexus-configured') {
-            // Already configured - success state
-            const row = this.container.createDiv('nexus-mcp-row');
-            row.createEl('span', {
-                text: '✓ connected',
-                cls: 'nexus-mcp-status nexus-mcp-success'
-            });
+            return;
+        }
 
-            const actions = row.createDiv('nexus-mcp-actions');
-            const openBtn = actions.createEl('button', { text: 'Open config' });
-            const openHandler = () => this.openConfigFile(configPath);
-            const component = this.services.component;
-            if (component) {
-                component.registerDomEvent(openBtn, 'click', openHandler);
+        if (configStatus === 'nexus-configured') {
+            if (this.justConnectedClaude) {
+                this.renderJustConnectedCard(block, {
+                    configPath,
+                    configFileName: 'claude_desktop_config.json',
+                    restartText: 'Fully quit and relaunch Claude Desktop to load it (a window reload isn’t enough).'
+                });
+            } else {
+                this.renderConnectedCompact(block, configPath, 'Restart Claude Desktop if you haven’t already.');
             }
+            return;
+        }
 
-            const revealBtn = actions.createEl('button', { text: this.getRevealButtonText() });
-            const revealHandler = () => this.revealInFolder(configPath);
-            if (component) {
-                component.registerDomEvent(revealBtn, 'click', revealHandler);
-            }
-
-            this.container.createEl('p', {
-                text: 'Restart Claude Desktop if you haven\'t already.',
-                cls: 'nexus-mcp-help'
-            });
-        } else if (configStatus === 'invalid-config') {
-            // Config file exists but is invalid/empty
-            const row = this.container.createDiv('nexus-mcp-row');
-            row.createEl('span', {
+        if (configStatus === 'invalid-config') {
+            const row = block.createDiv('nexus-mcp-row');
+            row.createSpan({
                 text: '⚠️ config file is invalid or empty',
                 cls: 'nexus-mcp-status nexus-mcp-warning'
             });
-
             const actions = row.createDiv('nexus-mcp-actions');
             const fixBtn = actions.createEl('button', { text: 'Fix config', cls: 'mod-cta' });
-            const fixHandler = () => this.autoConfigureNexus(configPath);
-            const component = this.services.component;
             if (component) {
-                component.registerDomEvent(fixBtn, 'click', fixHandler);
+                component.registerDomEvent(fixBtn, 'click', () => this.autoConfigureNexus(configPath));
             }
-
             const openBtn = actions.createEl('button', { text: 'Open config' });
-            const openHandler = () => this.openConfigFile(configPath);
             if (component) {
-                component.registerDomEvent(openBtn, 'click', openHandler);
+                component.registerDomEvent(openBtn, 'click', () => this.openConfigFile(configPath));
             }
-
-            this.container.createEl('p', {
-                text: 'The config file exists but has invalid JSON. Click "fix config" to overwrite it, or manually edit.',
+            block.createEl('p', {
+                text: 'The config file exists but has invalid JSON. Click “fix config” to overwrite it, or set it up manually below.',
                 cls: 'nexus-mcp-help'
             });
-        } else {
-            // Ready to configure
-            const row = this.container.createDiv('nexus-mcp-row');
-            row.createEl('span', {
-                text: configStatus === 'no-config-file' ? 'Ready to configure' : 'Claude Desktop found',
-                cls: 'nexus-mcp-status'
+            this.appendManualDisclosure(block, {
+                code: this.getConfigJson(),
+                configLabel: 'claude_desktop_config.json',
+                configPath,
+                known: true,
+                restartText: 'Fully quit and relaunch Claude Desktop so it loads the new server.'
             });
+            return;
+        }
 
-            const actions = row.createDiv('nexus-mcp-actions');
-            const configBtn = actions.createEl('button', { text: 'Add Nexus to Claude', cls: 'mod-cta' });
-            const configHandler = () => this.autoConfigureNexus(configPath);
-            const component = this.services.component;
+        // Ready to connect (no-config-file / claude-found)
+        const row = block.createDiv('nexus-mcp-row');
+        row.createSpan({ text: 'Ready to connect', cls: 'nexus-mcp-status' });
+        const actions = row.createDiv('nexus-mcp-actions');
+        const connectBtn = actions.createEl('button', { text: 'Connect Claude Desktop', cls: 'mod-cta' });
+        if (component) {
+            component.registerDomEvent(connectBtn, 'click', () => this.autoConfigureNexus(configPath));
+        }
+        this.appendManualDisclosure(block, {
+            code: this.getConfigJson(),
+            configLabel: 'claude_desktop_config.json',
+            configPath,
+            known: true,
+            restartText: 'Fully quit and relaunch Claude Desktop so it loads the new server.'
+        });
+    }
+
+    /**
+     * Full "just connected" confirmation card, shown once right after a one-click connect.
+     */
+    private renderJustConnectedCard(parent: HTMLElement, opts: ConnectedCardOptions): void {
+        const component = this.services.component;
+        const connectorPath = this.getConnectorDisplayPath();
+
+        const card = parent.createDiv('nexus-connect-result');
+        const head = card.createDiv('nx-result-head');
+        head.createSpan({ text: '✓ connected', cls: 'nx-result-title' });
+        const actions = head.createDiv('nx-result-actions');
+        const revealBtn = actions.createEl('button', { text: 'Reveal connector.js' });
+        if (component) {
+            component.registerDomEvent(revealBtn, 'click', () => this.revealInFolder(connectorPath));
+        }
+        const openBtn = actions.createEl('button', { text: 'Open config' });
+        if (component) {
+            component.registerDomEvent(openBtn, 'click', () => this.openConfigFile(opts.configPath));
+        }
+
+        const list = card.createEl('ul', { cls: 'nx-checklist' });
+
+        const li1 = list.createEl('li');
+        li1.createSpan({ text: '✓', cls: 'nx-check' });
+        const li1body = li1.createSpan();
+        li1body.createSpan({ text: 'Created bridge file', cls: 'nx-label' });
+        li1body.createEl('br');
+        li1body.createEl('code', { text: connectorPath });
+
+        const li2 = list.createEl('li');
+        li2.createSpan({ text: '✓', cls: 'nx-check' });
+        const li2body = li2.createSpan();
+        li2body.createSpan({ text: 'Added Nexus to ', cls: 'nx-label' });
+        li2body.createEl('code', { text: opts.configFileName });
+
+        const li3 = list.createEl('li');
+        li3.createSpan({ text: '→', cls: 'nx-next' });
+        li3.createSpan({ text: opts.restartText });
+    }
+
+    /**
+     * Compact connected row, shown on revisits when already configured.
+     */
+    private renderConnectedCompact(parent: HTMLElement, configPath: string, restartText: string): void {
+        const component = this.services.component;
+        const row = parent.createDiv('nexus-mcp-row');
+        row.createSpan({ text: '✓ connected', cls: 'nexus-mcp-status nexus-mcp-success' });
+        const actions = row.createDiv('nexus-mcp-actions');
+        const openBtn = actions.createEl('button', { text: 'Open config' });
+        if (component) {
+            component.registerDomEvent(openBtn, 'click', () => this.openConfigFile(configPath));
+        }
+        const revealBtn = actions.createEl('button', { text: this.getRevealButtonText() });
+        if (component) {
+            component.registerDomEvent(revealBtn, 'click', () => this.revealInFolder(configPath));
+        }
+        parent.createEl('p', { text: restartText, cls: 'nexus-mcp-help' });
+    }
+
+    /**
+     * "Other agents" block: create the connector + a copyable entry + link to the guide.
+     * Nexus does not know these tools' config paths, so no write/reveal is offered.
+     */
+    private renderGenericAgentsSection(): void {
+        const block = this.container.createDiv('nexus-agent-block');
+        const heading = block.createEl('h4');
+        heading.createSpan({ text: '🧩 ', cls: 'nx-agent-logo' });
+        heading.createSpan({ text: 'Other agents (Cursor, Cline, Gemini CLI, Copilot…)' });
+
+        block.createEl('p', {
+            text: 'Nexus works with any MCP client. Create the bridge file once, then paste the same server entry into that tool’s config.',
+            cls: 'setting-item-description'
+        });
+
+        this.appendManualDisclosure(block, {
+            code: this.getConfigJson(),
+            configLabel: 'your agent’s MCP config',
+            configPath: null,
+            known: false,
+            restartText: 'Most tools auto-reload MCP config; some need a restart. Check the setup guide if the server doesn’t appear.',
+            summaryText: 'Show manual steps'
+        });
+
+        const helpP = block.createEl('p', { cls: 'nexus-mcp-help' });
+        helpP.createSpan({ text: 'Need another tool? See the ' });
+        const link = helpP.createEl('a', { text: 'MCP setup guide', href: '#' });
+        const component = this.services.component;
+        if (component) {
+            component.registerDomEvent(link, 'click', (evt: MouseEvent) => {
+                evt.preventDefault();
+                window.open('https://github.com/ProfSynapse/nexus/blob/main/guide/mcp-setup.md', '_blank');
+            });
+        }
+        helpP.createSpan({ text: ' for exact config locations per tool.' });
+    }
+
+    /**
+     * Collapsible "Set up manually" disclosure with numbered steps.
+     */
+    private appendManualDisclosure(parent: HTMLElement, opts: ManualStepOptions): void {
+        const details = parent.createEl('details', { cls: 'nexus-manual-details' });
+        details.createEl('summary', { text: opts.summaryText ?? 'Set up manually instead' });
+        const body = details.createDiv('nexus-manual-body');
+        this.buildManualSteps(body, opts);
+    }
+
+    private addManualStep(body: HTMLElement, num: string, title: string): HTMLElement {
+        const step = body.createDiv('nx-step');
+        step.createDiv('nx-step-num').setText(num);
+        const stepBody = step.createDiv('nx-step-body');
+        stepBody.createEl('h5', { text: title });
+        return stepBody;
+    }
+
+    private buildManualSteps(body: HTMLElement, opts: ManualStepOptions): void {
+        const component = this.services.component;
+        const connectorPath = this.getConnectorDisplayPath();
+
+        // Step 1 — create connector.js
+        const step1 = this.addManualStep(body, '1', 'Create the connector file');
+        step1.createEl('p', {
+            text: 'Generates connector.js in the plugin folder. Do this first — the config below points at it, and the agent fails silently if it’s missing.',
+            cls: 'setting-item-description'
+        });
+        const createRow = step1.createDiv('nx-pathrow');
+        const createBtn = createRow.createEl('button', { text: 'Create connector.js' });
+        if (component) {
+            component.registerDomEvent(createBtn, 'click', () => this.createConnectorFileWithNotice());
+        }
+        const pathRow = step1.createDiv('nx-pathrow');
+        pathRow.createSpan({ text: connectorPath, cls: 'nx-inline-path' });
+
+        // Step 2 — add config
+        const step2 = this.addManualStep(body, '2', `Add this to ${opts.configLabel}`);
+        step2.createEl('p', {
+            text: opts.known
+                ? 'Paste inside the existing config (merge into mcpServers if you already have servers).'
+                : 'Paste this into your agent’s MCP config — each tool keeps it in a different place. See the setup guide below for exact locations.',
+            cls: 'setting-item-description'
+        });
+        const codeBlock = step2.createEl('pre', { cls: 'nexus-config-code' });
+        codeBlock.createEl('code', { text: opts.code });
+        const copyRow = step2.createDiv('nx-pathrow');
+        const copyBtn = copyRow.createEl('button', { text: 'Copy config' });
+        if (component) {
+            component.registerDomEvent(copyBtn, 'click', async () => {
+                try {
+                    await navigator.clipboard.writeText(opts.code);
+                    copyBtn.textContent = 'Copied!';
+                    window.setTimeout(() => { copyBtn.textContent = 'Copy config'; }, 2000);
+                } catch {
+                    new Notice('Failed to copy to clipboard');
+                }
+            });
+        }
+        if (opts.known && opts.configPath) {
+            const revealBtn = copyRow.createEl('button', { text: 'Reveal config file' });
+            const configPath = opts.configPath;
             if (component) {
-                component.registerDomEvent(configBtn, 'click', configHandler);
+                component.registerDomEvent(revealBtn, 'click', () => this.revealInFolder(configPath));
             }
         }
 
-        this.renderCodexSetupSection();
+        // Step 3 — restart
+        const step3 = this.addManualStep(body, '3', opts.known ? 'Restart the agent' : 'Restart your agent');
+        step3.createEl('p', { text: opts.restartText, cls: 'setting-item-description' });
+    }
 
-        // Always show manual copy-paste section as fallback
-        this.renderManualConfigSection(configPath);
+    /**
+     * Best-effort display path for connector.js (falls back to the bare filename).
+     */
+    private getConnectorDisplayPath(): string {
+        try {
+            const pathMod = this.loadDesktopModule('path');
+            return this.getConnectorPath(pathMod);
+        } catch {
+            return 'connector.js';
+        }
+    }
+
+    /**
+     * Local CLI bridge: installs a machine-global `nexus` command + agent skill
+     * so external coding agents (Claude Code, Codex) can drive the vault with no
+     * MCP configuration. Everything lives outside the vault and is reversible.
+     */
+    private renderLocalCliSection(): void {
+        const block = this.container.createDiv('nexus-agent-block');
+        const heading = block.createEl('h4');
+        heading.createSpan({ text: '⚡ ', cls: 'nx-agent-logo' });
+        heading.createSpan({ text: 'Local CLI (no MCP required)' });
+
+        block.createEl('p', {
+            text: 'Installs a machine-global command-line tool so external coding agents can discover and run your vault’s tools directly — no MCP server entry to configure. Everything is installed outside your vault and is reversible.',
+            cls: 'setting-item-description'
+        });
+
+        const installer = new LocalCliInstaller();
+        if (!installer.isSupported()) {
+            block.createEl('p', {
+                text: 'The local CLI is available on desktop only.',
+                cls: 'setting-item-description'
+            });
+            return;
+        }
+
+        // Keep an already-installed copy in sync with this plugin build.
+        installer.reconcile();
+
+        const status = installer.status();
+        const component = this.services.component;
+
+        const row = block.createDiv('nexus-mcp-row');
+        const statusText = status.installed
+            ? (!status.runtimeReady
+                ? 'Installed (Node.js 18+ is not available on PATH)'
+                : status.onPath
+                    ? 'Installed and on your PATH'
+                    : Platform.isWin && status.pathConfigured
+                        ? 'Installed (another nexus command takes precedence)'
+                        : 'Installed (not yet on your PATH)')
+            : 'Not installed';
+        row.createSpan({ text: statusText, cls: 'nexus-mcp-status' });
+
+        const actions = row.createDiv('nexus-mcp-actions');
+
+        // Provider picker — which agents to wire the nexus CLI into. Claude Code and
+        // Cursor use the same skills mechanism (a symlink into their skills dir);
+        // Codex gets an AGENTS.md pointer block.
+        const providers: Array<{ id: CliProviderId; label: string; hint: string }> = [
+            { id: 'claudeCode', label: 'Claude Code', hint: '~/.claude/skills' },
+            { id: 'cursor', label: 'Cursor', hint: '~/.cursor/skills' },
+            { id: 'codex', label: 'Codex', hint: '~/.codex/AGENTS.md' },
+        ];
+        const isLinked = (id: CliProviderId): boolean =>
+            id === 'claudeCode' ? status.skillLinked
+                : id === 'cursor' ? status.cursorLinked
+                    : status.codexLinked;
+
+        const picker = block.createDiv('nexus-cli-providers');
+        picker.createEl('p', {
+            text: status.installed
+                ? 'Wire the nexus CLI into these agents — toggle any time:'
+                : 'Choose which agents to wire the nexus CLI into:',
+            cls: 'setting-item-description'
+        });
+        const checkboxes = new Map<CliProviderId, HTMLInputElement>();
+        for (const prov of providers) {
+            const detectedHere = status.detected[prov.id];
+            const rowEl = picker.createDiv('nexus-cli-provider-row');
+            const cb = rowEl.createEl('input', { attr: { type: 'checkbox' } });
+            cb.checked = status.installed ? isLinked(prov.id) : detectedHere;
+            const label = rowEl.createEl('label');
+            label.createSpan({ text: prov.label });
+            label.createSpan({
+                text: detectedHere ? ` — ${prov.hint}` : ` — ${prov.hint} (not detected)`,
+                cls: 'nexus-cli-provider-hint'
+            });
+            checkboxes.set(prov.id, cb);
+            if (status.installed && component) {
+                // Post-install: each toggle wires/unwires that provider immediately.
+                component.registerDomEvent(cb, 'change', () => this.setCliProvider(installer, prov.id, prov.label, cb.checked));
+            }
+        }
+
+        if (!status.installed) {
+            const enableBtn = actions.createEl('button', { text: 'Install CLI', cls: 'mod-cta' });
+            if (component) {
+                component.registerDomEvent(enableBtn, 'click', () => {
+                    const targets: Partial<CliInstallTargets> = {};
+                    for (const [id, cb] of checkboxes) targets[id] = cb.checked;
+                    this.enableLocalCli(installer, targets);
+                });
+            }
+        } else {
+            if (Platform.isWin && !status.pathConfigured) {
+                const pathBtn = actions.createEl('button', { text: 'Add to path', cls: 'mod-cta' });
+                if (component) {
+                    component.registerDomEvent(pathBtn, 'click', () => this.addLocalCliToPath(installer));
+                }
+            }
+            const revealBtn = actions.createEl('button', { text: this.getRevealButtonText() });
+            if (component) {
+                component.registerDomEvent(revealBtn, 'click', () => this.revealInFolder(status.paths.cliJsPath));
+            }
+            const uninstallBtn = actions.createEl('button', { text: 'Uninstall' });
+            if (component) {
+                component.registerDomEvent(uninstallBtn, 'click', () => this.uninstallLocalCli(installer));
+            }
+        }
+
+        const details = block.createEl('details', { cls: 'nexus-manual-details' });
+        details.createEl('summary', { text: status.installed ? 'What’s installed' : 'What this installs' });
+        const disclosureBody = details.createDiv('nexus-manual-body');
+        for (const line of installer.describePlan()) {
+            disclosureBody.createDiv('nx-pathrow').createSpan({ text: line, cls: 'nx-inline-path' });
+        }
+        disclosureBody.createEl('p', {
+            text: 'All paths are outside your vault (nothing is synced), and everything here is reversible with uninstall.',
+            cls: 'setting-item-description'
+        });
+    }
+
+    private enableLocalCli(installer: LocalCliInstaller, targets?: Partial<CliInstallTargets>): void {
+        try {
+            const result = installer.enable(targets);
+            const warn = result.warnings.length
+                ? ` (${result.warnings.length} note${result.warnings.length === 1 ? '' : 's'})`
+                : '';
+            const terminalHint = Platform.isWin
+                ? 'Open a new terminal, then run `nexus vaults`.'
+                : 'Try running `nexus vaults` in your terminal.';
+            new Notice(result.warnings.length
+                ? `Nexus CLI installed${warn}, but some requested wiring was preserved or unavailable. See the developer console for details.`
+                : `Nexus CLI installed. ${terminalHint}`);
+            for (const w of result.warnings) console.warn('[GetStartedTab] Local CLI:', w);
+            this.render();
+        } catch (error) {
+            console.error('[GetStartedTab] Error installing local CLI:', error);
+            new Notice(`Failed to install local CLI: ${(error as Error).message}`);
+        }
+    }
+
+    private addLocalCliToPath(installer: LocalCliInstaller): void {
+        try {
+            const result = installer.addToWindowsUserPath();
+            for (const w of result.warnings) console.warn('[GetStartedTab] Local CLI:', w);
+            new Notice(result.warnings.length
+                ? 'Could not add Nexus CLI to PATH. See the developer console for details.'
+                : 'Nexus CLI added to your user PATH. Open a new terminal to use it.');
+            this.render();
+        } catch (error) {
+            console.error('[GetStartedTab] Error adding local CLI to PATH:', error);
+            new Notice(`Failed to add Nexus CLI to PATH: ${(error as Error).message}`);
+        }
+    }
+
+    private setCliProvider(installer: LocalCliInstaller, id: CliProviderId, label: string, enabled: boolean): void {
+        try {
+            const result = installer.setProvider(id, enabled);
+            for (const w of result.warnings) console.warn('[GetStartedTab] Local CLI:', w);
+            new Notice(result.warnings.length
+                ? `Could not ${enabled ? 'wire nexus into' : 'remove nexus from'} ${label}. See the developer console for details.`
+                : enabled ? `Wired nexus into ${label}.` : `Removed nexus from ${label}.`);
+            this.render();
+        } catch (error) {
+            console.error('[GetStartedTab] Error updating CLI provider:', error);
+            new Notice(`Failed to update ${label}: ${(error as Error).message}`);
+        }
+    }
+
+    private uninstallLocalCli(installer: LocalCliInstaller): void {
+        try {
+            const result = installer.uninstall();
+            for (const w of result.warnings) console.warn('[GetStartedTab] Local CLI:', w);
+            new Notice(result.warnings.length
+                ? 'Nexus CLI cleanup was incomplete. See the developer console for details.'
+                : 'Nexus CLI uninstalled.');
+            this.render();
+        } catch (error) {
+            console.error('[GetStartedTab] Error uninstalling local CLI:', error);
+            new Notice(`Failed to uninstall local CLI: ${(error as Error).message}`);
+        }
     }
 
     private renderCodexSetupSection(): void {
-        this.container.createEl('hr', { cls: 'nexus-divider' });
-
-        const section = this.container.createDiv('nexus-codex-config');
-        section.createEl('h4', { text: 'Codex' });
+        const block = this.container.createDiv('nexus-agent-block');
+        const heading = block.createEl('h4');
+        heading.createSpan({ text: '⬛ ', cls: 'nx-agent-logo' });
+        heading.createSpan({ text: 'Codex' });
 
         const nodeFs = this.loadDesktopModule('fs');
         const pathMod = this.loadDesktopModule('path');
         const configPath = this.getCodexConfigPath(pathMod);
         const nodePath = this.resolveNodePath();
         const configStatus = this.getCodexConfigStatus(nodeFs, configPath);
-
-        const row = section.createDiv('nexus-mcp-row');
-        const statusText = this.getCodexStatusText(configStatus);
-        row.createEl('span', {
-            text: statusText,
-            cls: configStatus === 'nexus-configured'
-                ? 'nexus-mcp-status nexus-mcp-success'
-                : 'nexus-mcp-status'
-        });
-
-        const actions = row.createDiv('nexus-mcp-actions');
         const component = this.services.component;
 
         if (configStatus === 'nexus-configured') {
-            const openBtn = actions.createEl('button', { text: 'Open config' });
-            const openHandler = () => this.openConfigFile(configPath);
-            if (component) {
-                component.registerDomEvent(openBtn, 'click', openHandler);
+            if (this.justConnectedCodex) {
+                this.renderJustConnectedCard(block, {
+                    configPath,
+                    configFileName: 'config.toml',
+                    restartText: 'Start a new Codex session to load it.'
+                });
+            } else {
+                this.renderConnectedCompact(block, configPath, 'Restart Codex or start a new session if Nexus does not appear.');
             }
-
-            const revealBtn = actions.createEl('button', { text: this.getRevealButtonText() });
-            const revealHandler = () => this.revealInFolder(configPath);
-            if (component) {
-                component.registerDomEvent(revealBtn, 'click', revealHandler);
-            }
-
-            section.createEl('p', {
-                text: 'Restart codex or start a new session if Nexus does not appear.',
-                cls: 'nexus-mcp-help'
-            });
-        } else {
-            const addBtn = actions.createEl('button', { text: 'Add Nexus', cls: 'mod-cta' });
-            const addHandler = () => {
-                this.autoConfigureCodex();
-            };
-            if (component) {
-                component.registerDomEvent(addBtn, 'click', addHandler);
-            }
-
-            if (!nodePath) {
-                addBtn.disabled = true;
-            }
-
-            section.createEl('p', {
-                text: 'This updates the config file directly; no terminal window opens.',
-                cls: 'nexus-mcp-help'
-            });
+            return;
         }
 
-        this.renderCodexManualConfig(section, configPath);
-    }
+        const row = block.createDiv('nexus-mcp-row');
+        row.createSpan({ text: 'Ready to connect', cls: 'nexus-mcp-status' });
+        const actions = row.createDiv('nexus-mcp-actions');
+        const connectBtn = actions.createEl('button', { text: 'Connect Codex', cls: 'mod-cta' });
+        if (!nodePath) {
+            connectBtn.disabled = true;
+        }
+        if (component) {
+            component.registerDomEvent(connectBtn, 'click', () => this.autoConfigureCodex());
+        }
 
-    private renderCodexManualConfig(section: HTMLElement, configPath: string): void {
-        const manualSection = section.createDiv('nexus-manual-config');
-        manualSection.createEl('p', {
-            text: 'Manual configuration:',
-            cls: 'setting-item-description'
+        this.appendManualDisclosure(block, {
+            code: this.getCodexConfigToml(),
+            configLabel: '~/.codex/config.toml',
+            configPath,
+            known: true,
+            restartText: 'Start a new Codex session (config is picked up on launch).'
         });
-
-        const configToml = this.getCodexConfigToml();
-        const codeBlock = manualSection.createEl('pre', { cls: 'nexus-config-code' });
-        codeBlock.createEl('code', { text: configToml });
-
-        const copyBtn = manualSection.createEl('button', { text: 'Copy configuration', cls: 'mod-cta' });
-        const copyHandler = async () => {
-            try {
-                await navigator.clipboard.writeText(configToml);
-                copyBtn.textContent = 'Copied!';
-                window.setTimeout(() => {
-                    copyBtn.textContent = 'Copy configuration';
-                }, 2000);
-            } catch {
-                new Notice('Failed to copy to clipboard');
-            }
-        };
-        const component = this.services.component;
-        if (component) {
-            component.registerDomEvent(copyBtn, 'click', copyHandler);
-        }
-
-        const pathInfo = manualSection.createDiv('nexus-config-path');
-        pathInfo.createEl('span', { text: 'Config file location: ', cls: 'setting-item-description' });
-        const pathLink = pathInfo.createEl('a', { text: configPath, href: '#' });
-        const pathHandler = () => this.revealInFolder(configPath);
-        if (component) {
-            component.registerDomEvent(pathLink, 'click', pathHandler);
-        }
-    }
-
-    /**
-     * Render manual copy-paste configuration section
-     */
-    private renderManualConfigSection(configPath: string): void {
-        this.container.createEl('hr', { cls: 'nexus-divider' });
-
-        const manualSection = this.container.createDiv('nexus-manual-config');
-        manualSection.createEl('h4', { text: 'Manual configuration' });
-        manualSection.createEl('p', {
-            text: 'If auto-configuration doesn\'t work, copy this JSON into your Claude Desktop config:',
-            cls: 'setting-item-description'
-        });
-
-        // Generate the config JSON
-        const configJson = this.getConfigJson();
-
-        // Code block
-        const codeBlock = manualSection.createEl('pre', { cls: 'nexus-config-code' });
-        codeBlock.createEl('code', { text: configJson });
-
-        // Copy button
-        const copyBtn = manualSection.createEl('button', { text: 'Copy configuration', cls: 'mod-cta' });
-        const copyHandler = async () => {
-            try {
-                await navigator.clipboard.writeText(configJson);
-                copyBtn.textContent = 'Copied!';
-                window.setTimeout(() => {
-                    copyBtn.textContent = 'Copy configuration';
-                }, 2000);
-            } catch {
-                new Notice('Failed to copy to clipboard');
-            }
-        };
-        const component = this.services.component;
-        if (component) {
-            component.registerDomEvent(copyBtn, 'click', copyHandler);
-        }
-
-        const connectorBtn = manualSection.createEl('button', { text: 'Create connector file' });
-        const connectorHandler = () => this.createConnectorFileWithNotice();
-        if (component) {
-            component.registerDomEvent(connectorBtn, 'click', connectorHandler);
-        }
-
-        // Config file path info
-        const pathInfo = manualSection.createDiv('nexus-config-path');
-        pathInfo.createEl('span', { text: 'Config file location: ', cls: 'setting-item-description' });
-        const pathLink = pathInfo.createEl('a', { text: configPath, href: '#' });
-        const pathHandler = () => this.revealInFolder(configPath);
-        if (component) {
-            component.registerDomEvent(pathLink, 'click', pathHandler);
-        }
     }
 
     /**
@@ -620,18 +922,6 @@ export class GetStartedTab {
         }
 
         return 'config-exists';
-    }
-
-    private getCodexStatusText(configStatus: CodexConfigStatus): string {
-        if (configStatus === 'nexus-configured') {
-            return '✓ connected';
-        }
-
-        if (configStatus === 'no-config-file') {
-            return 'Ready to configure';
-        }
-
-        return 'Codex config found';
     }
 
     private getCodexConfigToml(): string {
@@ -727,6 +1017,9 @@ export class GetStartedTab {
 
             new Notice('Nexus connector created and added to Claude Desktop config. Please restart Claude Desktop.');
 
+            // Show the "just connected" confirmation card on the next render.
+            this.justConnectedClaude = true;
+
             // Re-render to show updated status
             this.render();
         } catch (error) {
@@ -761,6 +1054,7 @@ export class GetStartedTab {
             if (!nodeFs.existsSync(configPath)) {
                 nodeFs.writeFileSync(configPath, `${configToml}\n`, 'utf-8');
                 new Notice('Nexus connector added to the app config. Restart the app or start a new session if needed.');
+                this.justConnectedCodex = true;
                 this.render();
                 return;
             }
@@ -775,6 +1069,7 @@ export class GetStartedTab {
             const updatedContent = appendCodexMcpTomlSnippet(existingContent, configToml);
             nodeFs.writeFileSync(configPath, updatedContent, 'utf-8');
             new Notice('Nexus connector added to the app config. Restart the app or start a new session if needed.');
+            this.justConnectedCodex = true;
             this.render();
         } catch (error) {
             console.error('[GetStartedTab] Error auto-configuring Codex:', error);
