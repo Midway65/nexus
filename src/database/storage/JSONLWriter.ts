@@ -417,9 +417,9 @@ export class JSONLWriter {
    * @param absolutePath - Absolute filesystem path to the .jsonl file
    */
   private readEventsStreaming<T extends StorageEvent>(absolutePath: string): Promise<T[]> {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    // eslint-disable-next-line @typescript-eslint/no-require-imports -- Fork: lazy Node require (desktop-only streaming read); avoids bundling fs/readline into the mobile build
     const fs = require('fs') as typeof import('fs');
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    // eslint-disable-next-line @typescript-eslint/no-require-imports -- Fork: lazy Node require (desktop-only streaming read); avoids bundling fs/readline into the mobile build
     const readline = require('readline') as typeof import('readline');
 
     return new Promise((resolve, reject) => {
