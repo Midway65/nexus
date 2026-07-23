@@ -5,7 +5,8 @@
  *
  * Design: docs/plans/local-cli-agent-bridge-plan.md
  *
- * What it creates (all outside the vault, only on explicit user action):
+ * What it creates (all outside the vault; initial installation is explicit,
+ * then plugin updates refresh only the already-installed Nexus-owned copies):
  *   <dataDir>/nexus-cli.js         the bundled CLI (chmod +x)
  *   <dataDir>/skill/SKILL.md       the Claude Code skill body
  *   <binDir>/nexus                 symlink → the CLI (PATH)
@@ -17,6 +18,7 @@
  */
 import { Platform } from 'obsidian';
 import { desktopRequire } from '../../utils/desktopRequire';
+import { resolveDesktopBinaryPath } from '../../utils/binaryDiscovery';
 import { NEXUS_CLI_JS, NEXUS_SKILL_MD, NEXUS_AGENTS_MD, NEXUS_PLAYBOOKS } from '../../utils/cliAssets';
 
 type FsModule = typeof import('node:fs');
@@ -581,7 +583,13 @@ export class LocalCliInstaller {
 
     private nodeRuntimeReady(): boolean {
         try {
-            const result = this.childProcess().spawnSync('node', ['--version'], {
+            // Obsidian launched from Finder/the Start menu often has a stale or
+            // minimal PATH, especially when Node is managed by nvm/fnm/asdf.
+            // Use the same desktop discovery as the rest of Nexus so a runtime
+            // visible in the user's login shell is not incorrectly rejected.
+            const nodePath = resolveDesktopBinaryPath('node');
+            if (!nodePath) return false;
+            const result = this.childProcess().spawnSync(nodePath, ['--version'], {
                 encoding: 'utf-8',
                 timeout: 5_000,
                 windowsHide: true,

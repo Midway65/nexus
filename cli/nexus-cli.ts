@@ -3,7 +3,7 @@
  * nexus — local CLI bridge to a running Nexus (Obsidian) vault, no MCP client config.
  *
  * Discover:  nexus tools [selector]
- * Execute:   nexus use "<agent action --flags>" --memory "…" --goal "…"
+ * Execute:   nexus use --memory "…" --goal "…" -- <agent action --flags>
  * Inspect:   nexus vaults | nexus doctor
  *
  * It connects to the same unix socket connector.js uses (/tmp/nexus_mcp_<vault>.sock),
@@ -15,6 +15,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { McpLineClient, McpToolResult } from './mcpLineClient';
 import { playbooksDir, parseFrontmatter, listPlaybooks } from './playbooks';
+import { hydrateToolContentArgv, partitionUseArgv, resolveUseCommand } from './commandLine';
 import {
     listVaultSockets,
     NAME_PREFIX,
@@ -136,7 +137,7 @@ COMMANDS
                                        nexus tools storage           one agent's tools
                                        nexus tools storage list      one tool, full arg schema
                                        nexus tools "storage list, content read"   several
-  nexus use "<command>" [context]    EXECUTE a tool (useTools). See CONTEXT below.
+  nexus use [context] -- <command>    EXECUTE a tool (useTools). See CONTEXT below.
   nexus playbook [name]              Task primer: recipe + your workspaces + preloaded
                                      tools, in one call. \`nexus playbook\` lists them.
   nexus vaults                       List open Nexus vaults (live sockets)
@@ -153,10 +154,22 @@ CONTEXT (flags on \`use\`; \`tools\` accepts them too. \`playbook\` reads only
   --constraints "<text>"  optional guardrails
   --vault <name>          target a vault (else: the single open one, or $NEXUS_VAULT)
   --json                  print the raw JSON result
+  --dry-run               print the reconstructed request; do not connect or execute
+
+CONTENT INPUT (CLI-only flags after the \`--\` delimiter)
+  --content-stdin         read the tool's --content value from standard input
+  --content-file <path>   read the tool's --content value from a local file
+                          (use one transport flag; do not also pass --content)
 
 CLI SYNTAX
-  • One tool per \`use\`: "<agent> <command> --flag value --flag2 value2". Commands are
-    kebab-case (content set-property, memory load-workspace). Quote the whole command.
+  • Canonical form: context flags first, then \`--\`, then one tool command as normal
+    shell arguments. Commands are kebab-case (content set-property, memory load-workspace).
+    Multiword values need only one shell quote layer: --workspace "NeuroAI Mapping".
+  • The legacy one-string form remains supported. On Windows PowerShell, nested double
+    quotes can be consumed before Node receives them; prefer the canonical \`--\` form.
+  • For multiline Markdown or text containing embedded quotes, keep the payload out of
+    shell argv: \`Get-Content -Raw note.md | nexus use ... -- content write --path X.md --content-stdin\`,
+    or pass \`--content-file note.md\`.
   • Paths are vault-relative. "..", "~", absolute paths are rejected; a leading "/" is
     stripped. You cannot read or write outside the vault.
   • Arrays: --tags "[work, urgent]". Wikilinks keep brackets: --links "[[[A]], [[B]]]".
@@ -170,8 +183,8 @@ GOTCHAS
   • \`content read\` requires a start line: content read --path X --start-line 1 (1 = top).
   • ALL flags are kebab-case — camelCase (e.g. --newPath, --activeTask) is rejected as
     an unknown flag; use --new-path, --active-task. Get exact flags from \`nexus tools <tool>\`.
-  • Context fields (--workspace/--session/--memory/--goal) go at the TOP LEVEL, never
-    inside the "tool" string — e.g. --workspace-id inside the command is rejected.
+  • Context fields (--workspace/--session/--memory/--goal) go before \`--\`, never
+    after it — e.g. --workspace-id inside the tool command is rejected.
   • --memory/--goal are enforced — send real values or the call is rejected.
   • Media generation is async — \`prompt generate-*\` returns a job; poll
     \`prompt check-generated-artifact\`.
@@ -189,8 +202,9 @@ ${playbookLines}
 
 EXAMPLES
   nexus tools "content read, search content"
-  nexus use "content read --path Daily/2026-07-17.md --start-line 1" --memory "auditing notes" --goal "read today's daily"
-  nexus use "storage list" --vault "My Notes" --memory "smoke test" --goal "list vault root"
+  nexus use --memory "auditing notes" --goal "read today's daily" -- content read --path Daily/2026-07-17.md --start-line 1
+  nexus use --vault "My Notes" --memory "smoke test" --goal "list vault root" -- storage list
+  nexus use --dry-run --memory "resuming research" --goal "load workspace" -- memory load-workspace --workspace "NeuroAI Mapping" --limit 1
   nexus playbook vault-work
 `;
 }
@@ -209,7 +223,8 @@ async function withClient<T>(vaultName: string | undefined, fn: (c: McpLineClien
 
 async function main(): Promise<number> {
     const argv = process.argv.slice(2);
-    const { positionals, flags } = parseArgs(argv);
+    const { outerArgv, toolArgv } = partitionUseArgv(argv);
+    const { positionals, flags } = parseArgs(outerArgv);
     const cmd = positionals[0];
     const asJson = flags.json === true;
     const vaultFlag = typeof flags.vault === 'string' ? flags.vault : undefined;
@@ -331,9 +346,22 @@ async function main(): Promise<number> {
     }
 
     if (cmd === 'use') {
-        const command = positionals[1];
-        if (!command) {
-            process.stderr.write('Error: `use` needs a command string, e.g. nexus use "content read --path X --start-line 1" --memory .. --goal ..\n');
+        let command: string;
+        try {
+            const hydratedToolArgv = toolArgv === null
+                ? null
+                : hydrateToolContentArgv(toolArgv, {
+                    readStdin: () => {
+                        if (process.stdin.isTTY) {
+                            throw new Error('--content-stdin requires piped or redirected standard input.');
+                        }
+                        return readFileSync(0, 'utf8');
+                    },
+                    readFile: (path) => readFileSync(path, 'utf8'),
+                });
+            command = resolveUseCommand(positionals, hydratedToolArgv);
+        } catch (error) {
+            process.stderr.write(`Error: ${(error as Error).message}\n`);
             return 2;
         }
         const memory = typeof flags.memory === 'string' ? flags.memory : '';
@@ -350,6 +378,11 @@ async function main(): Promise<number> {
             goal,
         };
         if (typeof flags.constraints === 'string') args.constraints = flags.constraints;
+        if (flags['dry-run'] === true) {
+            process.stdout.write('DRY RUN — no vault connection and no tool execution.\n');
+            process.stdout.write(JSON.stringify(args, null, 2) + '\n');
+            return 0;
+        }
         return withClient(vaultFlag, async (client) => {
             const result = await client.callTool('toolManager_useTools', args);
             return printToolResult(result, asJson);

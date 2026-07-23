@@ -5,11 +5,8 @@ description: >-
   tasks, memory/workspaces, saved prompts) from the shell via the `nexus` CLI —
   no MCP connection needed. Use whenever the user refers to their vault, notes,
   daily notes, second brain, or Obsidian, or asks you to find/read/change
-  something stored there.
-when_to_use: >-
-  The task involves the user's Obsidian vault or notes and the `nexus` command
-  is on PATH. Not for editing files in the current code repo — use normal file
-  tools for those.
+  something stored there and the `nexus` command is on PATH. Do not use it to
+  edit files in the current code repository; use normal file tools for those.
 ---
 
 # Nexus vault CLI
@@ -36,21 +33,35 @@ For a common task, **`nexus playbook <name>`** gives you a ready-to-run recipe
   gets *contents*; then you write. A search hit is a `{path, score}`, **not** the
   note — never quote, summarize, or edit from a hit without reading it first.
 - **`nexus tools` returns schemas, not data.** It's discovery. Don't loop it
-  hoping for vault content — that comes from `nexus use "content read …"`.
+  hoping for vault content — that comes from `nexus use --memory … --goal … -- content read …`.
 - **`--memory` and `--goal` are real and enforced.** You're operating a person's
   live vault; pass a genuine running summary and objective, not placeholders.
 - **You can't escape the vault.** Paths are vault-relative; `..`, `~`, and
   absolute paths are rejected. That's a guardrail, not a bug.
 - **Nothing is destroyed.** The AI gets archive (reversible), not delete.
-- **Windows: always pass `--vault <name>`** (the vault folder's name) or set
-  `NEXUS_VAULT` — named pipes can't be auto-detected there.
+- **Windows:** `nexus vaults` discovers local named pipes. If policy blocks
+  enumeration, pass `--vault <name>` or set `NEXUS_VAULT`.
 
 ## The shape
 
 ```
 nexus tools [selector]              # discover — tool schemas (never vault data)
-nexus use "<agent command --flags>" # execute — runs a tool, prints the result
-    --memory "<what you're doing>" --goal "<objective>"
+nexus use --memory "<what you're doing>" --goal "<objective>" -- \
+    <agent command --flags>         # execute — runs one tool, prints the result
+```
+
+The `--` delimiter is canonical: context belongs before it; the tool command
+belongs after it. This avoids nested command-string quoting, especially in
+Windows PowerShell. The legacy one-string form remains supported.
+
+For multiline Markdown or content containing embedded quotes, keep the body
+out of shell argv. Pipe it with `--content-stdin` or pass a local path with
+`--content-file`; put either flag after the `--` delimiter and do not also pass
+`--content`:
+
+```powershell
+Get-Content -Raw .\note.md |
+    nexus use --memory "importing note" --goal "write note" -- content write --path Notes/Imported.md --content-stdin
 ```
 
 Everything else — the flag table, per-tool schemas, syntax rules, the live
