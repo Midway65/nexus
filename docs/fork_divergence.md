@@ -9,9 +9,11 @@ retired as soon as they are no longer needed or superseded by upstream. The only
 divergences are files that are fork-infrastructure by nature (deploy scripts, fork docs) or
 that carry data migrations specific to this vault.
 
-**Last audited against:** upstream/main HEAD (`373d5ec8`) — v5.15.4 (Realtime 2.1 + Kimi K3 + Voxtral transcription; nexus CLI bridge shell-safe content transport + cross-shell quoted-value preservation + macOS Node discovery)  
-**Audit date:** 2026-07-22  
+**Last audited against:** upstream/main HEAD (`0da22573`) — v5.16.1 (voice/transcription batch: AssemblyAI live voice + OpenAI gpt-transcribe/diarization + Gemini 3.5/3.6 + Deepgram audio + chunking fix; memory searchWorkspaces; OpenRouter OAuth label fix)  
+**Audit date:** 2026-08-03  
 **Next merge target:** next upstream/main HEAD
+
+> v5.16.1 merge notes (spans 5.16.0+5.16.1): routine — 1 conflict (CLAUDE.md kept-ours). One divergence-relevant auto-merge verified safe: **`ChatView.ts`** (voice, 1 commit) — upstream edits at lines 695/947, far from fork thunk (123/143/161); thunk verified count=3 + tsc clean. This is the **4th touched release** the thunk has survived (voice v5.11.x, ticker v5.13, v5.15, voice v5.16). **No SchemaMigrator renumber** (upstream still v13; fork v21). **TS stays ^6.0.3**; **no new deps** (voice batch reuses existing infra; all models additive, whisper-1 + vault models intact). Build green under TS6 (same 2 non-blocking JSONLWriter warnings). connectorContent.ts + cliAssets.ts regen matched upstream (git-clean). #304 OpenRouter OAuth = label-only fix in ProvidersTab.ts (no fork divergence; existing auth unaffected). #303 searchWorkspaces auto-load is opt-in. npm audit dev-tree advisories carried, NOT applied.
 
 > v5.15.4 merge notes (spans 5.15.3+5.15.4): routine — 1 conflict (CLAUDE.md kept-ours), **ZERO divergence-file touches**. **No SchemaMigrator renumber** (upstream still v13; fork v21). **TypeScript stays ^6.0.3** (TS6 settled last merge — no repeat build gate). **No new deps** (Realtime 2.1/Kimi K3/Voxtral reuse existing infra; models purely additive, whisper-1 + all vault models intact). Build green under TS6 (same 2 non-blocking JSONLWriter `obsidianmd/no-nodejs-modules` warnings as v5.15.2). `cliAssets.ts` + `connectorContent.ts` regenerated to match upstream exactly (git-clean). CLI transport fixes touch `cli/` (no fork divergence). npm audit set shifted again → @hono/node-server + body-parser + brace-expansion (all dev-tree/eslint-plugin transitive, not shipped) — NOT applied. **NOT deployed this cycle (user deferred deploy).**
 
