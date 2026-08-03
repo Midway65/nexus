@@ -186,6 +186,10 @@ describe('SpeechTypes', () => {
     expect(getSpeechModelsForProvider('google').map(model => model.id)).toContain('gemini-3.1-flash-tts-preview');
     expect(getSpeechModelsForProvider('mistral').map(model => model.id)).toContain('voxtral-mini-tts-2603');
     expect(getSpeechModelsForProvider('openrouter').map(model => model.id)).toContain('mistralai/voxtral-mini-tts-2603');
+    expect(getSpeechModel('openrouter', 'deepgram/aura-2')).toEqual(expect.objectContaining({
+      defaultVoice: 'aura-2-thalia-en',
+      supportsDynamicVoices: true
+    }));
     expect(getSpeechModelsForProvider('groq')).toEqual([]);
   });
 });
@@ -207,6 +211,16 @@ describe('RealtimeVoiceTypes', () => {
       defaultVoice: 'Kore',
     }));
     expect(model?.voices?.some(voice => voice.id === 'Kore')).toBe(true);
+  });
+
+  it('declares AssemblyAI Universal 3.5 as a composed realtime pipeline', () => {
+    const model = getRealtimeVoiceModel('assemblyai', 'universal-3-5-pro');
+
+    expect(model).toEqual(expect.objectContaining({
+      execution: 'transcription-pipeline',
+      supportsTools: true,
+      supportsTranscripts: true,
+    }));
   });
 
   it('auto-selects OpenAI before Google when both realtime providers are configured', () => {

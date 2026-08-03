@@ -6,6 +6,8 @@ import {
 } from '../llm/types/RealtimeVoiceTypes';
 import { OpenAIRealtimeVoiceSession } from './OpenAIRealtimeVoiceSession';
 import { GoogleRealtimeVoiceSession } from './GoogleRealtimeVoiceSession';
+import { AssemblyAIRealtimeVoiceSession } from './AssemblyAIRealtimeVoiceSession';
+import { OpenAILiveTranscribeSession } from './OpenAILiveTranscribeSession';
 import type {
   RealtimeVoiceAvailability,
   RealtimeVoiceSession,
@@ -31,8 +33,23 @@ export class RealtimeVoiceService {
     if (resolved.provider === 'google') {
       return new GoogleRealtimeVoiceSession(resolved);
     }
+    if (resolved.provider === 'assemblyai') {
+      return new AssemblyAIRealtimeVoiceSession(resolved);
+    }
+    if (this.isTranscriptionPipeline(resolved.provider, resolved.model)) {
+      return new OpenAILiveTranscribeSession(resolved);
+    }
 
     return new OpenAIRealtimeVoiceSession(resolved);
+  }
+
+  /**
+   * Pipeline models transcribe only; the reply comes from Nexus chat and the
+   * speech model. OpenAI ships both shapes, so the model decides which session
+   * class and which transport requirements apply.
+   */
+  private isTranscriptionPipeline(provider: string, model: string): boolean {
+    return getRealtimeVoiceModel(provider, model)?.execution === 'transcription-pipeline';
   }
 
   private resolveRequest(
@@ -54,6 +71,17 @@ export class RealtimeVoiceService {
         model: selection.model,
         voice: selection.voice,
         apiKey: this.getGoogleApiKey(),
+        instructions: request.instructions,
+        callbacks: request.callbacks,
+      };
+    }
+
+    if (selection.provider === 'assemblyai') {
+      return {
+        provider: 'assemblyai',
+        model: selection.model,
+        voice: '',
+        apiKey: this.getAssemblyAIApiKey(),
         instructions: request.instructions,
         callbacks: request.callbacks,
       };
@@ -81,10 +109,12 @@ export class RealtimeVoiceService {
     }
 
     const declaration = getRealtimeVoiceModel(selection.provider, selection.model);
+    // Pipeline models have no voice of their own — the speech model supplies it.
+    const fallbackVoice = declaration?.execution === 'transcription-pipeline' ? '' : 'marin';
     return {
       provider: selection.provider,
       model: selection.model,
-      voice: selection.voice || declaration?.defaultVoice || 'marin',
+      voice: selection.voice || declaration?.defaultVoice || fallbackVoice,
     };
   }
 
@@ -98,6 +128,22 @@ export class RealtimeVoiceService {
         available: false,
         reason: 'Realtime voice provider "elevenlabs" is configured, but only OpenAI WebRTC and Google Live are wired in this build.',
       };
+    }
+
+    if (selection.provider === 'assemblyai') {
+      if (!this.getAssemblyAIApiKey()) {
+        return { available: false, reason: 'AssemblyAI is not enabled and configured for live voice.' };
+      }
+
+      if (typeof WebSocket === 'undefined') {
+        return { available: false, reason: 'WebSocket is not available in this Obsidian environment.' };
+      }
+
+      if (typeof AudioContext === 'undefined') {
+        return { available: false, reason: 'AudioContext is not available in this Obsidian environment.' };
+      }
+
+      return { available: true };
     }
 
     if (selection.provider === 'google') {
@@ -120,6 +166,18 @@ export class RealtimeVoiceService {
       return { available: false, reason: 'OpenAI is not enabled and configured for live voice.' };
     }
 
+    if (this.isTranscriptionPipeline(selection.provider, selection.model)) {
+      if (typeof WebSocket === 'undefined') {
+        return { available: false, reason: 'WebSocket is not available in this Obsidian environment.' };
+      }
+
+      if (typeof AudioContext === 'undefined') {
+        return { available: false, reason: 'AudioContext is not available in this Obsidian environment.' };
+      }
+
+      return { available: true };
+    }
+
     if (typeof RTCPeerConnection === 'undefined') {
       return { available: false, reason: 'WebRTC is not available in this Obsidian environment.' };
     }
@@ -138,6 +196,15 @@ export class RealtimeVoiceService {
 
   private getGoogleApiKey(): string {
     const config = this.llmSettings?.providers.google;
+    if (!config?.enabled) {
+      return '';
+    }
+
+    return config.apiKey?.trim() ?? '';
+  }
+
+  private getAssemblyAIApiKey(): string {
+    const config = this.llmSettings?.providers.assemblyai;
     if (!config?.enabled) {
       return '';
     }
