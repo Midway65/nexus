@@ -1,0 +1,174 @@
+# Symptom → cause → fix
+
+Each entry names the invariant it violates (see `storage-model.md`). Confirm the
+cause before fixing; several of these look identical from the UI.
+
+## "The migration works on my machine but new installs are broken"
+
+`MIGRATIONS` was updated and `SCHEMA_SQL` was not — or the version literal at the
+bottom of `SCHEMA_SQL` was not bumped with `CURRENT_SCHEMA_VERSION`. Fresh installs
+never run migrations (`schema-rules.md`), so nothing on a dev machine with an
+existing cache can reveal this.
+
+Fix: run `scripts/check_schema_consistency.py`, then re-verify both install paths.
+
+## "I need to drop a column or change a type"
+
+Unsupported. Add a new column and reshape in `migrationFn`, or leave the old column
+in place unused. Never edit a shipped migration to make it look right.
+
+## "Data vanished after a rebuild"
+
+A write reached SQLite without a corresponding JSONL event, or the event has a type
+no applier in src/database/sync handles — appliers `switch` on `event.type` with no
+default, so an unknown type is dropped in silence during replay.
+
+Fix: write through the repository (event first, then cache) and add the `case` to
+the applier. Re-verify by rebuilding the cache again and confirming survival.
+
+## "Data reappeared after a rebuild"
+
+The inverse: something deleted from SQLite without appending a deletion event.
+Replay faithfully restores what the event store still says exists.
+
+## "The view says 'no tasks' but the data is there"
+
+A read raced startup hydration. Await `waitForQueryReady()` (optional on
+`IStorageAdapter`, implemented by `HybridStorageAdapter`) before querying, guarding
+with `typeof adapter.waitForQueryReady === 'function'`. TaskBoardDataController,
+TaskService, DualBackendExecutor and ProjectsManagerView all do this correctly.
+
+## "I awaited `waitForQueryReady()` and it still raced / hung for two minutes"
+
+Awaiting the gate is only half of it. Two ways it still bites:
+
+- **The gate never opens.** `isQueryReady()` is false while the hydration phase is
+  `running`, and `onProgress` is what puts it there. A rebuild path that reports
+  progress must also end the phase (`complete()`), or every waiter burns
+  `DEFAULT_STARTUP_REBUILD_IDLE_TIMEOUT_MS` (120s) and resolves **false** for the
+  rest of the session. This shipped once: only the blocking rebuild completed the
+  phase, so the background one — the fresh-vault path — left the adapter
+  permanently not-query-ready.
+- **The boolean is discarded.** `waitForQueryReady()` returns false on timeout and
+  on a failed init. `await adapter.waitForQueryReady()` with the result thrown away
+  reads as a gate but is a sleep. Branch on it: if `isReady()` is also false the
+  connection does not exist, so report `getInitError()` rather than letting the
+  first statement fail with the generic "Database not initialized".
+
+Verify with a real cold start, not a plugin reload: delete the cache
+(`indexedDB` database `nexus-cache-blob-store` on desktop) so init takes the
+full-rebuild branch, then restart.
+
+## "A filter silently misses records that obviously match"
+
+The query filtered on a column while the field it needs lives only in JSON content,
+or a read path skipped the content fetch a filter depends on. Denormalize the field
+into a column and backfill it (`schema-rules.md`), rather than making the read path
+cleverer.
+
+## "My glob over the event store finds nothing"
+
+Stream directories carry a category prefix and the id names a **directory** of
+shard files, not a `.jsonl` file: `<dataPath>/<category>/<id>/shard-NNNNNN.jsonl`.
+See `paths-and-layout.md`.
+
+## "Boot hangs, or the cache keeps getting corrupted"
+
+The cache blob is under a cloud-synced path. Desktop must use IndexedDB and mobile
+the vault adapter, selected by `createCacheBlobStore`; the trigger incident was a
+large cache.db in a Google Drive Shared Drive conflict-copying mid-write and timing
+out hydration. Do not move cache data back under a synced path.
+docs/architecture/cloud-sync-cache-backend.md has the full design.
+
+## "A conflict copy was not recognised"
+
+`CONFLICT_COPY_PATTERNS` in src/database/migration/CacheBackendMigration.ts does not
+match the parenthesised Dropbox form — the pattern requires the filename to end in
+`conflicted copy YYYY-MM-DD.db`, while the real name closes the parenthesis after
+the date. Tracked as issue #334 in the ProfSynapse/nexus repo.
+
+If you touch that list, verify by **running** the regexes against real filenames.
+The example in one pattern's own trailing comment does not match the pattern it
+annotates, which is exactly how the gap survived review.
+
+## "I hardcoded the storage root and it works fine"
+
+It works on your vault. The vault root is a user setting and the plugin folder name
+differs between installs. Use `resolveVaultRoot` / `resolvePluginStorageRoot`, and
+treat `compatibilityDataRoots` as read-only.
+
+## "Sync brought changes but the UI is stale"
+
+Two user-facing commands, both in src/core/commands/MaintenanceCommandManager.ts:
+**Nexus: Refresh synced data** re-reconciles the event store into the cache (the
+answer when a vault finishes syncing after init), and **Nexus: Rebuild cache**
+wipes and replays it. Prefer refresh first; rebuild is the bigger hammer and is
+safe, because everything it destroys is rebuildable by definition.
+
+## "no such table: <something>" after a cache rebuild
+
+**Nexus: Rebuild cache is a fresh-install path, not a data-clearing path.**
+`StorageMaintenanceService.rebuildCache()` calls `close()`, deletes the cache blob,
+then `initialize()` — which creates a **brand-new database from `SCHEMA_SQL`**.
+Anything not defined there is gone: not its rows, the table itself.
+
+A table created ad hoc by a service (`exec(SOME_DDL)` at startup) therefore
+survives exactly until the first rebuild, after which every write to it throws
+`SQLite3Error: no such table: …` for the rest of the session — the service holds
+the same `SQLiteCacheManager` object, so nothing looks disconnected, and a
+still-subscribed event handler keeps writing. This shipped once: the notes query
+index kept the DDL to itself on the "it's rebuildable, it doesn't need a
+migration" reasoning (fixed in migration v14; see docs/plans/notes-query-index-plan.md §5).
+
+Rebuildable describes where the *data* comes from. It says nothing about who owns
+the *table*. If any code issues SQL against a table, that table belongs in
+`schema.ts` **and** in `MIGRATIONS` — run `change-schema.md`, never a private DDL
+constant.
+
+The second half of the same failure is quieter: after a rebuild the table exists
+but is empty, and an index whose source is the vault (not the JSONL event store)
+is not repopulated by the replay. Subscribe to the adapter's `onCacheRebuilt`
+signal and rebuild, or the index silently answers "nothing" until the next load.
+
+Reproduce it in the running app — no Jest lane covers this seam:
+`adapter.rebuildCache()`, then touch a note, then read `dev:errors`.
+
+## "Database not initialized", in a burst, after a reload
+
+The database is *fine*. Something that belongs to the PREVIOUS plugin instance is
+still writing to it. `close()` nulls the handle at unload, so every statement a
+survivor issues afterwards throws `Database not initialized` out of
+`getDbOrThrow()` — with a four-frame storage stack that names no subsystem,
+because the async chain was broken by the event handler that scheduled the work.
+
+Two survivor shapes, both real:
+
+- **A subscription that outlives unload.** `app.metadataCache.on(...)` /
+  `app.vault.on(...)` are NOT torn down by the plugin unless the ref goes through
+  `plugin.registerEvent(ref)` or the service's teardown removes it. Note that
+  `ServiceContainer.clear()` calls **`cleanup()`** — a service whose teardown is
+  named `stop()`, `dispose()` or anything else is never called at all. One leak
+  per load, so the burst grows with the session's reload count.
+- **A long walk mid-flight.** Anything that yields between batches (a vault
+  index build) resumes after the unload that closed the database unless it checks
+  a stopped flag.
+
+The bulk-import shape is the diagnostic: a few hundred files dropped into the
+vault keep `changed` events flowing for tens of seconds, which is exactly the
+window a reload lands in.
+
+Confirm the leak in the running app — the count should be 1, and stay 1:
+
+```js
+app.metadataCache._['changed'].filter(l => String(l.fn).includes('<handlerFragment>')).length
+```
+
+To attribute the throw, patch the *prototype*, not the instance
+(`Object.getPrototypeOf(sqliteCache).transaction = …` recording `new Error().stack`):
+the failing calls come from an object the current plugin instance no longer
+exposes, so an instance patch records nothing.
+
+Fixing teardown is necessary but not sufficient: a write scheduled before the
+close still has to fail safely. Give the detached paths (`void this.flush()`,
+`void service.deleteNote(...)`) a `catch`, or the shutdown detail is reported as
+a plugin error.

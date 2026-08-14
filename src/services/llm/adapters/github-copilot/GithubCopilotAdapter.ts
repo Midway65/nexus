@@ -2,6 +2,11 @@ import { BaseAdapter } from '../BaseAdapter';
 import { GenerateOptions, StreamChunk, LLMResponse, ModelInfo, ProviderCapabilities, ModelPricing, Tool, ToolCall } from '../types';
 import { GITHUB_COPILOT_DEFAULT_MODEL } from './GithubCopilotModels';
 import { ProviderHttpClient, ProviderHttpError } from '../shared/ProviderHttpClient';
+import {
+  createProviderStreamError,
+  extractResponsesApiStreamError,
+  extractStreamErrorMessage
+} from '../../streaming/streamErrorFrames';
 
 const COPILOT_API_ENDPOINT = 'https://api.githubcopilot.com/chat/completions';
 const COPILOT_RESPONSES_ENDPOINT = 'https://api.githubcopilot.com/responses';
@@ -306,6 +311,9 @@ export class GithubCopilotAdapter extends BaseAdapter {
           const event = parsed as CopilotSSEEvent;
           return event.choices?.[0]?.finish_reason || null;
         },
+        // The Copilot chat endpoint is OpenAI-compatible: a rejected request after a
+        // 200 (quota, content filter, upstream failure) arrives as {"error":{...}}.
+        extractError: (parsed) => extractStreamErrorMessage(parsed, 'GitHub Copilot streaming error'),
         accumulateToolCalls: true,
         toolCallThrottling: {
           initialYield: true,
@@ -410,6 +418,8 @@ export class GithubCopilotAdapter extends BaseAdapter {
     const toolCallsMap = new Map<number, ToolCall>();
     let currentResponseId: string | null = null;
     let isCompleted = false;
+    // Fatal error frame over HTTP 200; thrown after the queue drains.
+    let streamError: string | undefined = undefined;
 
     const parser = createParser((sseEvent) => {
       if (sseEvent.type === 'reconnect-interval' || isCompleted) return;
@@ -436,6 +446,14 @@ export class GithubCopilotAdapter extends BaseAdapter {
         }
         event = parsed;
       } catch {
+        return;
+      }
+
+      // Responses API failures arrive as data frames on an HTTP 200 stream.
+      const errorMessage = extractResponsesApiStreamError(event, 'GitHub Copilot streaming error');
+      if (errorMessage) {
+        streamError = errorMessage;
+        isCompleted = true;
         return;
       }
 
@@ -518,12 +536,17 @@ export class GithubCopilotAdapter extends BaseAdapter {
         yield nextEvent;
       }
 
-      if (!isCompleted) {
+      // Never claim success when the stream carried a fatal error frame.
+      if (!isCompleted && !streamError) {
         yield { content: '', complete: true };
       }
     } catch (error) {
       console.error('[GithubCopilotAdapter] Error processing Responses stream:', error);
       throw error;
+    }
+
+    if (streamError) {
+      throw createProviderStreamError(streamError, this.name);
     }
   }
 

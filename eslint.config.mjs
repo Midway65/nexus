@@ -5,6 +5,47 @@ import obsidianPlugin from "eslint-plugin-obsidianmd";
 import { DEFAULT_BRANDS } from "eslint-plugin-obsidianmd/dist/lib/rules/ui/brands.js";
 import { DEFAULT_ACRONYMS } from "eslint-plugin-obsidianmd/dist/lib/rules/ui/acronyms.js";
 
+// ── Mobile-safety blocklists (issue #221) ────────────────────────────────────
+// Central, extensible definition of what a UI-primitive file may not top-level
+// import. A static import runs during module init, before any Platform.isDesktop
+// check, so on a phone (isDesktopOnly: false) it is a launch crash, not a
+// degraded feature. Add to these arrays rather than writing a second rule block.
+//
+// Complementary to the reachability gate (`npm run lint:mobile`), which asks a
+// different question: whether anything the init graph *reaches* imports a Node
+// built-in. That gate is a statement about today's import graph — a settings
+// primitive that is not currently reachable from src/main.ts would pass it and
+// still crash the moment the settings tab opens on a phone. These rules are the
+// per-file guarantee underneath it.
+const MOBILE_BANNED_NODE_BUILTINS = [
+    "assert", "async_hooks", "buffer", "child_process", "cluster", "console",
+    "constants", "crypto", "dgram", "diagnostics_channel", "dns", "domain",
+    "events", "fs", "fs/promises", "http", "http2", "https", "inspector",
+    "module", "net", "os", "path", "perf_hooks", "process", "punycode",
+    "querystring", "readline", "repl", "stream", "stream/promises",
+    "string_decoder", "sys", "timers", "tls", "trace_events", "tty", "url",
+    "util", "v8", "vm", "wasi", "worker_threads", "zlib",
+];
+
+// npm packages (and package entry points) known to pull Node built-ins in.
+// `pdfjs-dist`, `pdf-lib` and the rest of the dependency list are deliberately
+// absent — they are browser-safe. Vet a new entry with
+// .skills/nexus-mobile-compat/protocols/vet-a-dependency.md before removing one.
+const MOBILE_BANNED_PACKAGES = [
+    "mammoth",                  // → fs/stream via its docx pipeline
+    "jszip",                    // → stream/buffer
+    "xlsx",
+    "yaml",
+    "@dao-xyz/sqlite3-vec",     // native/wasm bridge, desktop only
+];
+
+// Package sub-paths that are Node-only even though the package root is not.
+const MOBILE_BANNED_PACKAGE_PATTERNS = [
+    "node:*",
+    "@dao-xyz/sqlite3-vec/*",
+    "@modelcontextprotocol/sdk/server/stdio*",  // stdio transport → node:process
+];
+
 export default defineConfig([
     // Global ignores (must be first so they apply to all configs)
     {
@@ -160,6 +201,89 @@ export default defineConfig([
         },
     },
 
+    // Bases API (1.10.0) vs minAppVersion (1.8.7) — the ONE file allowed to
+    // name it. `obsidianmd/no-unsupported-api` is right that
+    // `Plugin.registerBasesView` and `BasesView` post-date minAppVersion; this
+    // file is the runtime guard the rule is asking for and exists precisely so
+    // nothing else has to reference those symbols:
+    //   - `registerBasesView` is read once, behind `typeof === 'function'`, and
+    //     bound; on an older app the whole feature (and its agent) is absent.
+    //   - `BasesView` is dereferenced only inside the view factory, which
+    //     Obsidian calls only when the Bases API exists. At module scope it
+    //     would be `class extends undefined` and would take plugin init down.
+    // Inline eslint-disable is blocked for obsidianmd rules (the
+    // obsidian-releases bot rejects it), so this is handled at config level —
+    // the same pattern as the no-nodejs-modules block above.
+    //
+    // `baseResultHarvester.ts` is exempt for the same reason, one step further
+    // out: it reads `BasesQueryResult` / `BasesEntry` / `BasesEntryGroup` off a
+    // live view. The only thing that ever calls it is the analyze runner, which
+    // only runs once Obsidian has constructed a `nexus-analyze` view — which
+    // requires the Bases API to exist AND the agent to have been registered,
+    // which `ensureAnalyzeViewRegistered` gates. On an app without Bases the
+    // whole agent is absent, so there is no reachable path to these symbols.
+    {
+        files: [
+            "src/agents/baseManager/services/basesAvailability.ts",
+            "src/agents/baseManager/services/baseResultHarvester.ts",
+        ],
+        rules: {
+            "obsidianmd/no-unsupported-api": "off",
+        },
+    },
+
+    // ── Mobile-safety import guard for shared UI primitives (issue #221) ─────
+    // src/settings/components/** holds the primitives every settings surface
+    // composes (BoxedSection, ConfirmModal, row/picker helpers, breakpoint
+    // helpers). They are pure DOM builders with no legitimate reason to touch
+    // Node, and they are imported widely enough that one Node import here takes
+    // mobile launch down. Errors, not warnings: obsidianmd/no-nodejs-modules
+    // reports this class at "warn", which does not fail `npm run lint` and so
+    // does not gate anything.
+    //
+    // Type-only imports are allowed — `import type` is erased at compile time and
+    // never reaches the bundle. The sanctioned runtime escape hatch remains
+    // desktopRequire()/await import() inside a Platform-guarded function, neither
+    // of which is a top-level import and neither of which this rule touches.
+    //
+    // To widen the guard to another directory, add its glob to `files` below.
+    {
+        files: ["src/settings/components/**/*.ts", "src/settings/components/**/*.tsx"],
+        rules: {
+            "@typescript-eslint/no-restricted-imports": [
+                "error",
+                {
+                    paths: [
+                        ...MOBILE_BANNED_NODE_BUILTINS.map((name) => ({
+                            name,
+                            allowTypeImports: true,
+                            message:
+                                `Node built-in "${name}" must not be top-level imported from a settings UI primitive — ` +
+                                "it executes during module init, before any Platform.isDesktop check, and crashes the " +
+                                "plugin at launch on mobile. Use desktopRequire() or await import() inside a guarded function.",
+                        })),
+                        ...MOBILE_BANNED_PACKAGES.map((name) => ({
+                            name,
+                            allowTypeImports: true,
+                            message:
+                                `"${name}" pulls Node built-ins in transitively and must not be top-level imported from a ` +
+                                "settings UI primitive. Load it with await import() inside the function that needs it.",
+                        })),
+                    ],
+                    patterns: [
+                        {
+                            group: MOBILE_BANNED_PACKAGE_PATTERNS,
+                            allowTypeImports: true,
+                            message:
+                                "This module is Node-only and must not be top-level imported from a settings UI primitive. " +
+                                "Load it with await import() inside a Platform-guarded function.",
+                        },
+                    ],
+                },
+            ],
+        },
+    },
+
     // MCP SDK low-level `Server` class: tagged @deprecated in @modelcontextprotocol/sdk
     // >=1.26 in favor of the high-level `McpServer`, but explicitly retained for advanced
     // use cases. This plugin's custom RequestHandlerFactory/strategy/transport architecture
@@ -285,6 +409,11 @@ export default defineConfig([
             "src/agents/storageManager/utils/FileOperations.ts",
             "src/agents/storageManager/tools/createFolder.ts",
             "src/agents/canvasManager/utils/CanvasOperations.ts",
+            // Twin of CanvasOperations for `.base` files: every write path
+            // resolves through tryResolveVaultPath() first, and the facade
+            // cannot express its create-only semantics (VaultOperations.writeFile
+            // overwrites, while `base write` must fail when the file exists).
+            "src/agents/baseManager/services/BaseFileOperations.ts",
             "src/agents/memoryManager/tools/workspaces/createWorkspace.ts",
             "src/agents/memoryManager/tools/workspaces/updateWorkspace.ts",
             "src/agents/ingestManager/tools/services/IngestionPipelineService.ts",

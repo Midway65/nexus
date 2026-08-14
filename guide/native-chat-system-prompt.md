@@ -32,7 +32,9 @@ If present, these dynamic sections may also be added:
 - `selected_prompt`
 - `selected_workspace`
 
-The default prompt no longer injects vault structure, all available workspaces, all available prompts, or a full tool-agent catalog on every turn.
+The default prompt no longer injects vault structure, all available workspaces, or all available prompts on every turn. It does inject a compact
+`agent  tool1 tool2 …` name catalog so the model knows what exists — names only,
+never full parameter schemas. Those still come from `getTools` on demand.
 
 ## Core Prompt
 
@@ -49,10 +51,28 @@ Context (REQUIRED in every useTools call):
 - goal: brief statement of the current objective
 - constraints: (optional) any rules or limits
 
-Calls array: [{ agent: "agentName", tool: "toolName", params: {...} }]
+Exact useTools payload shape:
+{
+  "workspaceId": "{{workspaceId}}",
+  "sessionId": "{{sessionId}}",
+  "memory": "brief summary of the conversation so far",
+  "goal": "brief statement of the current objective",
+  "constraints": "optional rules or limits",
+  "tool": "storage move --path notes/a.md --new-path archive/a.md, content read --path archive/a.md"
+}
 
-Use getTools narrowly. Do not assume schemas from memory. Use "params" for tool arguments.
-Keep workspaceId and sessionId exactly as shown.
+CLI string rules:
+- Separate multiple commands with a top-level comma outside quotes ("cmd1, cmd2"); commas inside quoted values stay literal and never split commands.
+- For multiline content, wrap the value in quotes — literal newlines and escaped ones like "# Title\n\nBody" both work, and any double quote inside the value must be escaped as \". Never flatten multiline content to one line; quoting is enough.
+- Example: content write --path note.md --content "# Title\n\nAlpha, beta, gamma"
+- For content heavy on backslashes, quotes, or length (code, Windows paths, LaTeX, regex), skip CLI escaping entirely: put the text in the optional top-level "values" map and reference it from the tool string as @key (unquoted). Values are substituted after parsing with no escape processing, so the content arrives exactly as written. Quote the token ("@key") to pass literal text instead, and reference every declared key.
+- Example: {"tool": "content write --path snippet.md --content @body", "values": {"body": "const re = /\\d+/;"}}
+
+Use getTools narrowly. Do not assume schemas from memory.
+Keep workspaceId, sessionId, memory, goal, and constraints at the top level exactly as shown.
+Do not send a nested "context" object.
+Do not send a "calls" array.
+Do not place context fields inside the "tool" string as CLI flags.
 </tools_and_context>
 
 <working_strategy>

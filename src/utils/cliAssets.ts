@@ -7,7 +7,7 @@
  */
 
 /** Combined content hash — used to detect and refresh a stale on-disk install. */
-export const NEXUS_CLI_ASSETS_HASH = "456748a5a1137be8";
+export const NEXUS_CLI_ASSETS_HASH = "c095e1097b9c3b8c";
 
 /** Bundled standalone `nexus` CLI (written to <dataDir>/nexus-cli.js). */
 export const NEXUS_CLI_JS = `#!/usr/bin/env node
@@ -166,80 +166,286 @@ function listPlaybooks(dir) {
 }
 
 // cli/commandLine.ts
+var CONTEXT_VALUE_FLAGS = /* @__PURE__ */ new Set([
+  "memory",
+  "goal",
+  "workspace",
+  "session",
+  "constraints",
+  "vault"
+]);
+var CONTEXT_BOOLEAN_FLAGS = /* @__PURE__ */ new Set(["json", "dry-run", "help"]);
+var TRANSPORT_FLAG_RE = /^([a-z0-9][a-z0-9-]*)-(stdin|file)$/;
+function parseTransportFlag(token) {
+  if (!token.startsWith("--")) return null;
+  const match = TRANSPORT_FLAG_RE.exec(token.slice(2));
+  return match ? { base: match[1], kind: match[2] } : null;
+}
+function isTransportFlagKey(key) {
+  return TRANSPORT_FLAG_RE.test(key);
+}
+var MISPLACEABLE_CONTEXT_FLAGS = /* @__PURE__ */ new Set([
+  "memory",
+  "goal",
+  "constraints",
+  "vault",
+  "session",
+  "json",
+  "dry-run"
+]);
+var VERBS = ["tools", "use", "playbook", "vaults", "doctor", "help"];
+function editDistance(a, b) {
+  const rows = Array.from({ length: a.length + 1 }, (_, i) => {
+    const row = new Array(b.length + 1).fill(0);
+    row[0] = i;
+    return row;
+  });
+  for (let j = 0; j <= b.length; j++) rows[0][j] = j;
+  for (let i = 1; i <= a.length; i++) {
+    for (let j = 1; j <= b.length; j++) {
+      rows[i][j] = Math.min(
+        rows[i - 1][j] + 1,
+        rows[i][j - 1] + 1,
+        rows[i - 1][j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1)
+      );
+    }
+  }
+  return rows[a.length][b.length];
+}
+function normalizeFlagKey(key) {
+  return key.toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+function suggestContextFlag(key) {
+  const known = [...CONTEXT_VALUE_FLAGS, ...CONTEXT_BOOLEAN_FLAGS];
+  const target = normalizeFlagKey(key);
+  let best;
+  let bestScore = Infinity;
+  for (const candidate of known) {
+    const score = editDistance(target, normalizeFlagKey(candidate));
+    if (score < bestScore) {
+      bestScore = score;
+      best = candidate;
+    }
+  }
+  return bestScore <= 2 ? best : void 0;
+}
+function findVerb(argv) {
+  for (let i = 0; i < argv.length; i++) {
+    const token = argv[i];
+    if (token === "--") return void 0;
+    if (token.startsWith("--")) {
+      const key = token.slice(2);
+      const next = argv[i + 1];
+      const takesValue = CONTEXT_BOOLEAN_FLAGS.has(key) ? false : next !== void 0 && !next.startsWith("--");
+      if (takesValue) i++;
+      continue;
+    }
+    return token;
+  }
+  return void 0;
+}
 function partitionUseArgv(argv) {
-  if (argv[0] !== "use") return { outerArgv: argv, toolArgv: null };
-  const delimiterIndex = argv.indexOf("--", 1);
+  const delimiterIndex = argv.indexOf("--");
   if (delimiterIndex < 0) return { outerArgv: argv, toolArgv: null };
-  return {
-    outerArgv: argv.slice(0, delimiterIndex),
-    toolArgv: argv.slice(delimiterIndex + 1)
-  };
+  const outerArgv = argv.slice(0, delimiterIndex);
+  if (findVerb(outerArgv) !== "use") return { outerArgv: argv, toolArgv: null };
+  return { outerArgv, toolArgv: argv.slice(delimiterIndex + 1) };
+}
+function parseOuterArgs(argv) {
+  const positionals = [];
+  const flags = {};
+  for (let i = 0; i < argv.length; i++) {
+    const token = argv[i];
+    if (token === "--") {
+      const verb = positionals[0];
+      if (verb === void 0) {
+        throw new Error(
+          'No command before the \`--\` delimiter. The delimiter belongs to \`use\`: nexus use --memory "..." --goal "..." -- <agent command>'
+        );
+      }
+      if (verb !== "use") {
+        const suggestion = suggestVerb(verb);
+        throw new Error(
+          \`\\\`--\\\` is the delimiter for \\\`nexus use\\\`, but the command here is "\${verb}".\` + (suggestion === "use" ? " Did you mean \`nexus use\`?" : \` \\\`\${verb}\\\` takes no tool command; drop the \\\`--\\\`.\`) + ' Write: nexus use --memory "..." --goal "..." -- <agent command>'
+        );
+      }
+      throw new Error(
+        "Stray \`--\`: \`use\` already consumed its delimiter, so this is a second one. Use exactly one: context flags before it, one complete tool command after it."
+      );
+    }
+    if (!token.startsWith("--")) {
+      positionals.push(token);
+      continue;
+    }
+    const key = token.slice(2);
+    if (key === "") {
+      throw new Error(\`Invalid flag "\${token}". Context flags look like --memory "...".\`);
+    }
+    if (isTransportFlagKey(key)) {
+      throw new Error(
+        \`--\${key} is a tool-command flag, so it belongs AFTER the \\\`--\\\` delimiter: nexus use --memory "..." --goal "..." -- content write --path Note.md --\${key}\${key.endsWith("-file") ? " note.md" : ""}\`
+      );
+    }
+    if (!CONTEXT_VALUE_FLAGS.has(key) && !CONTEXT_BOOLEAN_FLAGS.has(key)) {
+      const suggestion = suggestContextFlag(key);
+      throw new Error(
+        \`Unknown context flag "--\${key}".\` + (suggestion ? \` Did you mean "--\${suggestion}"?\` : "") + " Context flags are: " + [...CONTEXT_VALUE_FLAGS, ...CONTEXT_BOOLEAN_FLAGS].map((f) => \`--\${f}\`).join(", ") + ". Tool flags (like --path) go after the \`--\` delimiter."
+      );
+    }
+    if (Object.prototype.hasOwnProperty.call(flags, key)) {
+      throw new Error(
+        \`--\${key} was given twice. Pass it once; a repeated flag silently discarded the earlier value.\`
+      );
+    }
+    if (CONTEXT_BOOLEAN_FLAGS.has(key)) {
+      flags[key] = true;
+      continue;
+    }
+    const next = argv[i + 1];
+    if (next === void 0 || next.startsWith("--")) {
+      throw new Error(
+        \`--\${key} requires a value\` + (next === void 0 ? " but reached the end of the command." : \`, but the next token is the flag "\${next}".\`)
+      );
+    }
+    flags[key] = next;
+    i++;
+  }
+  return { positionals, flags };
 }
 function quoteToolToken(value) {
   if (/^[A-Za-z0-9_./:@%+=-]+$/.test(value)) return value;
   const escaped = value.replace(/\\\\/g, "\\\\\\\\").replace(/"/g, '\\\\"').replace(/\\n/g, "\\\\n").replace(/\\r/g, "\\\\r").replace(/\\t/g, "\\\\t");
   return \`"\${escaped}"\`;
 }
+function assertNoMisplacedContextFlags(toolArgv) {
+  for (const token of toolArgv) {
+    if (!token.startsWith("--")) continue;
+    const key = token.slice(2);
+    if (!MISPLACEABLE_CONTEXT_FLAGS.has(key)) continue;
+    throw new Error(
+      \`--\${key} is a context flag, so it belongs BEFORE the \\\`--\\\` delimiter, not in the tool command. Write: nexus use --\${key} "..." ... -- <agent command>\`
+    );
+  }
+}
+function assertNoStrayDelimiter(toolArgv) {
+  for (let i = 0; i < toolArgv.length; i++) {
+    if (toolArgv[i] !== "--") continue;
+    const previous = i > 0 ? toolArgv[i - 1] : void 0;
+    if (previous !== void 0 && previous.startsWith("--")) continue;
+    throw new Error(
+      "Found a second \`--\` inside the tool command. Use exactly one delimiter: context flags before it, one complete tool command after it."
+    );
+  }
+}
 function serializeToolArgv(toolArgv) {
-  if (toolArgv.length < 2) {
-    throw new Error("Structured \`use\` needs an agent and command after \`--\`.");
+  assertNoMisplacedContextFlags(toolArgv);
+  assertNoStrayDelimiter(toolArgv);
+  if (toolArgv.length === 0) {
+    throw new Error(
+      'Nothing after \`--\`. Add the tool command: nexus use --memory "..." --goal "..." -- storage list'
+    );
+  }
+  if (toolArgv.length === 1) {
+    const only = toolArgv[0];
+    if (/\\s/.test(only.trim())) return only.trim();
+    throw new Error(
+      \`Structured \\\`use\\\` needs an agent and command after \\\`--\\\`, got only "\${only}". Write: -- \${only} <tool-name> (run \\\`nexus tools \${only}\\\` to list its tools).\`
+    );
   }
   return toolArgv.map(quoteToolToken).join(" ");
 }
 function hydrateToolContentArgv(toolArgv, readers) {
-  const stdinIndexes = [];
-  const fileIndexes = [];
-  const contentIndexes = [];
-  toolArgv.forEach((token, index2) => {
-    if (token === "--content-stdin") stdinIndexes.push(index2);
-    if (token === "--content-file") fileIndexes.push(index2);
-    if (token === "--content") contentIndexes.push(index2);
+  const transports = [];
+  toolArgv.forEach((token, index) => {
+    const transport = parseTransportFlag(token);
+    if (transport) transports.push({ ...transport, index });
   });
-  const transportCount = stdinIndexes.length + fileIndexes.length;
-  if (transportCount === 0) return toolArgv;
-  if (transportCount > 1) {
-    throw new Error("Use exactly one of --content-stdin or --content-file.");
+  if (transports.length === 0) return toolArgv;
+  const stdinTransports = transports.filter((t) => t.kind === "stdin");
+  if (stdinTransports.length > 1) {
+    throw new Error(
+      "Use exactly one --<flag>-stdin transport per command \\u2014 standard input can only be read once. Move the other values to --<flag>-file <path> or pass them inline."
+    );
   }
-  if (contentIndexes.length > 0) {
-    throw new Error("Do not combine --content with --content-stdin or --content-file.");
+  const seenBases = /* @__PURE__ */ new Set();
+  for (const transport of transports) {
+    if (seenBases.has(transport.base)) {
+      throw new Error(\`Use exactly one of --\${transport.base}-stdin or --\${transport.base}-file.\`);
+    }
+    seenBases.add(transport.base);
+    if (toolArgv.includes(\`--\${transport.base}\`)) {
+      throw new Error(
+        \`Do not combine --\${transport.base} with --\${transport.base}-stdin or --\${transport.base}-file.\`
+      );
+    }
   }
-  if (stdinIndexes.length === 1) {
-    const index2 = stdinIndexes[0];
-    return [
-      ...toolArgv.slice(0, index2),
-      "--content",
-      readers.readStdin(),
-      ...toolArgv.slice(index2 + 1)
-    ];
+  const hydrated = [];
+  for (let index = 0; index < toolArgv.length; index++) {
+    const transport = transports.find((t) => t.index === index);
+    if (!transport) {
+      hydrated.push(toolArgv[index]);
+      continue;
+    }
+    if (transport.kind === "stdin") {
+      hydrated.push(\`--\${transport.base}\`, readers.readStdin());
+      continue;
+    }
+    const path = toolArgv[index + 1];
+    if (path === void 0 || path.startsWith("--")) {
+      throw new Error(\`--\${transport.base}-file requires a local file path.\`);
+    }
+    hydrated.push(\`--\${transport.base}\`, readers.readFile(path));
+    index++;
   }
-  const index = fileIndexes[0];
-  const path = toolArgv[index + 1];
-  if (path === void 0 || path.startsWith("--")) {
-    throw new Error("--content-file requires a local file path.");
-  }
-  return [
-    ...toolArgv.slice(0, index),
-    "--content",
-    readers.readFile(path),
-    ...toolArgv.slice(index + 2)
-  ];
+  return hydrated;
 }
-function resolveUseCommand(positionals, toolArgv) {
+function describeFragmentedLegacyCommand(extras, isWindows) {
+  const rebuilt = extras.join(" ");
+  const looksFragmented = extras.some((part) => /\\s/.test(part));
+  if (!looksFragmented) {
+    return \`The tool command needs a \\\`--\\\` delimiter before it. Write: nexus use --memory "..." --goal "..." -- \${rebuilt}\`;
+  }
+  return "The quoted tool command was split into several shell arguments" + (isWindows ? " (PowerShell can consume nested double quotes)" : "") + \`. Use the delimiter form so no nested quoting is needed: nexus use --memory "..." --goal "..." -- \${rebuilt}\`;
+}
+function resolveUseCommand(positionals, toolArgv, options = {}) {
+  const isWindows = options.isWindows ?? process.platform === "win32";
   if (toolArgv !== null) {
     if (positionals.length !== 1 || positionals[0] !== "use") {
-      throw new Error("With structured \`use\`, put context flags before \`--\` and the complete tool command after it.");
+      const extras = positionals.filter((value) => value !== "use");
+      throw new Error(
+        "With structured \`use\`, put context flags before \`--\` and the complete tool command after it. " + (extras.length ? \`Unexpected before the delimiter: \${extras.map((value) => \`"\${value}"\`).join(", ")}.\` : "The \`use\` verb must appear before the delimiter.")
+      );
     }
     return serializeToolArgv(toolArgv);
   }
   if (positionals.length < 2) {
-    throw new Error("\`use\` needs a tool command after \`--\`.");
-  }
-  if (positionals.length > 2) {
     throw new Error(
-      'The legacy tool command arrived as multiple shell arguments. PowerShell may have consumed nested double quotes. Use the structured form: nexus use --memory "..." --goal "..." -- memory load-workspace --workspace "NeuroAI Mapping".'
+      '\`use\` needs a tool command. Write: nexus use --memory "..." --goal "..." -- <agent command>, e.g. -- storage list'
     );
   }
-  return positionals[1];
+  if (positionals.length > 2) {
+    throw new Error(describeFragmentedLegacyCommand(positionals.slice(1), isWindows));
+  }
+  const command = positionals[1];
+  if (!/\\s/.test(command.trim())) {
+    throw new Error(
+      \`"\${command}" is not a complete tool command \\u2014 it needs an agent AND a tool name, e.g. "storage list". Write: nexus use --memory "..." --goal "..." -- <agent> <tool>. Run \\\`nexus tools\\\` to see the catalog.\`
+    );
+  }
+  return command.trim();
+}
+function suggestVerb(candidate) {
+  const target = normalizeFlagKey(candidate);
+  let best;
+  let bestScore = Infinity;
+  for (const verb of VERBS) {
+    const score = editDistance(target, normalizeFlagKey(verb));
+    if (score < bestScore) {
+      bestScore = score;
+      best = verb;
+    }
+  }
+  return bestScore <= 2 ? best : void 0;
 }
 
 // cli/vaultDiscovery.ts
@@ -334,26 +540,6 @@ function resolveVault(requested) {
   }
   throw new Error(\`Multiple vaults open: \${sockets.map((x) => x.name).join(", ")}. Pass --vault <name>.\`);
 }
-function parseArgs(argv) {
-  const positionals = [];
-  const flags = {};
-  for (let i = 0; i < argv.length; i++) {
-    const a = argv[i];
-    if (a.startsWith("--")) {
-      const key = a.slice(2);
-      const next = argv[i + 1];
-      if (next !== void 0 && !next.startsWith("--")) {
-        flags[key] = next;
-        i++;
-      } else {
-        flags[key] = true;
-      }
-    } else {
-      positionals.push(a);
-    }
-  }
-  return { positionals, flags };
-}
 function printToolResult(result, asJson) {
   if (asJson) {
     process.stdout.write(JSON.stringify(result, null, 2) + "\\n");
@@ -416,20 +602,33 @@ CONTEXT (flags on \\\`use\\\`; \\\`tools\\\` accepts them too. \\\`playbook\\\` 
   --json                  print the raw JSON result
   --dry-run               print the reconstructed request; do not connect or execute
 
-CONTENT INPUT (CLI-only flags after the \\\`--\\\` delimiter)
-  --content-stdin         read the tool's --content value from standard input
-  --content-file <path>   read the tool's --content value from a local file
-                          (use one transport flag; do not also pass --content)
+CONTENT INPUT (CLI-only flags after the \\\`--\\\` delimiter; work for ANY tool flag)
+  --<flag>-stdin          read that flag's value from standard input, e.g.
+                          --content-stdin, --conversation-context-stdin
+  --<flag>-file <path>    read that flag's value from a local file, e.g.
+                          --content-file note.md, --description-file body.md
+                          (one -stdin per command; several -file are fine; don't
+                          also pass the flag directly)
 
 CLI SYNTAX
   \\u2022 Canonical form: context flags first, then \\\`--\\\`, then one tool command as normal
     shell arguments. Commands are kebab-case (content set-property, memory load-workspace).
     Multiword values need only one shell quote layer: --workspace "NeuroAI Mapping".
+  \\u2022 Everything AFTER \\\`--\\\` belongs to the tool; everything BEFORE it is context.
+  \\u2022 A tool's REQUIRED argument is positional \\u2014 just write the value:
+    \\\`memory load-workspace "NeuroAI Mapping"\\\`, not \\\`--workspace "NeuroAI Mapping"\\\`.
+    Positional never collides with a context flag of the same name, so prefer it.
+    (\\\`--workspace\\\` after \\\`--\\\` still parses identically; it is just easy to confuse
+    with the \\\`--workspace\\\` context flag, which scopes the call instead.)
+  \\u2022 Context flags may go before or after the verb \\u2014 \\\`nexus --vault V use ...\\\` and
+    \\\`nexus use --vault V ...\\\` are equivalent.
   \\u2022 The legacy one-string form remains supported. On Windows PowerShell, nested double
     quotes can be consumed before Node receives them; prefer the canonical \\\`--\\\` form.
   \\u2022 For multiline Markdown or text containing embedded quotes, keep the payload out of
-    shell argv: \\\`Get-Content -Raw note.md | nexus use ... -- content write --path X.md --content-stdin\\\`,
-    or pass \\\`--content-file note.md\\\`.
+    shell argv with a transport flag \\u2014 works for ANY tool flag, not just --content:
+    \\\`Get-Content -Raw note.md | nexus use ... -- content write --path X.md --content-stdin\\\`,
+    \\\`nexus use ... -- memory create-state --name "X" --conversation-context-file ctx.md \\u2026\\\`.
+    Multiline argv still parses if you must inline it; quotes around the value are enough.
   \\u2022 Paths are vault-relative. "..", "~", absolute paths are rejected; a leading "/" is
     stripped. You cannot read or write outside the vault.
   \\u2022 Arrays: --tags "[work, urgent]". Wikilinks keep brackets: --links "[[[A]], [[B]]]".
@@ -443,17 +642,29 @@ GOTCHAS
   \\u2022 \\\`content read\\\` requires a start line: content read --path X --start-line 1 (1 = top).
   \\u2022 ALL flags are kebab-case \\u2014 camelCase (e.g. --newPath, --activeTask) is rejected as
     an unknown flag; use --new-path, --active-task. Get exact flags from \\\`nexus tools <tool>\\\`.
-  \\u2022 Context fields (--workspace/--session/--memory/--goal) go before \\\`--\\\`, never
-    after it \\u2014 e.g. --workspace-id inside the tool command is rejected.
+  \\u2022 Context fields (--memory/--goal/--session/--constraints/--vault) go before \\\`--\\\`.
+    Putting one after it is rejected with a steer. \\\`--workspace\\\` is the one exception
+    (it is also a real tool flag) \\u2014 so pass tool values positionally and it can never
+    be misread as context.
+  \\u2022 Unknown or camelCase context flags are rejected, not ignored: --workspaceId,
+    --dryRun, and typos like --vualt fail with a suggestion instead of silently
+    doing nothing. Tool flags are only recognized after \\\`--\\\`.
   \\u2022 --memory/--goal are enforced \\u2014 send real values or the call is rejected.
-  \\u2022 Media generation is async \\u2014 \\\`prompt generate-*\\\` returns a job; poll
-    \\\`prompt check-generated-artifact\\\`.
+  \\u2022 Media generation is async \\u2014 \\\`prompt generate-image\\\` / \\\`generate-audio\\\` /
+    \\\`generate-video\\\` return a job; poll \\\`prompt check-generated-artifact "<job-id>"\\\`.
   \\u2022 States: the AI gets archive (reversible), not delete.
+  \\u2022 A \\\`.base\\\` is a saved query, not a note: \\\`base read\\\`/\\\`base write\\\`/\\\`base update\\\`
+    handle the file (write creates, update modifies, both validate and reject with the
+    list of errors before touching disk); \\\`base analyze\\\` runs it and returns the rows
+    a user would see.
   \\u2022 No open vault \\u2192 the socket is absent; open Obsidian with Nexus. Multiple open \\u2192
     pass --vault <name>.
 
 TOOL CATALOG
   Core agents (always on): content, storage, search, canvas, task, memory, prompt, ingest.
+  Vault-gated: base \\u2014 reads and writes \\\`.base\\\` files (Obsidian Bases) and runs them.
+  Present only when Bases is enabled in that vault, so confirm with \\\`nexus tools\\\`
+  before offering it; enabling it takes a plugin reload.
   Apps (opt-in, per vault): composer, data, elevenlabs, skills, web \\u2014 appear only when
   enabled. The live, authoritative catalog for THIS vault is always: nexus tools
 
@@ -464,7 +675,8 @@ EXAMPLES
   nexus tools "content read, search content"
   nexus use --memory "auditing notes" --goal "read today's daily" -- content read --path Daily/2026-07-17.md --start-line 1
   nexus use --vault "My Notes" --memory "smoke test" --goal "list vault root" -- storage list
-  nexus use --dry-run --memory "resuming research" --goal "load workspace" -- memory load-workspace --workspace "NeuroAI Mapping" --limit 1
+  nexus use --dry-run --memory "resuming research" --goal "load workspace" -- memory load-workspace "NeuroAI Mapping" --limit 1
+  nexus use --memory "reviewing saved views" --goal "see what the Tasks base returns" -- base analyze "Bases/Tasks.base" --limit 20
   nexus playbook vault-work
 \`;
 }
@@ -482,11 +694,25 @@ async function withClient(vaultName, fn) {
 async function main() {
   const argv = process.argv.slice(2);
   const { outerArgv, toolArgv } = partitionUseArgv(argv);
-  const { positionals, flags } = parseArgs(outerArgv);
+  if (outerArgv.length === 0 || outerArgv.includes("--help") || outerArgv.includes("help")) {
+    process.stdout.write(buildUsage());
+    return 0;
+  }
+  let positionals;
+  let flags;
+  try {
+    ({ positionals, flags } = parseOuterArgs(outerArgv));
+  } catch (error) {
+    process.stderr.write(\`Error: \${error.message}
+
+Run \\\`nexus --help\\\` for the manual.
+\`);
+    return 2;
+  }
   const cmd = positionals[0];
   const asJson = flags.json === true;
   const vaultFlag = typeof flags.vault === "string" ? flags.vault : void 0;
-  if (!cmd || cmd === "help" || flags.help === true) {
+  if (!cmd) {
     process.stdout.write(buildUsage());
     return 0;
   }
@@ -601,7 +827,7 @@ Once a vault is open, preload them with:
       const hydratedToolArgv = toolArgv === null ? null : hydrateToolContentArgv(toolArgv, {
         readStdin: () => {
           if (process.stdin.isTTY) {
-            throw new Error("--content-stdin requires piped or redirected standard input.");
+            throw new Error("A --<flag>-stdin transport requires piped or redirected standard input.");
           }
           return (0, import_node_fs3.readFileSync)(0, "utf8");
         },
@@ -610,13 +836,20 @@ Once a vault is open, preload them with:
       command = resolveUseCommand(positionals, hydratedToolArgv);
     } catch (error) {
       process.stderr.write(\`Error: \${error.message}
+
+Run \\\`nexus --help\\\` for the manual.
 \`);
       return 2;
     }
     const memory = typeof flags.memory === "string" ? flags.memory : "";
     const goal = typeof flags.goal === "string" ? flags.goal : "";
-    if (!memory || !goal) {
-      process.stderr.write("Error: --memory and --goal are REQUIRED (Nexus context contract).\\n");
+    const missing = [!memory && "--memory", !goal && "--goal"].filter(Boolean);
+    if (missing.length) {
+      process.stderr.write(
+        \`Error: \${missing.join(" and ")} \${missing.length > 1 ? "are" : "is"} REQUIRED (Nexus context contract). Pass a genuine running summary and objective \\u2014 placeholders like "N/A" are rejected by the server.
+Write: nexus use --memory "<what you've done so far>" --goal "<this call's objective>" -- \${command}
+\`
+      );
       return 2;
     }
     const args = {
@@ -637,8 +870,11 @@ Once a vault is open, preload them with:
       return printToolResult(result, asJson);
     });
   }
-  process.stderr.write(\`Unknown command "\${cmd}". Run \\\`nexus --help\\\`.
-\`);
+  const verbSuggestion = suggestVerb(cmd);
+  process.stderr.write(
+    \`Unknown command "\${cmd}".\` + (verbSuggestion ? \` Did you mean \\\`nexus \${verbSuggestion}\\\`?\` : "") + \` Commands: \${VERBS.join(", ")}. Run \\\`nexus --help\\\`.
+\`
+  );
   return 2;
 }
 main().then((code) => process.exit(code)).catch((err) => {
@@ -653,7 +889,7 @@ export const NEXUS_SKILL_MD = `---
 name: nexus
 description: >-
   Read, search, and edit the user's Obsidian vault (notes, folders, canvas,
-  tasks, memory/workspaces, saved prompts) from the shell via the \`nexus\` CLI —
+  bases, tasks, memory/workspaces, saved prompts) from the shell via the \`nexus\` CLI —
   no MCP connection needed. Use whenever the user refers to their vault, notes,
   daily notes, second brain, or Obsidian, or asks you to find/read/change
   something stored there and the \`nexus\` command is on PATH. Do not use it to
@@ -705,10 +941,30 @@ The \`--\` delimiter is canonical: context belongs before it; the tool command
 belongs after it. This avoids nested command-string quoting, especially in
 Windows PowerShell. The legacy one-string form remains supported.
 
+Three rules that cover almost every way this goes wrong:
+
+- **\`--\` splits the two halves, and only that.** Context flags (\`--memory\`,
+  \`--goal\`, \`--session\`, \`--constraints\`, \`--vault\`) go before it; the agent
+  name, tool name, and every tool flag go after it.
+- **Pass a tool's required value positionally.** Write
+  \`memory load-workspace "Silicon Zone"\`, not
+  \`memory load-workspace --workspace "Silicon Zone"\`. \`--workspace\` is also a
+  context flag, so the positional form is the one that can't be misread.
+- **Keep the agent name with the tool name.** The command after \`--\` is always
+  \`<agent> <tool> [flags]\` — \`storage list\`, not \`list\`.
+- **Context flags may sit before or after the verb.** \`nexus --vault V use …\`
+  and \`nexus use --vault V …\` are equivalent.
+
+Malformed commands fail loudly with the corrected command in the error text —
+read it and retry rather than switching syntax forms. Nothing is silently
+dropped, so an error never means a partial write happened.
+
 For multiline Markdown or content containing embedded quotes, keep the body
-out of shell argv. Pipe it with \`--content-stdin\` or pass a local path with
-\`--content-file\`; put either flag after the \`--\` delimiter and do not also pass
-\`--content\`:
+out of shell argv. Any value-taking tool flag has a transport form: pipe with
+\`--<flag>-stdin\` or pass a local path with \`--<flag>-file\` (e.g.
+\`--content-stdin\`, \`--conversation-context-file ctx.md\`). Put the transport
+after the \`--\` delimiter and do not also pass the flag directly. Never flatten
+multiline content to one line to dodge quoting:
 
 \`\`\`powershell
 Get-Content -Raw .\\note.md |
@@ -725,7 +981,7 @@ they're always current.
 export const NEXUS_AGENTS_MD = `## Nexus vault access
 
 This machine runs Nexus (Obsidian). To read, search, or edit the user's vault —
-notes, folders, canvas, tasks, memory/workspaces, saved prompts — use the
+notes, folders, canvas, bases, tasks, memory/workspaces, saved prompts — use the
 \`nexus\` CLI. No MCP connection is needed.
 
 **Run \`nexus --help\` first.** It's the authoritative, always-current manual
@@ -737,8 +993,10 @@ offline and instant, so read it before your first command instead of guessing.
 - **Execute:** \`nexus use --memory "<what you're doing>" --goal "<objective>" -- <agent command --flags>\`.
   \`--memory\`/\`--goal\` are **required** on every \`use\`.
 - **Multiline content:** keep Markdown/YAML and embedded quotes out of shell
-  argv. After \`--\`, use \`--content-stdin\` with piped input or
-  \`--content-file <local-path>\` instead of \`--content\`.
+  argv. After \`--\`, swap any value-taking flag for its transport form:
+  \`--<flag>-stdin\` (piped input) or \`--<flag>-file <local-path>\` — e.g.
+  \`--content-stdin\`, \`--conversation-context-file ctx.md\`. Never flatten
+  multiline content to one line to work around quoting.
 - **Task recipes:** \`nexus playbook <name>\` emits a ready-to-run recipe plus your
   workspaces and preloaded tools in one call (\`nexus playbook\` lists them).
 - Search/list results are **locations, not contents** — follow a hit with
@@ -763,7 +1021,7 @@ so you can go straight to \`nexus use\` without a separate \`nexus tools\` call.
 **Every playbook starts the same way:**
 
 1. **Pick a workspace and load it.** Choose from *Your workspaces* below and run
-   \`nexus use --memory … --goal … -- memory load-workspace --workspace "<name>"\`. If
+   \`nexus use --memory … --goal … -- memory load-workspace "<name>"\`. If
    none fits, create one with \`memory create-workspace\`. Loading scopes your traces
    and auto-loads that workspace's task summary. (This playbook only *lists*
    workspaces — loading is your call, since only you know which one.)
@@ -782,8 +1040,10 @@ flags are kebab-case** — camelCase (e.g. \`--activeTask\`) is rejected as an u
 flag; use \`--active-task\`.
 
 For multiline Markdown/YAML or embedded quotes, keep content out of shell argv:
-after \`--\`, pipe with \`--content-stdin\` or pass \`--content-file <local-path>\`
-instead of \`--content\`.
+after \`--\`, swap any value flag for its transport form — pipe with
+\`--<flag>-stdin\` or pass \`--<flag>-file <local-path>\` (e.g. \`--content-stdin\`,
+\`--conversation-context-file ctx.md\`). Never flatten multiline content to one
+line to dodge quoting.
 `,
     "organize.md": `---
 name: organize
@@ -824,7 +1084,7 @@ Unlike \`vault-work\` (which edits note *bodies*), this moves and files whole no
 nexus use \\
   --memory "tidying old dailies" --goal "load the journal workspace" \\
   --session tidy-dailies \\
-  -- memory load-workspace --workspace journal
+  -- memory load-workspace "journal"
 
 # 2. map — which dailies are from 2025? (query frontmatter; --describe to see columns first)
 nexus use \\
@@ -941,6 +1201,10 @@ nexus use \\
 
 **B — saved prompt + note context, write the result back into a note:**
 
+\`customPrompt\` supplies the **system** prompt; \`prompt\` is still required and is
+the **user** message. They are different roles, not alternatives — a request with
+\`customPrompt\` and no \`prompt\` sends the model no instruction to act on.
+
 \`\`\`
 # find the saved prompt's name
 nexus use --workspace research --session prompt-run \\
@@ -951,7 +1215,7 @@ nexus use --workspace research --session prompt-run \\
 nexus use \\
   --workspace research --session prompt-run \\
   --memory "have the daily notes; running weekly-review" --goal "append a weekly review" \\
-  -- prompt execute --prompts '[{"type":"text","customPrompt":"weekly-review","contextFiles":["Daily/2026-07-14.md","Daily/2026-07-15.md"],"action":{"type":"append","targetPath":"Reviews/2026-W29.md"}}]'
+  -- prompt execute --prompts '[{"type":"text","customPrompt":"weekly-review","prompt":"Write the weekly review from the attached daily notes.","contextFiles":["Daily/2026-07-14.md","Daily/2026-07-15.md"],"action":{"type":"append","targetPath":"Reviews/2026-W29.md"}}]'
 \`\`\`
 
 **C — image, saved to the vault:**
@@ -964,7 +1228,7 @@ nexus use \\
 # then poll:
 nexus use --workspace research --session prompt-run \\
   --memory "waiting on the logo" --goal "check image generation status" \\
-  -- prompt check-generated-artifact --id <job-id>
+  -- prompt check-generated-artifact "<job-id>"
 \`\`\`
 
 ## Pitfalls
@@ -1031,7 +1295,7 @@ project → capture its \`projectId\` → create tasks with \`--project-id\`.
 nexus use \\
   --memory "planning the launch" --goal "load the product workspace" \\
   --session launch-plan \\
-  -- memory load-workspace --workspace product
+  -- memory load-workspace "product"
 
 # 2. create a project — workspace comes from --workspace; capture the projectId
 nexus use \\
@@ -1122,7 +1386,7 @@ update it," "answer a question from my notes," "add a section to Y," etc.
 nexus use \\
   --memory "starting: summarize the auth notes" --goal "load the research workspace" \\
   --session auth-summary \\
-  -- memory load-workspace --workspace research
+  -- memory load-workspace "research"
 
 # 2. find
 nexus use \\

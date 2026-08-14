@@ -7,7 +7,7 @@ so you can go straight to `nexus use` without a separate `nexus tools` call.
 **Every playbook starts the same way:**
 
 1. **Pick a workspace and load it.** Choose from *Your workspaces* below and run
-   `nexus use --memory … --goal … -- memory load-workspace --workspace "<name>"`. If
+   `nexus use --memory … --goal … -- memory load-workspace "<name>"`. If
    none fits, create one with `memory create-workspace`. Loading scopes your traces
    and auto-loads that workspace's task summary. (This playbook only *lists*
    workspaces — loading is your call, since only you know which one.)
@@ -26,5 +26,7 @@ flags are kebab-case** — camelCase (e.g. `--activeTask`) is rejected as an unk
 flag; use `--active-task`.
 
 For multiline Markdown/YAML or embedded quotes, keep content out of shell argv:
-after `--`, pipe with `--content-stdin` or pass `--content-file <local-path>`
-instead of `--content`.
+after `--`, swap any value flag for its transport form — pipe with
+`--<flag>-stdin` or pass `--<flag>-file <local-path>` (e.g. `--content-stdin`,
+`--conversation-context-file ctx.md`). Never flatten multiline content to one
+line to dodge quoting.

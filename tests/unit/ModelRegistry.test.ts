@@ -163,6 +163,7 @@ describe('ModelRegistry Gemini 3.5 Flash models', () => {
 
 describe('ModelRegistry latest Gemini Flash models', () => {
   it.each([
+    ['gemini-3.7-flash', 'Gemini 3.7 Flash', 0.75, 3.75],
     ['gemini-3.6-flash', 'Gemini 3.6 Flash', 1.5, 7.5],
     ['gemini-3.5-flash-lite', 'Gemini 3.5 Flash-Lite', 0.3, 2.5]
   ])('registers %s for Google', (id, name, input, output) => {
@@ -183,6 +184,7 @@ describe('ModelRegistry latest Gemini Flash models', () => {
   });
 
   it.each([
+    ['google/gemini-3.7-flash', 'Gemini 3.7 Flash', 0.75, 3.75],
     ['google/gemini-3.6-flash', 'Gemini 3.6 Flash', 1.5, 7.5],
     ['google/gemini-3.5-flash-lite', 'Gemini 3.5 Flash-Lite', 0.3, 2.5]
   ])('registers %s for OpenRouter', (id, name, input, output) => {
@@ -198,6 +200,33 @@ describe('ModelRegistry latest Gemini Flash models', () => {
   it('removes the superseded Gemini 3.1 Flash-Lite preview entries', () => {
     expect(ModelRegistry.findModel('google', 'gemini-3.1-flash-lite-preview')).toBeUndefined();
     expect(ModelRegistry.findModel('openrouter', 'google/gemini-3.1-flash-lite-preview')).toBeUndefined();
+  });
+});
+
+describe('ModelRegistry DeepSeek V4 Pro 0813 model', () => {
+  it('registers the dated GA snapshot for OpenRouter as a text-only thinking model', () => {
+    expect(ModelRegistry.findModel('openrouter', 'deepseek/deepseek-v4-pro-0813')).toEqual(expect.objectContaining({
+      name: 'DeepSeek V4 Pro 0813',
+      contextWindow: 1048576,
+      maxTokens: 65536,
+      inputCostPerMillion: 0.435,
+      outputCostPerMillion: 0.87,
+      capabilities: expect.objectContaining({
+        supportsJSON: true,
+        supportsImages: false,
+        supportsFunctions: true,
+        supportsStreaming: true,
+        supportsThinking: true
+      })
+    }));
+  });
+
+  it('keeps the direct DeepSeek provider on the undated alias that resolves to 0813', () => {
+    expect(ModelRegistry.findModel('deepseek', 'deepseek-v4-pro')).toEqual(expect.objectContaining({
+      inputCostPerMillion: 0.435,
+      outputCostPerMillion: 0.87
+    }));
+    expect(ModelRegistry.findModel('deepseek', 'deepseek-v4-pro-0813')).toBeUndefined();
   });
 });
 

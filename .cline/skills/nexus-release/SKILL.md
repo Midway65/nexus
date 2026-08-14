@@ -1,125 +1,74 @@
 ---
 name: nexus-release
-description: Version bump and GitHub Actions release for the Nexus Obsidian plugin. Use when the user wants to cut a release, bump the version, or publish a new version after stable changes are ready.
+description: Cut a Nexus release — bump the version with the repo's own machinery, get the docs and generated sources right, push a tag the GitHub Actions workflow will actually pick up, and recover when it does not. Use when asked to release, publish, ship, cut a release, bump the version, or tag a version, and when a release workflow did not fire, failed its version guard, or produced the wrong assets.
 ---
 
 # Nexus Release
 
-Handles version bumping and tag-driven GitHub release creation for the Nexus Obsidian plugin.
+Context: a Nexus release is one artifact — a **bare `X.Y.Z` git tag on `main`**.
+Everything downstream (installing, building, naming the release, uploading
+`main.js` / `manifest.json` / `styles.css`, provenance attestation) is done by
+`<repo>/.github/workflows/release.yml` from the tagged commit. You never build
+the release; you make the tagged commit correct and then tag it.
 
-## When to Use This Skill
+Two consequences shape everything here. The tag is the point of no return — the
+workflow reads the tree *as committed at that tag*. And the workflow guards only
+three things, so everything else is on you.
 
-Use when the user:
-- Asks to "release", "publish", "bump version", or "cut a release"
-- Says changes are stable and ready to ship
-- Asks about the release process
+Path convention: `<repo>/…` means relative to the Nexus repo root. Bare paths
+(`protocols/…`, `scripts/…`) are inside this skill.
 
-## Pre-Flight Checks
+## Workflow
 
-Before releasing, verify:
-1. The release changes are merged into `main`
-2. You are on `main`
-3. `git pull --ff-only origin main` succeeds
-4. No unrelated uncommitted changes are present
-5. `npm run build` passes clean
-6. Relevant tests pass
+1. **Cutting a release** → follow `protocols/cut-release.md` end to end, in
+   order. Do not improvise the sequence: several steps only have any effect
+   *before* the tag exists.
+2. **Bringing user-facing docs in line** (a phase of the above; also runnable on
+   its own) → `protocols/doc-review.md`.
+3. **Before pushing any tag** you MUST get a clean exit from the readiness
+   check. It reproduces the workflow's own version guard locally, so a failure
+   here is a failure you would otherwise discover *after* the tag exists:
 
-Do not release from a feature branch. Do not create a release manually from local build artifacts unless the tag workflow failed and the user explicitly approves a fallback.
+   ```bash
+   python3 .claude/skills/nexus-release/scripts/check_release_ready.py --tag X.Y.Z
+   ```
 
-## Release Steps
+   (`--repo` defaults to the repo root found by walking up from the working
+   directory. Run `--help` for the flags; stdlib only, no `node_modules`. If the
+   mirror above is absent, the same file is at
+   `<repo>/.skills/nexus-release/scripts/check_release_ready.py`.)
+4. **The workflow did not run, failed its guard, or shipped the wrong assets** →
+   `protocols/recover.md`. NEVER hand-create a release or hand-attach assets to
+   fix it — that silently drops provenance attestation.
+5. **After a release session** → `protocols/self-refine.md`.
 
-### 1. Determine Version Bump
+## Map
 
-Ask the user if not specified:
-- **Patch** (x.x.+1): Bug fixes, compliance fixes, small improvements
-- **Minor** (x.+1.0): New non-breaking features
-- **Major** (+1.0.0): Breaking changes
+- `protocols/` the how: `cut-release.md`, `doc-review.md`, `recover.md`,
+  `self-refine.md`.
+- `references/` the why, read on demand: `release-machinery.md` (what the
+  workflow really does, what it guards, what it does not, and the build-order
+  asymmetry that decides which generated file can ship stale),
+  `changelog-format.md` (the conventions the changelog actually follows).
+- `scripts/` `check_release_ready.py` — version consistency across
+  `package.json`, `manifest.json`, `versions.json`, the lockfile and the tag.
+- `refinement-log.md` — what past releases taught this skill.
 
-For a post-review compliance release from `5.9.0`, default to `5.9.1` unless the user requests otherwise.
+## Siblings
 
-### 2. Bump Version in 3 Files
+Do not duplicate these; call them.
 
-Do not use `npm version`; the repo has a stale `version` lifecycle script. Edit these files directly and keep all three in sync:
+| Need | Skill |
+|---|---|
+| Regenerate the tool catalog a release must ship current | `nexus-tool-schemas` |
+| Choose a Jest lane, or debug a failing guidance/drift test | `nexus-testing` |
+| Provider/model metadata that a release happens to include | `nexus-model-updates` |
+| Mobile or plugin-store compliance of what is being shipped | `nexus-mobile-compat` |
 
-```text
-package.json   -> "version": "X.Y.Z"
-manifest.json  -> "version": "X.Y.Z"
-CLAUDE.md      -> "- **Version**: X.Y.Z"
-```
+## Editing this skill
 
-### 3. Rebuild
-
-Rebuild after the version bump so generated release-adjacent content is current:
-
-```bash
-npm run build
-```
-
-Check the generated artifact sizes:
-
-```bash
-Get-Item main.js,manifest.json,styles.css | Select-Object Name,Length
-```
-
-`main.js` should stay below 5 MB for Obsidian Sync Standard compatibility.
-
-### 4. Commit and Push Main
-
-Stage only the version bump and generated connector content if it changed:
-
-```bash
-git add package.json manifest.json CLAUDE.md src/utils/connectorContent.ts
-git commit -m "chore: bump version to X.Y.Z"
-git push origin main
-```
-
-### 5. Create and Push the Release Tag
-
-The GitHub Actions release workflow runs on version tags and creates the release.
-
-```bash
-git tag X.Y.Z
-git push origin X.Y.Z
-```
-
-Release title rule: the GitHub release name must be the tag number only, with no `v` prefix and no descriptive suffix. Example: `5.9.1`.
-
-### 6. Verify GitHub Actions Release
-
-The `.github/workflows/release.yml` workflow must:
-- Build from the tag in GitHub Actions
-- Upload only the 3 Obsidian-supported release assets:
-  - `main.js`
-  - `manifest.json`
-  - `styles.css`
-- Generate artifact attestations for the uploaded assets
-
-After the workflow completes, verify the GitHub release contains no unsupported files such as `connector.js`.
-
-## Release Notes Template
-
-GitHub Actions currently generates release notes automatically. If editing notes after the workflow creates the release, use this install text:
-
-```markdown
-## Install
-
-Download `main.js`, `manifest.json`, and `styles.css` into your vault's `.obsidian/plugins/nexus/` folder. For Claude Desktop/MCP setup, enable Nexus in Obsidian and use Settings -> Get started -> MCP integration to create `connector.js`.
-```
-
-## Release Artifacts Checklist
-
-| File | Purpose |
-|------|---------|
-| `main.js` | Plugin bundle (esbuild output) |
-| `manifest.json` | Obsidian plugin manifest |
-| `styles.css` | Plugin styles |
-
-## Common Mistakes to Avoid
-
-- Releasing from a feature branch instead of `main`
-- Forgetting to pull latest `main` before the version bump
-- Using `npm version`
-- Forgetting to rebuild after the version bump
-- Missing one of the 3 version files
-- Manually attaching unsupported release artifacts such as `connector.js`
-- Manually creating a release in a way that bypasses artifact attestations
+`<repo>/.skills/` is the source of truth for this skill; `.claude/skills/`,
+`.codex/skills/` and `.cline/skills/` are mirrors written by
+`npm run sync:skills`. Edit the copy under `<repo>/.skills/nexus-release/` and
+re-run the sync. The mirror copy overwrites changed files but does not delete
+extra ones, so editing a mirror leaves a half-reverted hybrid on the next sync.

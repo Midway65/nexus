@@ -1,5 +1,81 @@
 # Nexus Changelog
 
+## August 2026
+
+**Unreleased** — Your agent can read, write and run Obsidian Bases
+
+**Bases are part of the vault your agent can work with**
+- A new `base` agent covers `.base` files end to end: `base read` returns the saved
+  config, `base write` creates one, `base update` changes an existing one, `base list`
+  finds them, and `base analyze` runs the base and returns the rows you would see if
+  you opened it — filters applied and formulas evaluated by Obsidian itself, not
+  re-implemented ([#330](https://github.com/ProfSynapse/nexus/issues/330)).
+- `write` and `update` validate before anything reaches disk and reject with every
+  problem listed at once — an undefined formula referenced by a view's order, a filter
+  group with two operators — so a broken base is never written and then discovered
+  later in the UI.
+- The tools appear only in vaults where Bases is enabled. If you turn Bases on, they
+  show up after the next plugin reload; they are never offered as tools that can only
+  answer "not available".
+
+**Fixes**
+- Adding a few hundred notes at once and then reloading no longer fills the console
+  with `Database not initialized`. The note index kept listening for vault changes
+  after the plugin unloaded and went on writing to a database that had already closed
+  — one leftover listener per reload, so the noise grew with every reload of the
+  session.
+
+---
+
+**v5.16.4** — Multiline and backslash-heavy content survives the trip to any tool, and the CLI stops claiming it's on your PATH
+
+**Multiline content reaches every tool**
+- `--<flag>-stdin` and `--<flag>-file <path>` now hydrate *any* value-taking tool flag, not just `--content`. The shipped guidance had been telling agents to use these transports for things like `--conversation-context`, where they did not exist ([#324](https://github.com/ProfSynapse/nexus/pull/324)).
+- The two errors an unescaped embedded quote produces — "Unclosed double quote" and "Too many positional arguments" — read as if multiline itself were unsupported. Both now name the real cause and state that multiline values are supported and must not be flattened.
+- One `-stdin` per command (stdin reads once), several `-file` transports may coexist, and a flag cannot arrive both directly and through a transport.
+
+**Backslashes arrive as written**
+- `useTools` accepts an optional top-level `values` map. Content is escaped once at the JSON layer and referenced from the tool string as `@key`, with substitution after tokenization and no escape processing — so `C:\temp\notes`, LaTeX `\alpha`, and regex `\d` arrive intact instead of decaying into tabs, newlines, and dropped characters.
+- Quoting the token (`"@key"`) passes the literal text. With no `values` map, `@`-tokens pass through untouched. A missing key, or a declared key the command never references, fails loud rather than silently dropping prepared content.
+
+**The CLI tells the truth about your PATH**
+- On macOS and Linux, settings reported "Installed and on your PATH" whenever the symlink existed — whether or not any shell could resolve `nexus`. It now asks your login shell, so the status matches what your terminal does ([#325](https://github.com/ProfSynapse/nexus/pull/325)).
+- When the shell can't resolve it, settings shows the exact line to add, which profile file it belongs in (`~/.zshrc`, `~/.bash_profile`, fish's `config.fish`), how to reload, and a Copy button. Nexus does not edit your shell profile.
+- A same-named `nexus` earlier on your PATH is now reported as shadowing on every platform, not just Windows.
+- Some existing installs will flip from "on your PATH" to "not yet on your PATH". Those were already unusable from a terminal; the status was wrong, not the install.
+
+---
+
+**v5.16.3** — Workspace names resolve consistently from agent context to task execution
+
+- Workspace names returned by `getTools` are now accepted by `useTools` even when the boot-time workspace snapshot was empty. The validator checks the live workspace list instead of rejecting a real name and then suggesting that same name back ([#318](https://github.com/ProfSynapse/nexus/pull/318)).
+- The reserved **Assistant guides** workspace is accepted by the tool envelope without being exposed in ordinary workspace listings ([#321](https://github.com/ProfSynapse/nexus/pull/321)).
+- Task commands resolve workspace names case-insensitively all the way through. If two workspaces differ only by capitalization, the error now pairs each name with its exact ID so the caller can retry unambiguously ([#321](https://github.com/ProfSynapse/nexus/pull/321)).
+
+---
+
+**v5.16.2** — Search ranks the note you meant, and CLI agents stop inventing workspaces
+
+**Search returns the note you named**
+- A note *called* what you searched for now comes first, instead of ranking behind notes that merely mention the phrase. Searching `citation gap audit` used to return the note literally named `citation-gap-audit.md` at rank 12.
+- Hyphens and underscores no longer hide a filename from a spaced query. `citation gap audit`, `citation-gap-audit`, and `citation_gap_audit` all find each other now.
+- A filename that happens to share scattered letters with your query no longer outranks a note whose text contains the query verbatim. Those two scores were on different scales, so a coincidental name match could beat a real one ([#309](https://github.com/ProfSynapse/nexus/issues/309)).
+- Every result now carries a `matchType` — `content`, `path`, or `semantic` — so you can tell a body hit from a filename hit without guessing.
+
+**CLI agents work from your real workspaces**
+- `nexus --vault <name> use … -- storage list` reached the vault as `list`, with the agent name silently stripped, whenever `--vault` came before `use`. Fixed, and malformed commands now fail loudly with the corrected form instead of half-parsing.
+- Agents are shown your actual workspace list at the moment they choose one, rather than inferring a name from your phrasing and then retry-looping on the failures.
+- The shipped CLI guidance and playbooks no longer name tools that don't exist, and a test now fails the build if they drift again.
+
+**Fixes**
+- `task update --metadata` and `update-project --metadata` shallow-merge again, as their schemas promise, instead of replacing the stored object. Explicit `metadataMode: "replace"` and `removeMetadataKeys` cover the cases that want the old behavior ([#305](https://github.com/ProfSynapse/nexus/issues/305)).
+- `memory load-state` returns a state's current tags instead of the tags it carried when the snapshot was taken ([#306](https://github.com/ProfSynapse/nexus/issues/306)).
+- Moving or deleting a note while its embedding is queued no longer prints an ENOENT stack trace — twice — to the console. Re-embedding is debounced by ten seconds, so the window was easy to hit; a note that moved is now treated as the routine event it is.
+- The OpenRouter OAuth key label reads "Nexus" rather than the legacy "Claudesidian MCP", and parameters set before authorizing are no longer dropped.
+- The README carries the MCP Toplist rank badge.
+
+---
+
 ## July 2026
 
 **v5.16.1** — Republish of 5.16.0
