@@ -71,11 +71,11 @@ Adapters at `src/services/llm/adapters/{provider}/`. Types at `src/services/llm/
 <!-- PACT_MANAGED_END -->
 
 # Claude Code Context Document
-Last Updated: 2026-05-11
+Last Updated: 2026-09-01
 
 ## Project Overview
 - **Name**: Nexus (package: claudesidian-mcp)
-- **Version**: 5.9.3
+- **Version**: 5.18.2 (fork `my-custom-branch`, merged from upstream 2026-09-01)
 - **Type**: Obsidian Community Plugin
 - **Purpose**: MCP integration for Obsidian with AI-powered vault operations
 - **Architecture**: Agent-Tool pattern with domain-driven design
@@ -115,8 +115,26 @@ Full guidelines: `docs/obsidian-plugin-guidelines.md`
 
 ## Recent Changes
 
-**Current Version**: 5.9.3
-Full changelog: `docs/changelog.md`
+**Current Version**: 5.18.2 — deployed to the Michael vault 2026-09-01
+Full changelog: `docs/changelog.md` (upstream-maintained; the fork adds no entries of its own)
+
+> **Fork upgrade history lives in [`docs/fork_divergence.md`](docs/fork_divergence.md), not here.**
+> That file is the authoritative per-merge record — read its header + merge notes at the start of
+> any upstream merge session. Per-merge plans are `docs/plans/upstream-merge-*.md`.
+> The "Latest features" list below is a stale snapshot from v5.9.3 (2026-05-11) and is NOT
+> maintained; treat the changelog and the divergence registry as canonical.
+
+**Upgrade log (fork merges):**
+- **v5.18.2** (2026-09-01, merge `3ce14ca8`, 49 commits) — Tool operation receipts + reversible
+  tooling (#356), ownership-aware workspace/session deletes (#347/#348), unified reasoning display
+  (#354/#357), states archive-flag denormalization (#219), scoped semantic search (#340), Groq
+  history-in-continuations (#368/#370), `content remove-property` (#365), Claude 5 family, versioned
+  tool-schema catalogue + `schemas:check` build gate. **Second schema renumber** (upstream v15/v16 →
+  fork **23/24**, `CURRENT_SCHEMA_VERSION = 24`). **A Tier-3 divergence retired**: upstream #358
+  landed the `getChatService` thunk independently and better, so those 4 chat files are now
+  byte-identical to upstream (13 divergent files → 9). ⚠️ **`minAppVersion` 1.8.7 → 1.10.0.**
+- **v5.16.4** (2026-08-14) — first schema renumber (upstream v14 → fork 22); Bases support (#330);
+  `defuddle` dependency added.
 
 **Latest features** (May 2026):
 - v5.8.14 - **DeepSeek as first-class cloud provider** (PR #205, resolves #204): adds direct DeepSeek API support alongside OpenAI / Anthropic / Google / Mistral / Groq / OpenRouter etc. New `DeepSeekAdapter` (OpenAI-compatible REST, Bearer auth, `https://api.deepseek.com`). 4 model entries: `deepseek-v4-flash` ($0.14/$0.28 per 1M tokens, cache hit $0.0028, 1M context, 384K max output) + `deepseek-v4-pro` ($0.435/$0.87 per 1M, 75% discount until 2026-05-31, 1M context) + `-thinking` variants of each. Thinking mode plugged into existing `ThinkingEffortMapper` two-sided abstraction: input maps to DeepSeek's proprietary `thinking: {type: 'enabled', reasoning_effort: 'high'|'max'}` shape; output via `delta.reasoning_content` / `message.reasoning_content` surfaced through unified `StreamChunk.reasoning` field — chat UI renders DeepSeek reasoning blocks for free, same path as Claude / Gemini / o-series / Groq. `frequency_penalty`/`presence_penalty` stripped (DeepSeek removed support). 13 wiring touchpoints: types union, AdapterRegistry, ProviderTypes default, ProviderManager def, ValidationService, ThinkingEffortMapper (incl. interface + supportedProviders), platform.ts mobile-compatible list, ModelDropdownRenderer, ProviderUtils (display name, color #4d6bfe, emoji 🐋, abbreviation DSK, streaming/functions/JSON lists), ProvidersTab + cloudIds, VisionMessageFormatter, ingestTool labels. Mobile-compatible (requestUrl REST). 18/18 new tests green, `tsc --noEmit` clean. ⚠️ **Untested in production** — author does not use DeepSeek; users requested via #204. Known follow-up: `ProviderManager.ts` (659 LoC) and `ProvidersTab.ts` (645 LoC) crossed 600-line maintainability threshold from wiring additions; refactor when next touched.
@@ -223,7 +241,8 @@ agents/
 ## Current Context
 
 ### Active Branch
-`main`
+`my-custom-branch` (fork of `ProfSynapse/nexus`; `upstream` remote tracks theirs, `origin` is
+`Midway65/nexus`). Merges from upstream land here directly — see `docs/fork_divergence.md`.
 
 ### Open PRs
 None.

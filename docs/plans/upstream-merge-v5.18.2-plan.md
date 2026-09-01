@@ -26,9 +26,11 @@
 >   version-gated, and its bare `ALTER TABLE ADD COLUMN` is covered by the migrator's `columnExists`
 >   skip. See §2.
 >
-> **Still outstanding — not done by the merge:** version bump + `/nexus-release`, deploy, and the §7
-> post-deploy smoke (first-launch v23/v24 migration and the v24 state backfill above all).
-> ⚠️ **Confirm the deploy target is on Obsidian ≥ 1.10.0 before deploying** — `minAppVersion` moved.
+> **DEPLOYED 2026-09-01** to the Linux vault `/home/middleway/Obsidian/Michael` (Obsidian 1.13.7,
+> comfortably past the new 1.10.0 floor). See §9 for what the deploy found and what is still owed.
+>
+> **Still outstanding:** version bump + `/nexus-release` (git tag / GitHub release), and the §7
+> post-launch smoke — first-launch v23/v24 migration and the v24 state backfill above all.
 
 ---
 
@@ -385,3 +387,49 @@ vulnerability** — tracked in the security audit's status section.
 - Bump `package.json`/`manifest.json` and run `/nexus-release` — note the `version` script now also
   stages the schema catalogue files.
 - Deploy, then §7 smoke, with emphasis on **first-launch migration + the v24 state backfill**.
+
+---
+
+## 9. Deploy record — 2026-09-01
+
+**Target:** `/home/middleway/Obsidian/Michael/.obsidian/plugins/nexus` (Linux). Obsidian **1.13.7**
+(pacman `obsidian 1.13.7-2`), so the new `minAppVersion` 1.10.0 floor is met with room to spare.
+
+**Method:** manual copy. `npm run deploy` is **Windows-only** — it shells out to
+`postbuild.ps1`, which hardcodes `C:\Users\middl\Documents\Obsidian\Michael\...` and restarts
+`C:\Program Files\Obsidian\Obsidian.exe`. On Linux it cannot run. Copied `main.js`,
+`connector.js`, `manifest.json`, `styles.css` by hand; `sqlite3.wasm` was already byte-identical
+(md5 `5aaf4c5e…`) so it was left alone. Obsidian was not running at deploy time.
+
+**Backup:** the replaced 5.17.2 artifacts plus `data.json` are at
+`.obsidian/plugins/nexus/backup-5.17.2-20260901-153655/` inside the vault.
+
+### ⚠️ Finding: the installed build was 5.17.2, from a lineage not in this git history
+
+The vault was running **5.17.2** (installed 2026-08-23), not the 5.16.4 this branch was at. Its
+`main.js` carries migrations **3–22 contiguous**, whereas this fork's build has **3–11, 17–24** —
+the 12–16 gap (those were deleted from the fork on 2026-04-08) is this fork's signature, and the
+installed build does not have it. It also lacks the `[upstream vN]` description prefixes that the
+fork's renumbered migrations carry. So it is neither a build of this branch nor stock upstream
+5.17.2 (which would stamp 16, not the 22 it stamps).
+
+Most likely it was built on the Windows machine from a 5.17.x merge that never reached this
+checkout. **Worth confirming where that build came from** — if a 5.17.x merge exists on another
+machine, this branch's history is missing it.
+
+**Why the deploy was still safe:** migration **22 is identical in both builds** (`Add notes +
+note_properties tables (notes query index) to the owned schema`), so both agree the live DB is at
+22. Our build filters `version > 22` and therefore runs **only 23 and 24**. Critically, the fork's
+own v17–v19 — which `DROP` the embedding-metadata tables — are ≤ 22 and will **not** re-run, so no
+embeddings are lost. Had the installed build been stock upstream (DB at 14 or 16), those drops
+*would* have fired; that is the check to repeat on any machine whose installed build is unknown.
+
+### Post-launch smoke — still owed
+- [ ] First launch: no `SQLite3Error` in console; migrations 23 + 24 apply cleanly
+- [ ] v24 backfill: expect a one-time slow start (reads each workspace JSONL once; ~70 shards here).
+      Confirm saved states still list with correct archive status **and** descriptions
+- [ ] `rootPath = 00-System/Nexus`, `migration.state = verified`, `cacheBackend = idb` unchanged
+- [ ] Chat streams; a tool call runs; the tool ticker stays alive past the first turn (#378)
+- [ ] Configured models still resolve — **five Groq models were pruned, Groq default → GPT-OSS 120B**
+- [ ] MCP stdio connection smoke
+- [ ] Rollback if needed: copy the four files back from `backup-5.17.2-20260901-153655/`
