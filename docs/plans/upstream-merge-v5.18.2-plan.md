@@ -6,6 +6,30 @@
 **Merge base:** `aafcfcce` (v5.16.4 post-tag tip — the fork is 0 behind on that base)
 **Scope:** 49 non-merge commits (spans v5.17.0, v5.17.1, v5.17.2, v5.18.0, v5.18.1, v5.18.2)
 
+> [!NOTE]
+> **STATUS: EXECUTED 2026-09-01.** Merged as `3ce14ca8`. All 7 predicted conflicts appeared exactly
+> as forecast and resolved as planned. Build green (incl. the new `schemas:check` gate); full suite
+> **4979 passed / 0 failed**; `SchemaMigrator.test.ts` **18/18**. Divergence surface 13 → 9 files.
+>
+> **Deviations from this plan, all verified:**
+> - §2 said to "re-add the fork's v17–v19 fixtures" to the test file — there were none. The fork's
+>   pre-merge test file was upstream's suite at fork numbering and nothing more, so the whole
+>   resolution was `--theirs` plus a numeric remap.
+> - The convention comment initially claimed `runMigrations()` sorts pending migrations. It does
+>   **not** — plain `filter`, array order is execution order. Corrected in the committed comment,
+>   because the "renumber in place, don't reorder" rule depends on it.
+> - `package-lock.json`: `npm install` rewrote upstream's tab indentation to 2-space, a 21k-line
+>   formatting-only diff (dep graph byte-identical: 768 packages, 0 version differences). Reverted
+>   to upstream's formatting to avoid a permanent divergence. **Re-revert after any future
+>   `npm install` on this machine.**
+> - Two carried risks were checked and are NOT issues: v16's backfill is data-gated not
+>   version-gated, and its bare `ALTER TABLE ADD COLUMN` is covered by the migrator's `columnExists`
+>   skip. See §2.
+>
+> **Still outstanding — not done by the merge:** version bump + `/nexus-release`, deploy, and the §7
+> post-deploy smoke (first-launch v23/v24 migration and the v24 state backfill above all).
+> ⚠️ **Confirm the deploy target is on Obsidian ≥ 1.10.0 before deploying** — `minAppVersion` moved.
+
 ---
 
 ## 1. Verdict: the merge that shrinks the fork
