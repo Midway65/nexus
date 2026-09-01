@@ -56,6 +56,8 @@
  * ============================================================================
  */
 
+import { deriveStateMetadataFromJson, resolveStateDescription } from '../utils/stateContent';
+
 /**
  * Minimal interface for SQLite database operations needed by SchemaMigrator.
  * Works with both sql.js and @dao-xyz/sqlite3-vec WASM databases.
@@ -73,7 +75,7 @@ export interface MigratableDatabase {
 // Alias for backward compatibility
 type Database = MigratableDatabase;
 
-export const CURRENT_SCHEMA_VERSION = 22;
+export const CURRENT_SCHEMA_VERSION = 24;
 
 export interface Migration {
   version: number;
@@ -426,19 +428,38 @@ export const MIGRATIONS: Migration[] = [
   // Once upstream's version counter exceeds the fork's MAX, merge their migrations
   // as-is.
   //
-  // Example — fork merges upstream v14 (notes query index) on top of fork v21:
+  // Example — fork merges upstream v16 (states.isArchived) on top of fork v23:
   //   {
-  //     version: 22,  // renumbered from upstream v14
-  //     description: '[upstream v14] <their description>',
+  //     version: 24,  // renumbered from upstream v16
+  //     description: '[upstream v16] <their description>',
   //     sql: [ /* their SQL unchanged */ ]
   //   }
-  // Then set CURRENT_SCHEMA_VERSION = 22.
+  // Then set CURRENT_SCHEMA_VERSION = 24.
   //
   // This ensures the migrator (which skips anything ≤ MAX(schema_version) in the DB)
   // actually runs the upstream schema change on existing installs.
   //
-  // Renumbers applied so far: upstream v12 -> 20, v13 -> 21, v14 -> 22 (v5.16.4).
-  // Upstream's counter is at 14; it needs 8 more migrations before it exceeds the
+  // Upstream's new migrations auto-merge to the END of this array, carrying their
+  // low upstream numbers (e.g. v15/v16 landing after the fork's v22). Renumber
+  // them in place — do NOT reorder the file.
+  //
+  // WHY IN PLACE IS THE RIGHT MOVE: runMigrations() does a plain
+  // `MIGRATIONS.filter(m => m.version > currentVersion)` and iterates in ARRAY
+  // ORDER — there is no sort. Array order IS execution order. Renumbering the
+  // trailing upstream blocks to the next values above the fork MAX keeps array
+  // order and version order aligned. Inserting a renumbered block anywhere other
+  // than the end, or renumbering to a value below an earlier entry, would run
+  // migrations out of version order with no error to tell you.
+  //
+  // STEP 5 — DO NOT SKIP: bump the fresh-install stamp in schema.ts to match.
+  //   src/database/schema/schema.ts:
+  //     INSERT OR IGNORE INTO schema_version VALUES (<CURRENT_SCHEMA_VERSION>, ...);
+  //   plus the `Current Version:` line in that file's header comment. The v5.16.4
+  //   merge missed this and left fresh installs stamped 14 against a MAX of 22.
+  //
+  // Renumbers applied so far: upstream v12 -> 20, v13 -> 21, v14 -> 22 (v5.16.4),
+  // v15 -> 23 and v16 -> 24 (v5.18.2).
+  // Upstream's counter is at 16; it needs 6 more migrations before it exceeds the
   // fork's MAX and renumbering can stop.
   // ========================================================================
 
@@ -602,6 +623,112 @@ export const MIGRATIONS: Migration[] = [
       'CREATE INDEX IF NOT EXISTS idx_np_key_num ON note_properties(key, value_num)',
       'CREATE INDEX IF NOT EXISTS idx_np_note ON note_properties(note_id)'
     ]
+  },
+
+  // Version 14 -> 15: Durable operation receipts. JSONL workspace events are
+  // authoritative; this table is the query/replay cache rebuilt from them.
+  //
+  // FORK: renumbered from upstream v15 to 23 per the convention above (v5.18.2
+  // merge). SQL is upstream's, unchanged.
+  {
+    version: 23,  // renumbered from upstream v15
+    description: '[upstream v15] Add durable tool operation receipts for duplicate suppression',
+    sql: [
+      `CREATE TABLE IF NOT EXISTS tool_operation_receipts (
+        operationId TEXT PRIMARY KEY,
+        signature TEXT NOT NULL,
+        status TEXT NOT NULL,
+        origin TEXT NOT NULL,
+        workspaceId TEXT NOT NULL,
+        sessionId TEXT NOT NULL,
+        conversationId TEXT,
+        messageId TEXT,
+        turnId TEXT,
+        replayPolicy TEXT NOT NULL,
+        replayable INTEGER NOT NULL DEFAULT 0,
+        commandSummary TEXT NOT NULL,
+        resultJson TEXT,
+        resultTruncated INTEGER NOT NULL DEFAULT 0,
+        error TEXT,
+        startedAt INTEGER NOT NULL,
+        completedAt INTEGER,
+        updatedAt INTEGER NOT NULL
+      )`,
+      'CREATE INDEX IF NOT EXISTS idx_tool_operation_workspace ON tool_operation_receipts(workspaceId)',
+      'CREATE INDEX IF NOT EXISTS idx_tool_operation_status ON tool_operation_receipts(status)',
+      'CREATE INDEX IF NOT EXISTS idx_tool_operation_workspace_status ON tool_operation_receipts(workspaceId, status)'
+    ]
+  },
+
+  // Version 15 -> 16: Denormalize the state archive flag (issue #219).
+  //
+  // `state.metadata.isArchived` lived only inside the snapshot content in the
+  // JSONL event store, so `MemoryService.getStates` called `adapter.getState`
+  // for EVERY row just to learn whether it was archived. Each of those reads
+  // parses the whole workspace event stream, making a cold `listStates`
+  // quadratic in the number of states (measured: 200 states -> 200 reads,
+  // 180k events parsed, ~500 ms).
+  //
+  // The column is deliberately NULLABLE WITH NO DEFAULT: NULL means "unknown,
+  // ask the content". A `DEFAULT 0` would silently claim every pre-existing
+  // archived state is visible again — exactly the archive-visibility bug #218
+  // fixed. Rows are filled in three ways:
+  //   1. here, for rows whose `stateJson` the applier already cached;
+  //   2. `StateRepository.backfillDerivedStateMetadata()` at the first init
+  //      after this migration, which reads each workspace JSONL ONCE (not
+  //      once per state) and folds it — the upgrade cost is O(workspaces);
+  //   3. lazily by `MemoryService.getStates`, which still reads content for
+  //      any row that is still NULL.
+  //
+  // `description` is backfilled alongside it from `context.activeTask`: once
+  // the archive flag no longer forces a content read, that fallback is the
+  // only thing keeping `listStates` from reporting "No description" for every
+  // state the createState tool ever wrote (it supplies no explicit
+  // description). Both writers of this table derive it identically via
+  // src/database/utils/stateContent.ts.
+  //
+  // FORK: renumbered from upstream v16 to 24 per the convention above (v5.18.2
+  // merge). SQL and migrationFn are upstream's, unchanged. The bare
+  // `ALTER TABLE ... ADD COLUMN` is safe under renumbering because runMigrations()
+  // skips that statement when columnExists() reports the column already present.
+  {
+    version: 24,  // renumbered from upstream v16
+    description: '[upstream v16] Add isArchived column to states table so getStates filters without reading JSONL content',
+    sql: [
+      'ALTER TABLE states ADD COLUMN isArchived INTEGER',
+      'CREATE INDEX IF NOT EXISTS idx_states_archived ON states(isArchived)'
+    ],
+    migrationFn: (db: MigratableDatabase): void => {
+      // Only rows the event applier populated carry stateJson; rows written
+      // live by StateRepository have it NULL and are left unknown for the
+      // JSONL-backed backfill described above.
+      const rows = db.exec(
+        'SELECT id, description, stateJson FROM states WHERE stateJson IS NOT NULL AND isArchived IS NULL'
+      );
+      if (rows.length === 0) return;
+
+      let skipped = 0;
+      for (const row of rows[0].values) {
+        const id = row[0] as string;
+        const description = (row[1] ?? null) as string | null;
+        const stateJson = row[2] as string;
+
+        const derived = deriveStateMetadataFromJson(stateJson);
+        if (!derived) {
+          skipped++;
+          continue;
+        }
+
+        db.run(
+          'UPDATE states SET isArchived = ?, description = ? WHERE id = ?',
+          [derived.isArchived ? 1 : 0, resolveStateDescription(description, derived), id]
+        );
+      }
+
+      if (skipped > 0) {
+        console.warn(`[SchemaMigrator] state archive backfill: skipped ${skipped} state(s) with unparseable stateJson`);
+      }
+    }
   },
 ];
 

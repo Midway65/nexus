@@ -20,6 +20,7 @@ import { extractStreamErrorMessage } from '../../streaming/streamErrorFrames';
 import { GROQ_MODELS, GROQ_DEFAULT_MODEL } from './GroqModels';
 import {
   buildBearerJsonHeaders,
+  buildMessagesWithConversationHistory,
   mapOpenAiCompatFinishReason,
   convertFunctionTools
 } from '../shared/OpenAICompatHelpers';
@@ -113,7 +114,7 @@ export class GroqAdapter extends BaseAdapter {
         headers: buildBearerJsonHeaders(this.apiKey),
         body: JSON.stringify({
           model: options?.model || this.currentModel,
-          messages: this.buildMessages(prompt, options?.systemPrompt),
+          messages: buildMessagesWithConversationHistory(prompt, options),
           temperature: options?.temperature,
           max_completion_tokens: options?.maxTokens,
           top_p: options?.topP,
@@ -189,10 +190,7 @@ export class GroqAdapter extends BaseAdapter {
 
   listModels(): Promise<ModelInfo[]> {
     try {
-      return Promise.resolve(GROQ_MODELS.map(model => ({
-        ...staticModelToModelInfo(model),
-        supportsThinking: false
-      })));
+      return Promise.resolve(GROQ_MODELS.map(model => staticModelToModelInfo(model)));
     } catch (error) {
       this.handleError(error, 'listing models');
       return Promise.resolve([]);
@@ -206,8 +204,8 @@ export class GroqAdapter extends BaseAdapter {
       supportsJSON: true,
       supportsImages: true,
       supportsFunctions: true,
-      supportsThinking: false,
-      maxContextWindow: 128000,
+      supportsThinking: true,
+      maxContextWindow: 131072,
       supportedFeatures: [
         'messages',
         'function_calling',
@@ -241,7 +239,7 @@ export class GroqAdapter extends BaseAdapter {
 
     const chatParams: ChatCompletionParams = {
       model,
-      messages: this.buildMessages(prompt, options?.systemPrompt),
+      messages: buildMessagesWithConversationHistory(prompt, options),
       temperature: options?.temperature,
       max_completion_tokens: options?.maxTokens,
       top_p: options?.topP,

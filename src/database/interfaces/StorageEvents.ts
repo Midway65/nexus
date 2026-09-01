@@ -20,6 +20,7 @@
  */
 
 import type { ConversationData } from '../../types/chat/ChatTypes';
+import type { StartToolOperationData } from '../../types/tools/ToolOperationTypes';
 
 // ============================================================================
 // Base Event Interface
@@ -163,6 +164,28 @@ export interface SessionUpdatedEvent extends BaseStorageEvent {
   }>;
 }
 
+/**
+ * Event: Session deleted
+ *
+ * The tombstone that makes a permanent session delete survive a cache rebuild.
+ *
+ * A session has no stream of its own — this event is appended to the parent
+ * workspace's stream, where it cancels out the `session_created`, `state_saved`
+ * and `trace_added` events replayed just before it. Without it, replay had
+ * nothing to apply and a deleted session came back on the next `rebuildCache()`.
+ *
+ * `WorkspaceEventApplier.applySessionDeleted` is the other half; both it and
+ * `SessionRepository.delete` purge through `sessionOwnership.purgeSessionRows`
+ * so the live delete and its replay cannot drift.
+ */
+export interface SessionDeletedEvent extends BaseStorageEvent {
+  type: 'session_deleted';
+  /** Parent workspace ID — identifies the stream this tombstone belongs to */
+  workspaceId: string;
+  /** Target session ID */
+  sessionId: string;
+}
+
 // ============================================================================
 // State Events
 // ============================================================================
@@ -261,6 +284,44 @@ export interface TraceAddedEvent extends BaseStorageEvent {
     /** JSON-serialized metadata */
     metadataJson?: string;
   };
+}
+
+// ============================================================================
+// Durable Tool Operation Receipt Events
+// ============================================================================
+
+export interface ToolOperationStartedEvent extends BaseStorageEvent {
+  type: 'tool_operation_started';
+  workspaceId: string;
+  data: StartToolOperationData;
+}
+
+export interface ToolOperationCompletedEvent extends BaseStorageEvent {
+  type: 'tool_operation_completed';
+  workspaceId: string;
+  operationId: string;
+  signature: string;
+  resultJson: string;
+  resultTruncated: boolean;
+  completedAt: number;
+}
+
+export interface ToolOperationFailedEvent extends BaseStorageEvent {
+  type: 'tool_operation_failed';
+  workspaceId: string;
+  operationId: string;
+  signature: string;
+  error: string;
+  completedAt: number;
+}
+
+export interface ToolOperationIndeterminateEvent extends BaseStorageEvent {
+  type: 'tool_operation_indeterminate';
+  workspaceId: string;
+  operationId: string;
+  signature: string;
+  error: string;
+  completedAt: number;
 }
 
 // ============================================================================
@@ -707,10 +768,15 @@ export type WorkspaceEvent =
   | WorkspaceDeletedEvent
   | SessionCreatedEvent
   | SessionUpdatedEvent
+  | SessionDeletedEvent
   | StateSavedEvent
   | StateUpdatedEvent
   | StateDeletedEvent
-  | TraceAddedEvent;
+  | TraceAddedEvent
+  | ToolOperationStartedEvent
+  | ToolOperationCompletedEvent
+  | ToolOperationFailedEvent
+  | ToolOperationIndeterminateEvent;
 
 /**
  * Union of all conversation-related events
@@ -757,10 +823,15 @@ export function isWorkspaceEvent(event: StorageEvent): event is WorkspaceEvent {
     'workspace_deleted',
     'session_created',
     'session_updated',
+    'session_deleted',
     'state_saved',
     'state_updated',
     'state_deleted',
     'trace_added',
+    'tool_operation_started',
+    'tool_operation_completed',
+    'tool_operation_failed',
+    'tool_operation_indeterminate',
   ].includes(event.type);
 }
 
@@ -843,6 +914,7 @@ export function isUpdateEvent(event: StorageEvent): boolean {
 export function isDeletionEvent(event: StorageEvent): boolean {
   return [
     'workspace_deleted',
+    'session_deleted',
     'conversation_deleted',
     'state_deleted',
     'message_deleted',

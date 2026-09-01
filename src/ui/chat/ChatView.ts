@@ -117,10 +117,21 @@ export class ChatView extends ItemView {
   // Layout elements
   private layoutElements!: ChatLayoutElements;
 
+  /**
+   * `chatService` is NOT guaranteed to be present here. Obsidian's view factory
+   * (ChatUIManager.registerViewEarly) constructs ChatView during layout
+   * restoration — on every plugin reload and on cold start — which runs before
+   * the plugin's async service graph has produced chatService, so the factory
+   * passes null. `waitForChatServiceAndInitialize()` fills the field in later.
+   *
+   * Consequence: every collaborator below must receive chatService through a
+   * `getChatService()` accessor. Capturing `this.chatService` by value in this
+   * constructor pins the null forever and the collaborator never recovers.
+   */
   constructor(leaf: WorkspaceLeaf, private chatService: ChatService) {
     super(leaf);
     this.sessionCoordinator = new ChatSessionCoordinator({
-      getChatService: () => this.chatService,
+      getChatService: () => this.chatService ?? null,
       component: this,
       getContainerEl: () => this.containerEl,
       getChatTitleEl: () => this.layoutElements?.chatTitle ?? null,
@@ -140,7 +151,7 @@ export class ChatView extends ItemView {
     });
     this.sendCoordinator = new ChatSendCoordinator({
       app: this.app,
-      getChatService: () => this.chatService,
+      getChatService: () => this.chatService ?? null,
       getContainerEl: () => this.containerEl,
       getConversationManager: () => this.conversationManager ?? null,
       getMessageManager: () => this.messageManager ?? null,
@@ -158,7 +169,7 @@ export class ChatView extends ItemView {
     this.subagentIntegration = new ChatSubagentIntegration({
       app: this.app,
       component: this,
-      getChatService: () => this.chatService,
+      getChatService: () => this.chatService ?? null,
       getConversationManager: () => this.conversationManager ?? null,
       getModelAgentManager: () => this.modelAgentManager ?? null,
       getStreamingController: () => this.streamingController ?? null,
@@ -985,9 +996,13 @@ export class ChatView extends ItemView {
       this.messageDisplay.updateMessageContent(messageId, content);
       this.toolEventCoordinator.clearToolNameCache();
     } else {
+      // NOTE: no producer currently emits (isComplete=false, isIncremental=false)
+      // — deltas auto-start the parser via updateStreamingChunk. Do NOT hang
+      // per-turn setup off this branch (the tool ticker's re-subscribe once
+      // lived here and silently never ran); turn brackets belong in
+      // handleLoadingStateChanged.
       this.streamingController.startStreaming(messageId);
       this.streamingController.updateStreamingChunk(messageId, content);
-      this.toolEventCoordinator.ensureListening();
     }
   }
 
@@ -1011,8 +1026,19 @@ export class ChatView extends ItemView {
     // covers normal completion, aborts, and errors uniformly.
     if (loading) {
       this.workingIndicatorController.begin();
+      // Re-arm the tool ticker for THIS turn. The previous turn's completion
+      // unsubscribed the ToolEventCoordinator from the state machine
+      // (clearToolNameCache), and the old re-subscribe lived in a streaming
+      // branch that never fires — so from the second turn on, no tool status
+      // ever reached the bar. This bracket fires for every generation path
+      // (send, retry, alternative), making the subscription unconditional.
+      this.toolEventCoordinator.beginTurn();
     } else {
       this.workingIndicatorController.end();
+      // Uniform teardown: MessageManager's finally block funnels completion,
+      // abort AND error through here, so an errored turn (which never emits
+      // isComplete) can no longer leave a stale "Running…" label behind.
+      this.toolEventCoordinator.clearToolNameCache();
     }
 
     if (this.chatInput) {

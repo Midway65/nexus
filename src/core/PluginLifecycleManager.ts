@@ -232,6 +232,17 @@ export class PluginLifecycleManager {
                             const adapter = await this.config.serviceManager?.getService<HybridStorageAdapter>('hybridStorageAdapter');
                             if (adapter) {
                                 await this.initializeEmbeddingsWhenReady(adapter);
+                            } else {
+                                // Falling through silently here is indistinguishable from
+                                // "embeddings are still starting up" — this timer is the only
+                                // thing that ever constructs EmbeddingManager, so if the
+                                // adapter is missing they never initialize and nothing says
+                                // why. That absence of a signal reads as a slow boot, which
+                                // is precisely how it gets misdiagnosed. Say it out loud.
+                                console.error(
+                                    '[PluginLifecycleManager] hybridStorageAdapter unavailable after startup delay; ' +
+                                    'embeddings will not initialize for this session'
+                                );
                             }
                         } catch (err) {
                             console.error('[PluginLifecycleManager] Background SQLite initialization failed:', err);
@@ -337,6 +348,22 @@ export class PluginLifecycleManager {
             this.embeddingManager.initialize();
             (this.config.plugin as PluginWithServices).embeddingManager = this.embeddingManager;
 
+            // "Nexus: Rebuild cache" DROPs conversation_embeddings and clears
+            // embedding_backfill_state, and the JSONL replay does not restore
+            // them — the same hazard the notes index subscribes for. Without
+            // this a mid-session rebuild leaves chat search dead until the next
+            // plugin load. registerEvent so the ref is dropped on unload.
+            //
+            // Only the mid-session rebuild needs the signal: the startup rebuild
+            // runs before embeddings exist, and initialize()'s own background
+            // pass (conversations first) already covers that case.
+            const manager = this.embeddingManager;
+            this.config.plugin.registerEvent(
+                storageAdapter.onCacheRebuilt(() => {
+                    void manager.reindexAfterCacheRebuild();
+                })
+            );
+
             // Wire embedding service into ChatTraceService
             const embeddingService = this.embeddingManager.getService();
             if (embeddingService) {
@@ -408,7 +435,7 @@ export class PluginLifecycleManager {
 
             // Cleanup service manager (handles all service cleanup)
             if (this.config.serviceManager) {
-                this.config.serviceManager.stop();
+                await this.config.serviceManager.stop();
             }
 
             // Stop the MCP connector

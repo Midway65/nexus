@@ -32,6 +32,7 @@ import { JsonlVaultWatcher, ModifiedStream } from '../sync/JsonlVaultWatcher';
 import { ReconcilePipeline } from '../sync/ReconcilePipeline';
 import { QueryCache } from '../optimizations/QueryCache';
 import { PaginatedResult, PaginationParams } from '../../types/pagination/PaginationTypes';
+import type { StateListOptions } from '../repositories/interfaces/IStateRepository';
 import {
   WorkspaceMetadata,
   SessionMetadata,
@@ -74,6 +75,7 @@ import { ConversationRepository } from '../repositories/ConversationRepository';
 import { MessageRepository } from '../repositories/MessageRepository';
 import { ProjectRepository } from '../repositories/ProjectRepository';
 import { TaskRepository } from '../repositories/TaskRepository';
+import { ToolOperationRepository } from '../repositories/ToolOperationRepository';
 // Import services
 import { ExportService } from '../services/ExportService';
 
@@ -168,6 +170,7 @@ export class HybridStorageAdapter implements IStorageAdapter {
   private messageRepo!: MessageRepository;
   private projectRepo!: ProjectRepository;
   private taskRepo!: TaskRepository;
+  private toolOperationRepo!: ToolOperationRepository;
 
   // Services
   private exportService!: ExportService;
@@ -201,6 +204,7 @@ export class HybridStorageAdapter implements IStorageAdapter {
     this.messageRepo = assembly.messageRepo;
     this.projectRepo = assembly.projectRepo;
     this.taskRepo = assembly.taskRepo;
+    this.toolOperationRepo = assembly.toolOperationRepo;
     this.exportService = assembly.exportService;
   }
 
@@ -306,6 +310,13 @@ export class HybridStorageAdapter implements IStorageAdapter {
         await this.runReconcile('task', () => this.reconcileMissingTasks());
       }
 
+      // Fill in the state columns denormalized in schema v16 (issue #219) for
+      // rows that came over from a pre-v16 cache. Costs one indexed SELECT once
+      // every row is known, and one JSONL read per affected workspace before
+      // that — never one per state, which is the cost being removed. A full
+      // rebuild above already writes the columns, so this then finds nothing.
+      await this.runStateMetadataBackfill();
+
       // NOTE: the hydration phase is terminated by runStartupFullRebuild itself
       // (it is what moves the phase to `running` via onProgress), so both the
       // blocking and the background rebuild leave a query-ready phase behind.
@@ -324,22 +335,27 @@ export class HybridStorageAdapter implements IStorageAdapter {
 
   private async runStartupFullRebuild(isBlockingHydration: boolean): Promise<void> {
     let rejectIdleTimeout: ((error: Error) => void) | undefined;
-    const idleTimeoutPromise = isBlockingHydration
-      ? new Promise<never>((_, reject) => {
-        rejectIdleTimeout = reject;
-      })
-      : undefined;
+    const idleTimeoutPromise = new Promise<never>((_, reject) => {
+      rejectIdleTimeout = reject;
+    });
 
-    const stopWatchdog = isBlockingHydration
-      ? this.hydration.startIdleWatchdog({
-        idleTimeoutMs: this.getStartupRebuildIdleTimeoutMs(),
-        onTimeout: () => {
-          const message = `Local chat index rebuild made no progress for ${this.getStartupRebuildIdleTimeoutMs()} ms`;
-          this.hydration.fail(message);
-          rejectIdleTimeout?.(new Error(message));
-        }
-      })
-      : undefined;
+    // Stall protection is NOT specific to the blocking rebuild. `onProgress`
+    // calls `updateProgress` on both branches, and that moves the phase to
+    // `running`, which is not query-ready. So a *background* rebuild that
+    // reported progress and then stalled leaves `isQueryReady()` false for the
+    // rest of the session with nothing to fail it — the same shape as the
+    // completion bug handled below. The watchdog therefore arms on both
+    // branches; it is inert until the phase actually reaches `running`, so the
+    // background branch that never reports progress (phase stays `idle`, which
+    // is query-ready) is unaffected.
+    const stopWatchdog = this.hydration.startIdleWatchdog({
+      idleTimeoutMs: this.getStartupRebuildIdleTimeoutMs(),
+      onTimeout: () => {
+        const message = `Local chat index rebuild made no progress for ${this.getStartupRebuildIdleTimeoutMs()} ms`;
+        this.hydration.fail(message);
+        rejectIdleTimeout?.(new Error(message));
+      }
+    });
 
     try {
       const rebuildPromise = this.syncCoordinator.fullRebuild({
@@ -347,9 +363,7 @@ export class HybridStorageAdapter implements IStorageAdapter {
           this.hydration.updateProgress(stage, progress, total, isBlockingHydration);
         }
       });
-      const result = idleTimeoutPromise
-        ? await Promise.race([rebuildPromise, idleTimeoutPromise])
-        : await rebuildPromise;
+      const result = await Promise.race([rebuildPromise, idleTimeoutPromise]);
 
       if (!result.success) {
         const summary = result.errors.length > 0 ? result.errors.join('; ') : 'Unknown error';
@@ -384,6 +398,20 @@ export class HybridStorageAdapter implements IStorageAdapter {
     return this.startupRebuildIdleTimeoutMs ?? DEFAULT_STARTUP_REBUILD_IDLE_TIMEOUT_MS;
   }
 
+  /**
+   * One-shot (per cache) backfill of the state columns denormalized in schema
+   * v16. Never fatal: a failure here only means `MemoryService.getStates`
+   * keeps resolving the archive flag from JSONL content, which is what it did
+   * before the column existed.
+   */
+  private async runStateMetadataBackfill(): Promise<void> {
+    try {
+      await this.stateRepo.backfillDerivedStateMetadata();
+    } catch (error) {
+      console.error('[HybridStorageAdapter] State metadata backfill failed:', error);
+    }
+  }
+
   private async runReconcile(label: string, fn: () => Promise<number>): Promise<void> {
     try {
       await fn();
@@ -401,12 +429,14 @@ export class HybridStorageAdapter implements IStorageAdapter {
     this.jsonlWriter.setBasePath(plan.vaultWriteBasePath);
     const migrationComplete = plan.state.migration.state === 'verified'
       || plan.state.migration.state === 'not_needed';
-    // Legacy roots are migration inputs, not permanent read replicas. Keeping
-    // them active after cutover can resurrect deleted data and race cloud-sync
-    // deletion/placeholder operations during every startup read.
+    // The configured vault root is the active write destination at every
+    // migration phase, so it must also remain the first read source. Otherwise
+    // events written while migration is pending or failed are invisible after
+    // an in-memory cache miss. Legacy roots remain fallback inputs only until
+    // cutover; StorageRouter reads vault-root first and deduplicates by event ID.
     this.jsonlWriter.setReadBasePaths(migrationComplete ? [] : plan.legacyReadBasePaths);
     this.jsonlWriter.setVaultEventStore(this.vaultEventStore);
-    this.jsonlWriter.setVaultEventStoreReadEnabled(migrationComplete);
+    this.jsonlWriter.setVaultEventStoreReadEnabled(true);
     this.sqliteCache.setDbPath(plan.pluginCacheDbPath);
     this.wireReconcilePipeline();
   }
@@ -642,6 +672,11 @@ export class HybridStorageAdapter implements IStorageAdapter {
     return this.taskRepo;
   }
 
+  /** Durable receipt repository used by the shared tool execution boundary. */
+  get operations(): ToolOperationRepository {
+    return this.toolOperationRepo;
+  }
+
   async close(): Promise<void> {
     if (!this.initLifecycle.isInitialized()) {
       return;
@@ -836,10 +871,19 @@ export class HybridStorageAdapter implements IStorageAdapter {
   getStates = async (
     workspaceId: string,
     sessionId?: string,
-    options?: PaginationParams
+    options?: StateListOptions
   ): Promise<PaginatedResult<StateMetadata>> => {
     await this.ensureInitialized();
     return this.stateRepo.getStates(workspaceId, sessionId, options);
+  };
+
+  findState = async (
+    workspaceId: string,
+    identifier: string,
+    options?: { matchId?: boolean; caseSensitiveName?: boolean }
+  ): Promise<StateMetadata | null> => {
+    await this.ensureInitialized();
+    return this.stateRepo.findState(workspaceId, identifier, options);
   };
 
   saveState = async (

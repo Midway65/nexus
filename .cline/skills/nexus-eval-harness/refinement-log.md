@@ -4,6 +4,15 @@ Append-only record of changes made by `protocols/self-refine.md`. Newest on top.
 
 <!-- YYYY-MM-DD | observation | change made | file(s) touched -->
 
+2026-08-21 | The harness graded tool calls and final prose but could not test
+the user's requested Nexus-facing thinking behavior or a reasoning-bearing
+tool continuation. | Documented the new thinking scenario semantics: grade
+only production-stream-visible reasoning, require a tool round for
+continuation coverage, and quarantine capability probes from leaderboards
+where appropriate. | `references/scenario-contract.md`, `refinement-log.md`.
+
+2026-08-19 | Versioned generated schemas made the structural checker fail because it parsed literal `NEXUS_TOOLS`/`META_TOOLS` arrays that no longer exist. | Changed the checker to resolve the latest CLI/MCP artifacts through `<repo>/schemas/manifest.json` and filter CLI tools through the advertised eval catalog; documented schema pinning and the loader path. | `scripts/check_scenarios.py`, `references/harness-map.md`, `protocols/configure-a-run.md`.
+
 2026-08-14 | Rebuilt from a single prose file through the skill-crafter
 improve-skill protocol. The old file was a knob list with no procedure, no
 verification, and several claims that did not match `tests/eval/`: it said
@@ -17,3 +26,14 @@ configure-a-run, debug-a-run, extend-the-harness, self-refine), `references/`
 `scripts/check_scenarios.py`, which derives the scenario field list from
 `tests/eval/types.ts` and the tool names from `tests/eval/fixtures/tools.ts` and
 fails on the selector-blind `getTools` trap. | every file in this skill.
+
+- 2026-08-27 | `read-then-write-then-move` expected `storageManager_move` param
+  `destination` — a normalizer alias the generated catalog never advertises;
+  the production schema requires `newPath`. Three models (glm-5.3-flash,
+  deepseek-v4-pro-0813, gemini-3.7-flash) failed it identically with correct
+  calls. | Changed the expectation to `newPath: archive/` (substring match
+  keeps the target-name freedom) and added a scenario-contract rule: expected
+  param names must be schema names, not normalizer aliases — identical failure
+  across models is the tell. Verified: glm-5.3-flash passes first attempt, 0
+  retries. | Files: `tests/eval/scenarios/multi-turn.eval.yaml`,
+  `references/scenario-contract.md`.

@@ -1,0 +1,110 @@
+{
+  "schemaVersion": 1,
+  "nexusVersion": "5.18.1",
+  "generatedAt": "2026-08-27T18:36:56.323Z",
+  "toolCount": 2,
+  "tools": [
+    {
+      "name": "toolManager_getTools",
+      "description": "REQUIRED FIRST STEP: You MUST call getTools BEFORE calling useTools.\nThis returns CLI-oriented command metadata for the tools you need next.\nSend workspaceId, sessionId, memory, goal, and constraints at the top level.\nUse one stable human-readable session name for the conversation. Reuse that same sessionId value for every getTools/useTools call in the chat; do not invent a new sessionId per tool or per saved state. Nexus stores an internal UUID silently.\nDo not send a nested \"context\" object or legacy \"request\" array.\n\nWorkflow: 1) Call getTools with one or more selectors → 2) Call useTools with one or more CLI-style commands\nKnown-good example: {\"workspaceId\":\"default\",\"sessionId\":\"workspace setup\",\"memory\":\"Summarize work so far.\",\"goal\":\"Inspect available storage tools.\",\"tool\":\"storage move, content read\"}\nExample selectors: tool=\"--help\", tool=\"storage\", tool=\"storage move\", tool=\"storage move, content read\"\n\nAgents:\ncontent: [read,write,replace,insert,setProperty,removeProperty]\nstorage: [list,createFolder,move,copy,archive,open]\nsearch: [content,directory,memory,queryNotes]\nmemory: [createState,listStates,loadState,updateState,archiveState,createWorkspace,listWorkspaces,searchWorkspaces,loadWorkspace,updateWorkspace,archiveWorkspace,run]\nprompt: [list,get,create,update,archive,listModels,execute,generateImage,generateAudio,generateVideo,checkGeneratedArtifact,subagent]\ncanvas: [read,write,update,list]\nbase: [read,write,update,list,analyze]\ntask: [createProject,listProjects,updateProject,archiveProject,create,list,open,update,move,query,linkNote]\ningest: [run,capabilities]\nelevenlabs: [listVoices,soundEffects,generateMusic]\ncomposer: [compose,listFormats]\nweb: [open,capture-markdown,capture-png,capture-pdf,links]\nskills: [listSkills,loadSkill,createSkill,updateSkill,archiveSkill,syncSkills]\ndata: [runPython,listCapabilities]\n\nExisting workspaces: not listed here. The getTools RESULT carries the live list — read \"workspaces\" there and pass one of those exact names. Never infer a workspace name from the user's wording.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "workspaceId": {
+            "type": "string",
+            "description": "Workspace name or ID. Required, and must be non-empty — an empty string is rejected, not read as \"default\". Pass \"default\" for the global workspace, or an exact value from the availableWorkspaces list this call returns."
+          },
+          "sessionId": {
+            "type": "string",
+            "description": "Stable human-readable session name for this chat. Required. Reuse the same value for every getTools/useTools call so traces and saved states attach to the current session; Nexus stores the internal UUID silently."
+          },
+          "memory": {
+            "type": "string",
+            "description": "Brief summary of the conversation so far."
+          },
+          "goal": {
+            "type": "string",
+            "description": "Brief statement of the current objective."
+          },
+          "constraints": {
+            "type": "string",
+            "description": "Optional rules or limits."
+          },
+          "tool": {
+            "type": "string",
+            "description": "CLI-style selector string. Supports one or more selectors separated by commas. Examples: \"--help\", \"storage\", \"storage move\", \"storage move, content read\"."
+          }
+        },
+        "required": [
+          "workspaceId",
+          "sessionId",
+          "memory",
+          "goal",
+          "tool"
+        ]
+      }
+    },
+    {
+      "name": "toolManager_useTools",
+      "description": "Execute one or more CLI-style tool commands from the top-level \"tool\" field. Known-good example: {\"workspaceId\":\"default\",\"sessionId\":\"workspace setup\",\"memory\":\"Summarize work so far.\",\"goal\":\"Inspect available workspaces.\",\"tool\":\"memory list-workspaces\"}. Use one stable human-readable session name for the conversation; reuse that same sessionId value for every useTools call so traces and saved states attach to the current session. Nexus stores the internal UUID silently. Separate multiple commands with a top-level comma outside quotes (\"cmd1, cmd2\"); commas inside quoted values stay literal and never split commands. For multiline content, wrap the value in quotes — literal newlines and escaped ones like \"# Title\\n\\nBody\" both work, and any double quote inside the value must be escaped as \\\". Never flatten multiline content to one line; quoting is enough. For content heavy on backslashes, quotes, or length (code, Windows paths, LaTeX, regex), skip CLI escaping entirely: put the text in the optional top-level \"values\" map and reference it from the tool string as @key (unquoted). Values are substituted after parsing with no escape processing, so the content arrives exactly as written. Quote the token (\"@key\") to pass literal text instead, and reference every declared key. Example: {\"tool\": \"content write --path snippet.md --content @body\", \"values\": {\"body\": \"const re = /\\\\d+/;\"}}. When you already know several files you want to read, batch them as comma-separated \"content read\" commands in ONE call with strategy \"parallel\" — do not issue a separate useTools call per file. IMPORTANT: You MUST call getTools first to inspect the exact command signatures before calling this tool.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "workspaceId": {
+            "type": "string",
+            "description": "Workspace name or ID. Required, and must be non-empty — an empty string is rejected, not read as \"default\". Pass \"default\" for the global workspace, or an exact value from the availableWorkspaces list returned by getTools."
+          },
+          "sessionId": {
+            "type": "string",
+            "description": "Stable human-readable session name for this chat. Required. Reuse the same value for every useTools call so traces and saved states attach to the current session; Nexus stores the internal UUID silently."
+          },
+          "memory": {
+            "type": "string",
+            "description": "Brief summary of the conversation so far."
+          },
+          "goal": {
+            "type": "string",
+            "description": "Brief statement of the current objective."
+          },
+          "constraints": {
+            "type": "string",
+            "description": "Optional rules or limits."
+          },
+          "tool": {
+            "type": "string",
+            "description": "CLI-style tool command string. Separate multiple commands with a top-level comma outside quotes (\"cmd1, cmd2\"); commas inside quoted values stay literal and never split commands. For multiline content, wrap the value in quotes — literal newlines and escaped ones like \"# Title\\n\\nBody\" both work, and any double quote inside the value must be escaped as \\\". Never flatten multiline content to one line; quoting is enough. Example: content write --path note.md --content \"# Title\\n\\nAlpha, beta, gamma\". Batching example: \"storage move --path notes/a.md --new-path archive/a.md, content read --path archive/a.md\". Reading multiple known files? Batch them here as one comma-separated list (e.g. \"content read --path a.md, content read --path b.md, content read --path c.md\") instead of separate calls."
+          },
+          "strategy": {
+            "type": "string",
+            "enum": [
+              "serial",
+              "parallel"
+            ],
+            "description": "Execution strategy for multiple CLI commands. Defaults to serial. Use \"parallel\" for independent read-only commands (e.g. batched content reads) to avoid wasted round-trips."
+          },
+          "operationId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$",
+            "description": "Optional stable retry identity. Reuse the same value only for an exact retry; reusing it with different command parameters is rejected. Calls without it receive a non-replayable generated receipt and cannot be deduplicated across retries."
+          },
+          "values": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "For content heavy on backslashes, quotes, or length (code, Windows paths, LaTeX, regex), skip CLI escaping entirely: put the text in the optional top-level \"values\" map and reference it from the tool string as @key (unquoted). Values are substituted after parsing with no escape processing, so the content arrives exactly as written. Quote the token (\"@key\") to pass literal text instead, and reference every declared key. Keys use letters, digits, \"_\" or \"-\". Example: {\"tool\": \"content write --path snippet.md --content @body\", \"values\": {\"body\": \"const re = /\\\\d+/;\"}}"
+          }
+        },
+        "required": [
+          "workspaceId",
+          "sessionId",
+          "memory",
+          "goal",
+          "tool"
+        ]
+      }
+    }
+  ]
+}

@@ -7,7 +7,7 @@ reasoning is unclear — this protocol states what to do, that reference states 
 
 ## Mission
 Produce a correct commit on `main` and a bare `X.Y.Z` tag on it, such that the
-release workflow runs green and publishes the three plugin assets with
+release workflow runs green and publishes the plugin plus schema assets with
 attestation.
 
 ## Steps
@@ -46,7 +46,7 @@ npm version <patch|minor|major> --no-git-tag-version
 This bumps `package.json` and `package-lock.json`, then runs the repo's `version`
 lifecycle script (`version-bump.mjs`), which writes the new version into
 `manifest.json` and appends the `version -> minAppVersion` entry to
-`versions.json`.
+`versions.json`, then regenerates the release's CLI and MCP schema catalogs.
 
 Expect `manifest.json` to come back reindented from tabs to two spaces — the
 bump script rewrites it that way. The whole-file diff is cosmetic and harmless;
@@ -64,9 +64,13 @@ do not hand-revert it, or the next bump churns it again.
 
 ### 6. Rebuild
 ```bash
+npm ci
 npm run build
 ```
-This is the same command the workflow runs, so it is your CI parity check — and
+`npm ci` first, because the workflow runs `npm ci` — a local `node_modules` that
+has drifted from `package-lock.json` can build green here and still fail on the
+tagged commit (it broke the 5.16.0 tag). `npm run build` is then the same command
+the workflow runs, so it is your CI parity check — and
 it is what refreshes the generated sources. It lints, builds the CLI, regenerates
 `src/utils/cliAssets.ts`, type-checks, bundles, compiles the connector and
 regenerates `src/utils/connectorContent.ts`. A failure here is a failure that
@@ -167,9 +171,9 @@ gh release view X.Y.Z
 ```
 
 Confirm: the release name is exactly `X.Y.Z` (the workflow sets it from the tag —
-never rename it); assets are exactly `main.js`, `manifest.json`, `styles.css` and
-nothing else (no `connector.js`); notes were auto-generated; the attestation step
-succeeded.
+never rename it); assets are `main.js`, `manifest.json`, `styles.css`,
+`cli-tools.json`, and `mcp-tools.json` (still no `connector.js`); notes were
+auto-generated; the attestation step succeeded.
 
 Anything wrong → `recover.md`.
 

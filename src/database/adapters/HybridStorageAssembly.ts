@@ -39,11 +39,13 @@ import { ConversationRepository } from '../repositories/ConversationRepository';
 import { MessageRepository } from '../repositories/MessageRepository';
 import { ProjectRepository } from '../repositories/ProjectRepository';
 import { TaskRepository } from '../repositories/TaskRepository';
+import { ToolOperationRepository } from '../repositories/ToolOperationRepository';
 // Import services
 import { ExportService } from '../services/ExportService';
 
 type ExportServiceStateRepo = {
   getStates(workspaceId: string, sessionId: string | undefined, options?: { pageSize?: number }): Promise<{ items: StateData[] }>;
+  findState(workspaceId: string, identifier: string, options?: { matchId?: boolean; caseSensitiveName?: boolean }): Promise<unknown>;
 };
 
 /**
@@ -82,6 +84,7 @@ export interface HybridStorageAssembly {
   messageRepo: MessageRepository;
   projectRepo: ProjectRepository;
   taskRepo: TaskRepository;
+  toolOperationRepo: ToolOperationRepository;
   exportService: ExportService;
 }
 
@@ -146,6 +149,7 @@ export function assembleHybridStorage(options: HybridStorageAssemblyOptions): Hy
   const messageRepo = new MessageRepository(deps);
   const projectRepo = new ProjectRepository(deps);
   const taskRepo = new TaskRepository(deps);
+  const toolOperationRepo = new ToolOperationRepository(deps);
 
   // Initialize services
   const exportService = new ExportService({
@@ -173,6 +177,7 @@ export function assembleHybridStorage(options: HybridStorageAssemblyOptions): Hy
     messageRepo,
     projectRepo,
     taskRepo,
+    toolOperationRepo,
     exportService
   };
 }

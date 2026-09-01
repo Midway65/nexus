@@ -854,7 +854,7 @@ body.theme-light .message-content {
     align-self: stretch;
     width: 100%;
     max-width: none;
-    margin-top: 1.4rem;
+    margin-top: var(--space-s);
 }
 
 .message-container.message-image {
@@ -6166,6 +6166,14 @@ body.is-mobile .message-content {
     line-height: 1.5;
 }
 
+/* Thinking block - same left-alignment guard as .message-content; it is a
+   sibling of .message-content inside the bubble, so it needs its own rule */
+body.is-mobile .message-reasoning,
+body.is-mobile .message-reasoning-summary,
+body.is-mobile .message-reasoning-content {
+    text-align: left;
+}
+
 /* Mobile: conversation action buttons always visible */
 body.is-mobile .conversation-actions {
     opacity: 0.7;
@@ -8436,8 +8444,13 @@ body.is-mobile .nexus-task-board-shell {
 .tool-status-text-failed {
   position: absolute;
   inset: 0;
-  display: flex;
-  align-items: center;
+  /* Single line, centered via line-height (matches .tool-status-slot height).
+     No ellipsis: ToolStatusLine streams the text word-by-word and follows the
+     newest word via scrollLeft when the line outgrows the row, so overflow
+     stays hidden but nothing is truncated. */
+  line-height: 1.46em;
+  white-space: nowrap;
+  overflow: hidden;
   transition: transform 0.2s ease-out, opacity 0.2s ease-out;
 }
 
@@ -8513,6 +8526,13 @@ body.is-mobile .nexus-task-board-shell {
 
 .thinking-loader-text {
   white-space: nowrap;
+}
+
+/* During a mid-stream pause, keep the status visually attached to the current
+   assistant message without crowding its final line. The initial empty loading
+   state remains flush because its continuation wrapper is the first child. */
+.message-content > .ai-loading-continuation:not(:first-child) {
+  margin-top: var(--space-s);
 }
 
 @media (prefers-reduced-motion: reduce) {

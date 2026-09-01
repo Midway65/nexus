@@ -71,7 +71,16 @@ interface ChatSubagentIntegrationResult {
 interface ChatSubagentIntegrationDependencies {
   app: App;
   component: Component;
-  getChatService: () => ChatService;
+  /**
+   * Resolved lazily, never captured at construction time.
+   *
+   * Obsidian's view factory constructs ChatView during layout restoration,
+   * which happens before the plugin's async service graph has produced
+   * `chatService`. A dependency captured by value inside that window stays null
+   * for the whole life of the view, even after the poller in
+   * `ChatView.waitForChatServiceAndInitialize()` assigns the real service.
+   */
+  getChatService: () => ChatService | null;
   getConversationManager: () => ConversationManagerLike | null;
   getModelAgentManager: () => ModelAgentManagerLike | null;
   getStreamingController: () => StreamingController | null;

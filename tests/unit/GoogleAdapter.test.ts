@@ -71,6 +71,20 @@ describe('GoogleAdapter', () => {
       expect(body.systemInstruction).toEqual({ parts: [{ text: 'Be brief' }] });
     });
 
+    it('keeps native thought parts out of answer text', async () => {
+      __setRequestUrlMock(async () => jsonResponse(200, {
+        candidates: [{
+          content: { parts: [{ text: 'private summary', thought: true }, { text: 'Answer' }] },
+          finishReason: 'STOP'
+        }]
+      }));
+
+      const result = await new GoogleAdapter('gk-test').generateUncached('hi');
+
+      expect(result.text).toBe('Answer');
+      expect(result.metadata?.thinking).toBe('private summary');
+    });
+
     it('maps MAX_TOKENS to length and SAFETY to content_filter', async () => {
       const adapter = new GoogleAdapter('gk-test');
 
@@ -143,12 +157,12 @@ describe('GoogleAdapter', () => {
   });
 
   describe('SSE streaming', () => {
-    it('yields content, thought parts as reasoning, function calls, and final usage', async () => {
+    it('yields native thought parts as reasoning without leaking them into content', async () => {
       const requests: CapturedRequest[] = [];
       __setRequestUrlMock(async (request) => {
         requests.push(request);
         return sseResponse(sse(
-          { candidates: [{ content: { parts: [{ thought: 'pondering' }] } }] },
+          { candidates: [{ content: { parts: [{ text: 'pondering', thought: true }] } }] },
           { candidates: [{ content: { parts: [{ text: 'Hello' }] } }] },
           { candidates: [{ content: { parts: [{ functionCall: { name: 'search', args: { q: 'x' } } }] } }] },
           {
@@ -216,11 +230,54 @@ describe('GoogleAdapter', () => {
 
       const body = JSON.parse(requests[0].body ?? '{}');
       expect(body.generationConfig).toEqual(expect.objectContaining({
-        thinkingConfig: { thinkingLevel: 'high' }
+        thinkingConfig: { includeThoughts: true, thinkingLevel: 'high' }
       }));
       expect(body.generationConfig).not.toHaveProperty('temperature');
       expect(body.generationConfig).not.toHaveProperty('topK');
       expect(body.generationConfig).not.toHaveProperty('topP');
+    });
+
+    it('requests thought summaries on the legacy thinkingBudget path', async () => {
+      const requests: CapturedRequest[] = [];
+      __setRequestUrlMock(async (request) => {
+        requests.push(request);
+        return sseResponse(sse({
+          candidates: [{ content: { parts: [{ text: 'Done' }] }, finishReason: 'STOP' }]
+        }));
+      });
+
+      const adapter = new GoogleAdapter('gk-test', 'gemini-2.5-pro');
+      await collect(adapter.generateStreamAsync('hi', {
+        enableThinking: true,
+        thinkingEffort: 'high'
+      }));
+
+      const body = JSON.parse(requests[0].body ?? '{}');
+      expect(body.generationConfig.thinkingConfig).toEqual(expect.objectContaining({
+        includeThoughts: true
+      }));
+      expect(body.generationConfig.thinkingConfig.thinkingBudget).toBeGreaterThan(0);
+    });
+
+    it('omits includeThoughts when thinking is only implied by tools', async () => {
+      const requests: CapturedRequest[] = [];
+      __setRequestUrlMock(async (request) => {
+        requests.push(request);
+        return sseResponse(sse({
+          candidates: [{ content: { parts: [{ text: 'Done' }] }, finishReason: 'STOP' }]
+        }));
+      });
+
+      const adapter = new GoogleAdapter('gk-test', 'gemini-3.6-flash');
+      await collect(adapter.generateStreamAsync('hi', {
+        tools: [{
+          type: 'function',
+          function: { name: 'noop', description: 'noop', parameters: { type: 'object' } }
+        }]
+      }));
+
+      const body = JSON.parse(requests[0].body ?? '{}');
+      expect(body.generationConfig.thinkingConfig).toEqual({ thinkingLevel: 'medium' });
     });
   });
 

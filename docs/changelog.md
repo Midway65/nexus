@@ -2,7 +2,101 @@
 
 ## August 2026
 
-**Unreleased** — Your agent can read, write and run Obsidian Bases
+**v5.18.2** — a tool ticker that keeps running, and thinking text that reads straight on mobile
+
+**The tool ticker stays alive for the whole conversation**
+- The line that reports what the assistant is doing went dark after the first completed turn, so every turn after it ran with no visible sign of activity at all. It now re-arms on each turn and keeps reporting for the length of the chat. The line also shows the goal sentence behind a `useTools` call instead of a run of per-tool labels — revealed word by word, each entry held briefly before the next replaces it — and a failure still names the tool that failed ([#378](https://github.com/ProfSynapse/nexus/pull/378)).
+
+**Thinking blocks read left-aligned on mobile**
+- On phones the text inside a Thinking block was centered. Obsidian's mobile stylesheet centers chat bubble content, and only the message body carried an override; the reasoning block, its summary and its content now carry the same guard and read left-aligned like the rest of the message ([#377](https://github.com/ProfSynapse/nexus/pull/377)).
+
+---
+
+**v5.18.1** — Groq chat that survives tool use, a way to remove frontmatter, and the Claude 5 family
+
+**Frontmatter properties can finally be removed**
+- `content set-property` could write a key but never remove one — passing null wrote `property: null` into the note instead of dropping the line. The new `content remove-property` removes a property outright, or drops a single item from a list property, with the key itself going when the last item does. A property or value that is not there is an error naming what actually is, so a typo cannot report success — and the change is undoable like every other content write ([#365](https://github.com/ProfSynapse/nexus/pull/365)).
+
+**Tool-using chat on Groq works again**
+- Groq models were sent none of the conversation history when continuing after a tool call, so chat on Groq went silently blank the moment a tool was used. The history now carries through the continuation ([#368](https://github.com/ProfSynapse/nexus/pull/368)). The Groq model list was also refreshed against the live catalog: Qwen 3.6 27B added, five dead models pruned, and the provider default is now GPT-OSS 120B.
+- The same gap sat latent in the Requesty and Perplexity providers, one setting away from the identical silent-blank failure. Every compatible provider now builds its messages through the one shared, history-aware path ([#370](https://github.com/ProfSynapse/nexus/pull/370)).
+
+**New models**
+- The Claude Code provider — the subscription-billed CLI, with no API key — now offers the Claude 5 family (Fable 5, Opus 5 and Sonnet 5) and defaults to Sonnet 5 ([#372](https://github.com/ProfSynapse/nexus/pull/372)).
+- The Anthropic provider gains Claude Opus 5, and Sonnet 5's pricing is corrected to the documented $2/$10 per million tokens ([#373](https://github.com/ProfSynapse/nexus/pull/373)).
+- GLM 5.3 Flash is available through OpenRouter ([#366](https://github.com/ProfSynapse/nexus/pull/366)).
+
+---
+
+**v5.18.0** — deletes that stick, search that respects the scope you gave it, and thinking you can actually see
+
+**Reasoning shows up the same way on every provider**
+- Models that think before answering now surface that thinking consistently across Anthropic, Gemini, OpenAI, OpenRouter and LM Studio. Each provider reports reasoning in its own shape, and Nexus only understood some of them, so whether you saw a model's reasoning depended on which provider you happened to be using ([#354](https://github.com/ProfSynapse/nexus/pull/354)).
+- **Claude's thinking no longer breaks when a tool is involved.** Anthropic signs each thinking block and requires it back, unchanged, when the conversation continues after a tool call. Nexus was not replaying those blocks, so a thinking model that used a tool could fail outright partway through a turn. The signed and redacted blocks are now preserved and replayed exactly.
+- Spacing around assistant messages and the "generating" status text was tightened, including the gap that appeared when a reply paused mid-stream.
+
+**A retried command cannot run twice**
+- Every command that changes something now writes a durable receipt before it runs. Retry the exact same command with the same operation id and Nexus replays the receipt instead of doing the work again; reuse that id for a *different* command and it is rejected rather than silently overwriting something. Receipts survive a reload and a cache rebuild, because they live in your vault's event log rather than only in the cache ([#356](https://github.com/ProfSynapse/nexus/pull/356)).
+- Agents that batch several commands to run at once are now stopped when the batch mixes reads with writes. Nexus names the command that is unsafe to parallelise and asks for the batch to be retried in order, so two commands can no longer race over the same note.
+- **Nothing about read-only commands is recorded.** Receipts cover commands that change things; reading a note never copies its contents into the event log.
+
+**Deleting something now removes everything it owned**
+- Permanently deleting a workspace removed the workspace and nothing else. Its sessions, saved states, memory traces, projects and tasks all survived, and rebuilding the cache brought the entire orphaned set back — so a workspace stayed deleted only until the next rebuild. Deletion now removes everything the workspace owned, including its event streams ([#347](https://github.com/ProfSynapse/nexus/pull/347)).
+- Deleting a session did not survive a rebuild at all. Nothing recorded that the deletion had happened, so the session reappeared the next time the cache was rebuilt, bringing its states and traces with it. Session deletion is now written to your vault's event log like every other change ([#348](https://github.com/ProfSynapse/nexus/pull/348)).
+- **Permanent deletion remains something only you can do, from the interface.** Agents still get the reversible archive, never a destructive delete.
+
+**Search respects the scope you gave it**
+- Scoping a semantic search to a folder could return nothing at all, with no hint as to why. The scope was applied *after* the results had been chosen: Nexus took the strongest matches from the whole vault, trimmed them, and only then filtered down to your folder — so if nothing in that folder happened to rank near the top of the vault, you got an empty answer for a folder full of relevant notes. The scope is now part of the search itself ([#340](https://github.com/ProfSynapse/nexus/pull/340)).
+
+**Chat search comes back in seconds after a cache rebuild**
+- Rebuilding the cache discards the embeddings that make your chat history searchable, and rebuilding them used to be the *last* thing Nexus did — queued behind every note in the vault. On a large vault that left chat search dead for hours after a rebuild. Conversations are now rebuilt first, ahead of traces and notes, so they come back in seconds; and a rebuild you trigger mid-session now re-derives them straight away instead of waiting for the next restart ([#361](https://github.com/ProfSynapse/nexus/pull/361)).
+
+**Fixes**
+- **Subagents work again after a plugin reload.** Chat is rebuilt by Obsidian before Nexus has finished starting its services, and the chat view was holding on to the empty slot where the chat service would later appear. Subagent setup then failed every time the plugin reloaded, so asking an agent to delegate work answered "Subagent executor not initialized" and the agent status panel stayed empty until the chat tab was closed and reopened. Chat now looks the service up when it needs it ([#358](https://github.com/ProfSynapse/nexus/pull/358)).
+- **Gemini's thinking is now actually visible.** Reasoning displayed for every other provider but never for Gemini: Google only returns a model's thought summaries when the request asks for them, and Nexus never asked. Gemini models now stream their reasoning into chat like the rest ([#357](https://github.com/ProfSynapse/nexus/pull/357)).
+- Saved states could disappear after a storage migration that had not finished. Nexus stopped reading the destination folder until the migration was verified, while already writing there — so a state's metadata was listed but its contents could not be loaded, and fresh states only appeared to work because they were still held in memory ([#355](https://github.com/ProfSynapse/nexus/pull/355)).
+- Switching between providers is more reliable. Each provider now owns its own setup and cleanup, so disposing of one can no longer interfere with the one replacing it.
+- **Nexus no longer keeps indexing after you reload it.** Background indexing belonging to the previous instance carried on running against a database that had already closed, logging a failure per item for minutes — and the burst grew with every reload ([#360](https://github.com/ProfSynapse/nexus/pull/360)).
+- A stalled startup rebuild could leave chat and search unavailable indefinitely, with nothing reported. The watchdog meant to catch exactly that was armed on only one of the two startup paths; it now covers both ([#341](https://github.com/ProfSynapse/nexus/pull/341)).
+- Recovering from a corrupt cache reported success even when the recovery had failed, so a vault could look healthy while its cache was not ([#342](https://github.com/ProfSynapse/nexus/pull/342)).
+- An empty `workspaceId` now fails the same way an omitted one does. It previously fell through to the default workspace, so a template that rendered to an empty value behaved completely differently from one that left the field out ([#345](https://github.com/ProfSynapse/nexus/pull/345)).
+- Looking up a saved state by name searched only the first page of states, so a state beyond that page appeared not to exist ([#359](https://github.com/ProfSynapse/nexus/pull/359)).
+- Listing saved states no longer re-reads every state's full history. On a workspace with 200 states the first listing after a restart took half a second and parsed 180,000 events; it now takes about 6 ms and reads none ([#346](https://github.com/ProfSynapse/nexus/pull/346)).
+
+**Models**
+- **GLM 5.3** (OpenRouter and Requesty) and **Qwen3.8 27B** (OpenRouter) ([#353](https://github.com/ProfSynapse/nexus/pull/353)).
+
+**Under the hood**
+- Nexus's tool catalogue is now generated from the running code and versioned with each release, and the build fails if the two drift apart. This does not change any command you type — it means the documentation an agent reads can no longer disagree with what the tools actually accept ([#353](https://github.com/ProfSynapse/nexus/pull/353)).
+- When the storage layer is unavailable at startup, Nexus now says so instead of leaving embeddings silently uninitialised — an absent index used to be indistinguishable from one that was still warming up ([#363](https://github.com/ProfSynapse/nexus/pull/363)).
+- Streaming was rebuilt on a typed event contract with a single place that decides what a turn looks like, replacing envelopes that each provider filled in slightly differently. A turn that fails or is aborted is now recorded as failed instead of quietly reported as success.
+
+---
+
+**v5.17.2** — Nexus now declares the Obsidian version it actually needs
+
+**Requires Obsidian 1.10.0 or later**
+- Nexus uses Obsidian's Bases API for the `base` agent, and that API arrived in Obsidian 1.10.0 — but the plugin claimed to run on 1.8.7. That claim was wrong, and Obsidian's automated review flagged 23 places where it showed. The manifest now says 1.10.0.
+- **If you are on an older Obsidian, you do not lose Nexus.** Obsidian will offer you 5.17.1, the last release that supported 1.8.7, instead of failing the update. To move past it, update Obsidian — 1.10.0 was released in October 2025, three versions back.
+- Nothing about how Nexus behaves changed here. The Bases code was already guarded so it never ran on an app without Bases; what was wrong was the version the plugin advertised, not the way it worked ([#352](https://github.com/ProfSynapse/nexus/pull/352)).
+
+---
+
+**v5.17.1** — Nexus passes Obsidian's build check again, and the README finally says what it talks to
+
+**The plugin builds in Obsidian's own environment**
+- Obsidian's community platform rebuilds every published version in a clean container to scan it, and 5.17.0 failed that build before it compiled anything: one of the checks wired into `npm run build` needed a Python interpreter that the container does not have. It is a Node script now, so nothing outside Node and npm is required to build Nexus ([#221](https://github.com/ProfSynapse/nexus/issues/221)). This is why 5.17.0's safety scorecard showed no results for malware, vulnerable dependencies, obfuscation or network use — those four scans only run once the build succeeds, so one missing interpreter suppressed all of them.
+
+**You can now see what Nexus contacts, and when**
+- The README has a **Network Use** section listing every external host, grouped by the action that triggers it — provider APIs, the one-time downloads that optional desktop features need, and the update check. Nothing is contacted when the plugin loads, and there is no telemetry or analytics of any kind ([#351](https://github.com/ProfSynapse/nexus/pull/351)).
+- It also separates the things that only look like network calls: attribution headers sent *to* a provider, and buttons that open a page in your browser. Automated scans list those next to real requests, which makes Nexus look like it reaches sites it never touches.
+
+**Fixes**
+- Requests to AI providers identified themselves as "Synaptic Lab Kit", a different project, with a referer pointing at a domain that no longer exists. Anyone reading their OpenRouter or Requesty dashboard saw traffic attributed to the wrong application. They now identify as Nexus.
+
+---
+
+**v5.17.0** — Obsidian Bases, web capture that works on mobile, and streams that fail out loud instead of going blank
 
 **Bases are part of the vault your agent can work with**
 - A new `base` agent covers `.base` files end to end: `base read` returns the saved
@@ -18,12 +112,73 @@
   show up after the next plugin reload; they are never offered as tools that can only
   answer "not available".
 
+**Saving a web page no longer depends on the Web Viewer**
+- `web capture-markdown` used to open a Web Viewer tab, run the core plugin's
+  save-to-vault command, and then go looking for whatever file it produced. That made
+  it desktop-only, quietly useless when Web Viewer was turned off, and it moved your
+  workspace around to do a read. It now extracts the article itself and keeps the page
+  metadata ([#338](https://github.com/ProfSynapse/nexus/pull/338)).
+- **This is the first web capability that works on mobile.** Pages are fetched
+  directly by default; on desktop, a page that comes back empty or JavaScript-rendered
+  falls back to the live browser view automatically, so signed-in and app-like pages
+  still capture. `--transport fetch` or `--transport browser` forces one or the other.
+
+**Chat says what went wrong instead of going blank**
+- Several providers report failures — a rejected key, a content block, a model that
+  is not available to you — inside a normal-looking successful response. Nexus only
+  read those for LM Studio, so for every other provider the reply just stopped: empty
+  bubble, nothing in the console, no way to tell a failure from a model with nothing
+  to say. Every provider now surfaces the real error
+  ([#336](https://github.com/ProfSynapse/nexus/pull/336)).
+- Anthropic had a second version of the same problem, where the error was thrown
+  somewhere it could never escape and the stream simply ended normally.
+
+**Models and providers**
+- **Gemini 3.7 Flash** on both Google and OpenRouter
+  ([#326](https://github.com/ProfSynapse/nexus/pull/326)), and **DeepSeek V4 Pro
+  (0813)** on OpenRouter ([#327](https://github.com/ProfSynapse/nexus/pull/327)). Both
+  are opt-in; no default changes to reach them.
+- **Perplexity** models were listed in the picker but missing from the model registry,
+  so every Perplexity call came back unpriced. They are now registered and costed.
+- A fresh install used to start on `gpt-4o`, a model no longer in the registry — the
+  picker could not match it and cost was always blank. New installs start on the
+  current OpenAI flagship instead. The GitHub Copilot default moved to a model that
+  actually resolves, and its model list no longer advertises names and context windows
+  that did not match what the gateway serves.
+
 **Fixes**
+- Deleting a workspace during the first seconds after startup appeared to work and
+  then undid itself — the row vanished from the UI and came back on the next read.
+  Writes were quietly falling back to a store nothing reads while the plugin was still
+  hydrating; they now wait, like reads already did. The same fix covers creating and
+  updating a workspace and deleting a session, a saved state or a conversation
+  ([#333](https://github.com/ProfSynapse/nexus/issues/333)).
+- Rebuilding the cache no longer breaks note search for the rest of the session. The
+  note index tables were not part of the schema a rebuild recreates, so they were
+  dropped while indexing carried on writing to them.
+- After reloading the plugin, the CLI socket worked for about twenty seconds and then
+  disappeared with nothing logged — the departing instance deleted the socket the
+  incoming one had just claimed. Nexus now releases its own socket at unload and
+  verifies the file still belongs to it before removing it
+  ([#339](https://github.com/ProfSynapse/nexus/pull/339)).
+- On a brand-new vault the startup gate never opened, so everything waiting on the
+  index burned its full timeout before giving up, and a genuine storage failure
+  surfaced as `Database not initialized` with no trace of the real cause.
 - Adding a few hundred notes at once and then reloading no longer fills the console
   with `Database not initialized`. The note index kept listening for vault changes
   after the plugin unloaded and went on writing to a database that had already closed
   — one leftover listener per reload, so the noise grew with every reload of the
   session.
+- PDF support (24 MB of it) was being loaded during plugin startup, on mobile
+  included; it now loads the first time you actually compose a PDF.
+- The OAuth device-code panel rendered with collapsed padding and spacing because the
+  spacing values it referenced did not exist.
+- `prompt sub` declared two options, `--agent` and `--tools`, that were impossible to
+  pass — both collapsed to the same empty flag name. They are now `--persona` and
+  `--toolset`.
+- The `skills` and `data` agents were missing from the generated tool catalog, so
+  documentation naming their commands could not be checked and their schemas were
+  absent from the reference export.
 
 ---
 

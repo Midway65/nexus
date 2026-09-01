@@ -13,6 +13,7 @@ import type { EvalRunResult, EvalConfig } from './types';
 export interface EvalReportJson {
   config: string;
   mode: string;
+  schemaVersion: string;
   providers: string[];
   startTime: number;
   endTime: number;
@@ -34,6 +35,9 @@ export interface EvalReportJson {
       passed: boolean;
       errors: string[];
       textContent: string;
+      reasoningContent: string;
+      reasoningEventCount: number;
+      reasoningBeforeFirstTool: boolean;
       toolCalls: Array<{ name: string; args: unknown }>;
     }>;
   }>;
@@ -57,7 +61,7 @@ export function generateReport(runResult: EvalRunResult, config: EvalConfig): st
   lines.push(`# Eval Report — ${timestamp}`);
   lines.push('');
   lines.push(`## Config`);
-  lines.push(`Mode: ${runResult.mode} | Providers: ${providerNames.join(', ')} | Models: ${modelCount}`);
+  lines.push(`Mode: ${runResult.mode} | Schema: ${runResult.schemaVersion} | Providers: ${providerNames.join(', ')} | Models: ${modelCount}`);
   lines.push('');
 
   // Results summary table
@@ -102,6 +106,9 @@ export function generateReport(runResult: EvalRunResult, config: EvalConfig): st
         lines.push(`- **Turn ${turn.turnIndex + 1}**: ${turn.errors.join('; ')}`);
         if (turn.textContent.trim()) {
           lines.push(`  - Response: ${formatInlineSnippet(turn.textContent, 1000)}`);
+        }
+        if (turn.reasoningContent.trim()) {
+          lines.push(`  - Reasoning: ${formatInlineSnippet(turn.reasoningContent, 1000)}`);
         }
         if (turn.actualToolCalls.length > 0) {
           const callNames = turn.actualToolCalls.map((c) => c.name).join(', ');
@@ -168,6 +175,7 @@ export function generateReportJson(runResult: EvalRunResult, config: EvalConfig)
   return {
     config: runResult.config,
     mode: runResult.mode,
+    schemaVersion: runResult.schemaVersion,
     providers: providerNames,
     startTime: runResult.startTime,
     endTime: runResult.endTime,
@@ -195,6 +203,9 @@ export function generateReportJson(runResult: EvalRunResult, config: EvalConfig)
         passed: t.passed,
         errors: t.errors,
         textContent: t.textContent,
+        reasoningContent: t.reasoningContent,
+        reasoningEventCount: t.reasoningEventCount,
+        reasoningBeforeFirstTool: t.reasoningBeforeFirstTool,
         toolCalls: t.actualToolCalls.map((c) => ({ name: c.name, args: c.args })),
       })),
     })),

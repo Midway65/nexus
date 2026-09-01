@@ -17,6 +17,7 @@ import { Tool, ToolCall as AdapterToolCall } from '../adapters/types';
 import { shouldPassToolSchemasToProvider } from '../utils/ToolSchemaSupport';
 import { synthesizeToolCallId } from '../utils/toolCallId';
 import { ToolCall as ChatToolCall } from '../../../types/chat/ChatTypes';
+import type { ToolExecutionOrigin } from '../../../types/tools/ToolOperationTypes';
 
 // Union type for tool calls from different sources
 type ToolCallUnion = AdapterToolCall | ChatToolCall;
@@ -101,6 +102,10 @@ export interface StreamingOptions {
   sessionId?: string;
   workspaceId?: string;
   conversationId?: string;
+  messageId?: string;
+  turnId?: string;
+  operationOrigin?: ToolExecutionOrigin;
+  operationScopeId?: string;
   temperature?: number;
   maxTokens?: number;
   topP?: number;
@@ -213,14 +218,12 @@ export class ProviderMessageBuilder {
         generateOptions.systemPrompt
       ) as ConversationMessage[];
 
-      // IMPORTANT: Disable thinking for tool continuations
-      // Anthropic requires assistant messages to start with a thinking block when thinking is enabled,
-      // but we don't have access to the original thinking content here.
+      // Keep thinking enabled. AnthropicContextBuilder replays the exact signed
+      // thinking/redacted_thinking blocks captured on the tool calls.
       return {
         ...generateOptions,
         conversationHistory,
-        systemPrompt: generateOptions.systemPrompt,
-        enableThinking: false // Disable thinking for tool continuations
+        systemPrompt: generateOptions.systemPrompt
       };
     } else if (isGoogleModel) {
       // Build proper Google/Gemini conversation history with functionCall and functionResponse

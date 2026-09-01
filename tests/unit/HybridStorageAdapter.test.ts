@@ -8,6 +8,10 @@ import { StartupHydrationController } from '../../src/database/adapters/lifecycl
 import { InitLifecycleController } from '../../src/database/adapters/lifecycle/InitLifecycleController';
 import { ReconciliationCoordinator } from '../../src/database/adapters/lifecycle/ReconciliationCoordinator';
 import { ConversationEventApplier } from '../../src/database/sync/ConversationEventApplier';
+import { JSONLWriter } from '../../src/database/storage/JSONLWriter';
+import { StateRepository } from '../../src/database/repositories/StateRepository';
+import type { RepositoryDependencies } from '../../src/database/repositories/base/BaseRepository';
+import { createMockApp } from '../helpers/mockVaultAdapter';
 
 describe('HybridStorageAdapter', () => {
   afterEach(() => {
@@ -106,7 +110,7 @@ describe('HybridStorageAdapter', () => {
       expect(adapter.sqliteCache.setDbPath).toHaveBeenCalledWith('.obsidian/plugins/claudesidian-mcp/data/cache.db');
     });
 
-    it('keeps detected legacy roots readable while migration is pending', () => {
+    it('keeps the destination and detected legacy roots readable while migration is pending', () => {
       const adapter = Object.create(HybridStorageAdapter.prototype) as HybridStorageAdapter & {
         app: unknown;
         basePath: string;
@@ -155,7 +159,134 @@ describe('HybridStorageAdapter', () => {
         '.obsidian/plugins/claudesidian-mcp/data',
         '.nexus'
       ]);
-      expect(adapter.jsonlWriter.setVaultEventStoreReadEnabled).toHaveBeenCalledWith(false);
+      expect(adapter.jsonlWriter.setVaultEventStoreReadEnabled).toHaveBeenCalledWith(true);
+    });
+
+    it('reads the configured destination before legacy fallbacks after migration fails', async () => {
+      const { app } = createMockApp({
+        withLocalStorage: true,
+        initialFiles: {
+          '.nexus/workspaces/ws_ws-1.jsonl': [
+            JSON.stringify({
+              id: 'shared-event',
+              type: 'state_saved',
+              deviceId: 'legacy',
+              timestamp: 1,
+              workspaceId: 'ws-1',
+              sessionId: 'session-1',
+              data: { id: 'shared-state', name: 'Legacy copy', created: 1, stateJson: '{}' }
+            }),
+            JSON.stringify({
+              id: 'legacy-only',
+              type: 'state_saved',
+              deviceId: 'legacy',
+              timestamp: 2,
+              workspaceId: 'ws-1',
+              sessionId: 'session-1',
+              data: { id: 'legacy-state', name: 'Legacy state', created: 2, stateJson: '{}' }
+            })
+          ].join('\n') + '\n',
+          'Nexus/data/workspaces/ws_ws-1/shard-000001.jsonl': [
+            JSON.stringify({
+              id: 'shared-event',
+              type: 'state_saved',
+              deviceId: 'vault-root',
+              timestamp: 3,
+              workspaceId: 'ws-1',
+              sessionId: 'session-1',
+              data: { id: 'shared-state', name: 'Vault copy', created: 3, stateJson: '{}' }
+            }),
+            JSON.stringify({
+              id: 'vault-only-state',
+              type: 'state_saved',
+              deviceId: 'vault-root',
+              timestamp: 4,
+              workspaceId: 'ws-1',
+              sessionId: 'session-1',
+              data: {
+                id: 'state-1',
+                name: 'Chapter checkpoint',
+                created: 4,
+                stateJson: JSON.stringify({ chapter: 7 })
+              }
+            })
+          ].join('\n') + '\n'
+        }
+      });
+      const writer = new JSONLWriter({
+        app,
+        basePath: '.nexus',
+        readBasePaths: ['.nexus']
+      });
+      const adapter = Object.create(HybridStorageAdapter.prototype) as HybridStorageAdapter & {
+        app: typeof app;
+        jsonlWriter: JSONLWriter;
+        sqliteCache: { setDbPath: jest.Mock<void, [string]> };
+      };
+      adapter.app = app;
+      adapter.jsonlWriter = writer;
+      adapter.sqliteCache = { setDbPath: jest.fn() };
+
+      (adapter as unknown as { applyStoragePlan: (plan: unknown) => void }).applyStoragePlan({
+        vaultWriteBasePath: 'Nexus/data',
+        legacyReadBasePaths: ['.nexus'],
+        pluginCacheDbPath: '.obsidian/plugins/claudesidian-mcp/data/cache.db',
+        state: {
+          storageVersion: 2,
+          sourceOfTruthLocation: 'legacy-dotnexus',
+          migration: {
+            state: 'failed',
+            legacySourcesDetected: ['.nexus'],
+            activeDestination: 'Nexus/data'
+          }
+        },
+        roots: {},
+        vaultRoot: {
+          configuredPath: 'Nexus',
+          resolvedPath: 'Nexus',
+          dataPath: 'Nexus/data',
+          guidesPath: 'Nexus/guides',
+          maxShardBytes: 1024
+        }
+      });
+
+      const events = await writer.readEvents('workspaces/ws_ws-1.jsonl');
+
+      expect(events.map(event => event.id)).toEqual([
+        'shared-event',
+        'vault-only-state',
+        'legacy-only'
+      ]);
+      expect(events.find(event => event.id === 'shared-event')?.deviceId).toBe('vault-root');
+
+      const repository = new StateRepository({
+        sqliteCache: {
+          queryOne: jest.fn().mockResolvedValue({
+            id: 'state-1',
+            workspaceId: 'ws-1',
+            sessionId: 'session-1',
+            name: 'Chapter checkpoint',
+            description: null,
+            created: 4,
+            tagsJson: null
+          }),
+          query: jest.fn(),
+          run: jest.fn(),
+          transaction: jest.fn()
+        },
+        jsonlWriter: writer,
+        queryCache: {
+          cachedQuery: jest.fn((_key: string, fn: () => Promise<unknown>) => fn()),
+          invalidateByType: jest.fn(),
+          invalidateById: jest.fn(),
+          invalidate: jest.fn()
+        }
+      } as unknown as RepositoryDependencies);
+
+      await expect(repository.getStateData('state-1')).resolves.toMatchObject({
+        id: 'state-1',
+        content: { chapter: 7 }
+      });
     });
   });
 
@@ -475,6 +606,148 @@ describe('HybridStorageAdapter', () => {
 
       await expect(gate).resolves.toBe(true);
       expect((adapter as unknown as HybridStorageAdapter).isQueryReady()).toBe(true);
+    });
+
+    // Regression (#158 gap 1): the idle watchdog used to be armed only when
+    // `isBlockingHydration` was true. But `updateProgress` moves the phase to
+    // `running` on BOTH branches, and `running` is not query-ready — so a
+    // background rebuild that reported progress and then stalled left
+    // `isQueryReady()` false indefinitely with nothing to fail it. Every
+    // `waitForQueryReady()` caller then burned its full idle timeout, and the
+    // rebuild promise never settled at all.
+    it('fails hydration when a background startup fullRebuild stalls after progress', async () => {
+      jest.useFakeTimers();
+      const adapter = makeHarness();
+      adapter.syncCoordinator.fullRebuild.mockImplementation(({ onProgress }) => {
+        onProgress('Processing workspaces', 0, 2);
+        // Never resolves and never reports progress again.
+        return new Promise(() => undefined);
+      });
+
+      const errSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined);
+      try {
+        const pending = runStartupFullRebuild(adapter, false);
+        const rejection = expect(pending).rejects.toThrow('made no progress');
+
+        await jest.advanceTimersByTimeAsync(50);
+        await rejection;
+
+        const state = adapter.hydration.getState();
+        expect(state.phase).toBe('error');
+        expect(state.error).toContain('made no progress');
+      } finally {
+        errSpy.mockRestore();
+      }
+    });
+
+    it('settles background-rebuild query-ready waiters as failed when the rebuild stalls', async () => {
+      jest.useFakeTimers();
+      const adapter = makeHarness();
+      adapter.syncCoordinator.fullRebuild.mockImplementation(({ onProgress }) => {
+        onProgress('Processing workspaces', 0, 2);
+        return new Promise(() => undefined);
+      });
+
+      const errSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined);
+      try {
+        void adapter.initLifecycle.run(() => runStartupFullRebuild(adapter, false), { blocking: false });
+        // The notes index registers this gate while the rebuild is mid-flight.
+        const gate = (adapter as unknown as HybridStorageAdapter).waitForQueryReady(10_000);
+
+        // Only the watchdog's idle timeout elapses — far short of the gate's
+        // own 10 s budget, so a `true`/late resolution here means the watchdog
+        // never armed.
+        await jest.advanceTimersByTimeAsync(50);
+
+        await expect(gate).resolves.toBe(false);
+        await expect((adapter as unknown as HybridStorageAdapter).waitForReady()).resolves.toBe(false);
+        expect((adapter as unknown as HybridStorageAdapter).isQueryReady()).toBe(false);
+        expect((adapter as unknown as HybridStorageAdapter).getInitError()?.message).toContain('made no progress');
+      } finally {
+        errSpy.mockRestore();
+      }
+    });
+
+    it('still leaves a background rebuild that never reports progress query-ready while it runs', async () => {
+      jest.useFakeTimers();
+      const adapter = makeHarness();
+      adapter.syncCoordinator.fullRebuild.mockReturnValue(new Promise(() => undefined));
+
+      void adapter.initLifecycle.run(() => runStartupFullRebuild(adapter, false), { blocking: false });
+
+      await jest.advanceTimersByTimeAsync(200);
+
+      // Phase never left `idle`, which is query-ready, so the watchdog must
+      // stay inert rather than failing a rebuild that has nothing to stall on.
+      expect(adapter.hydration.getState().phase).toBe('idle');
+    });
+
+    // Regression (#158 gap 2, found by mutation testing): arming the watchdog on
+    // both branches makes `isBlockingHydration` the ONLY thing left in
+    // `runStartupFullRebuild` that still distinguishes them — it is forwarded as
+    // the 4th argument of `updateProgress`, which sets `state.isBlocking`.
+    // Nothing pinned it, so passing `true` there survived every test. The
+    // consequence is user-visible: `isStartupHydrationBlocking()` reads that
+    // flag, and ChatView holds the chat behind a modal loading overlay for as
+    // long as it is true (src/ui/chat/ChatView.ts) — minutes on a real vault.
+    it('never reports a background startup fullRebuild as blocking hydration', async () => {
+      const adapter = makeHarness();
+      const blockingDuringProgress: boolean[] = [];
+      adapter.syncCoordinator.fullRebuild.mockImplementation(({ onProgress }) => {
+        onProgress('Processing workspaces', 0, 2);
+        blockingDuringProgress.push((adapter as unknown as HybridStorageAdapter).isStartupHydrationBlocking());
+        onProgress('Processing conversations', 1, 2);
+        blockingDuringProgress.push((adapter as unknown as HybridStorageAdapter).isStartupHydrationBlocking());
+        return Promise.resolve(successfulRebuild);
+      });
+
+      await runStartupFullRebuild(adapter, false);
+
+      // Sampled mid-rebuild, while the phase is `running` — the only window in
+      // which `isBlocking()` can ever return true.
+      expect(blockingDuringProgress).toEqual([false, false]);
+    });
+
+    it('reports a blocking startup fullRebuild as blocking hydration', async () => {
+      const adapter = makeHarness();
+      adapter.hydration.startBlocking();
+      const blockingDuringProgress: boolean[] = [];
+      adapter.syncCoordinator.fullRebuild.mockImplementation(({ onProgress }) => {
+        onProgress('Processing workspaces', 0, 2);
+        blockingDuringProgress.push((adapter as unknown as HybridStorageAdapter).isStartupHydrationBlocking());
+        return Promise.resolve(successfulRebuild);
+      });
+
+      await runStartupFullRebuild(adapter, true);
+
+      // The counterpart assertion: without this, hardcoding `false` at the same
+      // argument would pass the test above.
+      expect(blockingDuringProgress).toEqual([true]);
+    });
+
+    // Regression (#158 gap 3, found by mutation testing): a background rebuild
+    // that succeeds WITHOUT ever reporting progress leaves the phase at `idle`,
+    // so the `phase === 'running'` guard skips `complete()` — and `complete()`
+    // is what would otherwise stop the watchdog. Only the `finally`'s
+    // `stopWatchdog?.()` disarms it on that path. Without it the controller
+    // keeps a live watchdog registration with no timer, which re-arms against a
+    // stale `onTimeout` the next time anything moves the phase to `running`.
+    it('disarms the watchdog after a background rebuild that finished without progress', async () => {
+      jest.useFakeTimers();
+      const adapter = makeHarness();
+      adapter.syncCoordinator.fullRebuild.mockResolvedValue(successfulRebuild);
+
+      await runStartupFullRebuild(adapter, false);
+      expect(adapter.hydration.getState().phase).toBe('idle');
+
+      // Moving the phase to `running` must not resurrect the finished rebuild's
+      // watchdog: 50 ms is its full idle timeout.
+      adapter.hydration.startBlocking();
+      await jest.advanceTimersByTimeAsync(50);
+
+      const state = adapter.hydration.getState();
+      expect(state.phase).toBe('running');
+      expect(state.error).toBeUndefined();
     });
   });
 

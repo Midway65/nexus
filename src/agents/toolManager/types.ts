@@ -98,6 +98,12 @@ export interface UseToolParams {
   strategy?: 'serial' | 'parallel';
 
   /**
+   * Stable caller-supplied identity for retry suppression. Reuse only when
+   * retrying the exact same command payload.
+   */
+  operationId?: string;
+
+  /**
    * Verbatim payloads referenced from the tool string as `@key`. Substituted
    * after tokenization with NO escape processing, so backslashes, quotes, and
    * newlines survive exactly as written. Optional.
@@ -136,7 +142,7 @@ export function getTopLevelToolContextSchema(): Record<string, unknown> {
   return {
     workspaceId: {
       type: 'string',
-      description: 'Workspace ID. Use "default" for the global workspace. Do not invent workspace IDs.'
+      description: 'Workspace name or ID. Required, and must be non-empty — an empty string is rejected, not read as "default". Use "default" for the global workspace. Do not invent workspace IDs.'
     },
     sessionId: {
       type: 'string',

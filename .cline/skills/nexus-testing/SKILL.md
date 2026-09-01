@@ -23,6 +23,7 @@ Jest can prove and what the running plugin does.
    | No Obsidian here (container / cloud session) | `protocols/headless-obsidian.md` |
    | Run a gated live-smoke lane or the eval harness | `protocols/run-gated-lanes.md` |
    | `shippedGuidanceCommands` or `ToolManagerCliSyntax` is red | `protocols/fix-shipped-docs-drift.md` |
+   | Merge a PR (what to run first, how to gate on CI) | `protocols/merge-a-pr.md` |
    | A symptom you cannot place | `references/troubleshooting.md` |
 
 2. Derive every list from the tree, never from a document. This skill states no
@@ -69,12 +70,9 @@ Jest can prove and what the running plugin does.
 
 ## Status of the in-app loop
 
-**Exercised 2026-08-14** against Obsidian 1.13.7, headless in a Linux container,
-using `protocols/headless-obsidian.md`. The setup, `dev:errors`, `eval`,
-`dev:screenshot` and `dev:debug` are confirmed working, and the first run found
-a startup ordering bug that every Jest lane was blind to.
-
-Still unconfirmed: `plugin:reload id=nexus` and `vault=<name>` targeting on the
-`dev:*` commands were not exercised in that session. There is no excuse for
-skipping the loop on the grounds that no Obsidian is available — if you are in a
-container, stand one up.
+**Exercised 2026-08-14** against Obsidian 1.13.7 in a headless Linux container
+and **2026-08-21** against Obsidian 1.12.7 on macOS. Setup, vault-targeted
+`plugin:reload`, `dev:errors`, `dev:console`, `dev:screenshot`, `dev:debug`, and
+synchronous `eval` are confirmed working. The first run found a startup-ordering
+bug that every Jest lane was blind to; the macOS run confirmed explicit
+`vault=<name>` targeting and clean repeated reloads.

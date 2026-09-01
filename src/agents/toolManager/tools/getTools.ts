@@ -1,4 +1,6 @@
 import { ITool } from '../../interfaces/ITool';
+import type { ToolExecutionPolicy } from '../../policy/ToolExecutionPolicy';
+import { CONSERVATIVE_TOOL_EXECUTION_POLICY } from '../../policy/ToolExecutionPolicy';
 import { IAgent } from '../../interfaces/IAgent';
 import { getErrorMessage } from '../../../utils/errorUtils';
 import { SchemaData, WorkspaceNameProvider } from '../toolManager';
@@ -27,6 +29,10 @@ export class GetToolsTool implements ITool<GetToolsParams, GetToolsResult> {
   private schemaData: SchemaData;
   private workspaceProvider?: WorkspaceNameProvider;
   private workspaceCache: { names: string[]; fetchedAt: number } | null = null;
+
+  getExecutionPolicy(): Readonly<ToolExecutionPolicy> {
+    return CONSERVATIVE_TOOL_EXECUTION_POLICY;
+  }
 
   constructor(
     agentRegistry: Map<string, IAgent>,
@@ -237,7 +243,7 @@ export class GetToolsTool implements ITool<GetToolsParams, GetToolsResult> {
       properties: {
         workspaceId: {
           type: 'string',
-          description: 'Workspace ID. Optional. Defaults to "default".'
+          description: 'Workspace name or ID. Required, and must be non-empty — an empty string is rejected, not read as "default". Pass "default" for the global workspace, or an exact value from the availableWorkspaces list this call returns.'
         },
         sessionId: {
           type: 'string',

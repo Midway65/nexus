@@ -101,7 +101,7 @@ function createCoordinatorHarness() {
   const onClearAgentStatus = jest.fn();
 
   const coordinator = new ChatSessionCoordinator({
-    chatService: chatService as never,
+    getChatService: () => chatService as never,
     component,
       getContainerEl: () => containerEl as unknown as HTMLElement,
       getChatTitleEl: () => chatTitleEl as unknown as HTMLElement,
@@ -168,5 +168,53 @@ describe('ChatSessionCoordinator', () => {
     expect(harness.onClearAgentStatus).toHaveBeenCalledTimes(1);
     expect(harness.onUpdateChatTitle).toHaveBeenCalledTimes(1);
     expect(harness.onUpdateContextProgress).toHaveBeenCalledTimes(1);
+  });
+
+  it('waits for workflow generation and rejects an invalid assistant terminal', async () => {
+    const harness = createCoordinatorHarness();
+    const conversation = createConversation('workflow-conv', 'Workflow');
+    harness.chatService.getConversation.mockResolvedValue(conversation);
+    harness.conversationManager.getConversations.mockReturnValue([conversation]);
+    harness.conversationManager.getCurrentConversation.mockReturnValue(conversation);
+    harness.messageManager.sendMessage.mockImplementation(async () => {
+      conversation.messages.push({
+        id: 'assistant-failed',
+        conversationId: conversation.id,
+        role: 'assistant',
+        content: '',
+        timestamp: 3000,
+        state: 'invalid',
+      });
+    });
+
+    await expect(harness.coordinator.sendMessageToConversation(
+      conversation.id,
+      'Run workflow'
+    )).rejects.toThrow('Workflow run failed during generation.');
+    expect(harness.messageManager.sendMessage).toHaveBeenCalledTimes(1);
+  });
+
+  it('returns only after a newly completed workflow assistant response exists', async () => {
+    const harness = createCoordinatorHarness();
+    const conversation = createConversation('workflow-success', 'Workflow');
+    harness.chatService.getConversation.mockResolvedValue(conversation);
+    harness.conversationManager.getConversations.mockReturnValue([conversation]);
+    harness.conversationManager.getCurrentConversation.mockReturnValue(conversation);
+    harness.messageManager.sendMessage.mockImplementation(async () => {
+      conversation.messages.push({
+        id: 'assistant-complete',
+        conversationId: conversation.id,
+        role: 'assistant',
+        content: 'Done',
+        timestamp: 3000,
+        state: 'complete',
+      });
+    });
+
+    await expect(harness.coordinator.sendMessageToConversation(
+      conversation.id,
+      'Run workflow'
+    )).resolves.toBeUndefined();
+    expect(harness.messageManager.sendMessage).toHaveBeenCalledTimes(1);
   });
 });

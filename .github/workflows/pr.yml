@@ -34,18 +34,19 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v5
         with:
-          node-version: '20.19.0'
+          # 22.x, not the 20.19.0 the release workflow pins: the test suite
+          # uses the global WebSocket (tests/unit/*RealtimeVoiceSession, the
+          # realtimeVoice services), which Node only exposes globally from 21.
+          # On 20 these suites die with `ReferenceError: WebSocket is not
+          # defined` - which is what the first PR run of this workflow found.
+          node-version: '22.x'
           cache: npm
 
-      # `npm run lint` chains `lint:mobile`, which shells out to the Python 3
-      # reachability checker in .skills/nexus-mobile-compat/scripts/. Without a
-      # Python 3 on PATH that step exits 1 and the whole lint fails, so the
-      # interpreter is provisioned explicitly rather than assumed from the
-      # runner image.
-      - name: Set up Python 3
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
+      # No Python step: the mobile reachability gate `npm run lint` chains is a
+      # Node script now. Provisioning an interpreter here would also hide the
+      # very defect that removed it — Obsidian's community scorecard builds in a
+      # clean container with no Python, and this workflow should fail the same
+      # way theirs would.
 
       - name: Install dependencies
         run: npm ci

@@ -12,12 +12,20 @@ import {
   WorkspaceDeletedEvent,
   SessionCreatedEvent,
   SessionUpdatedEvent,
+  SessionDeletedEvent,
   StateSavedEvent,
   StateUpdatedEvent,
   StateDeletedEvent,
   TraceAddedEvent,
+  ToolOperationStartedEvent,
+  ToolOperationCompletedEvent,
+  ToolOperationFailedEvent,
+  ToolOperationIndeterminateEvent,
 } from '../interfaces/StorageEvents';
 import { ISQLiteCacheManager } from './SyncCoordinator';
+import { purgeWorkspaceRows } from '../workspaceOwnership';
+import { purgeSessionRows } from '../sessionOwnership';
+import { deriveStateMetadataFromJson, resolveStateDescription } from '../utils/stateContent';
 
 export class WorkspaceEventApplier {
   private sqliteCache: ISQLiteCacheManager;
@@ -37,7 +45,7 @@ export class WorkspaceEventApplier {
   /**
    * Apply a workspace-related event to SQLite cache.
    */
-  async apply(event: WorkspaceEvent): Promise<void> {
+  async apply(event: WorkspaceEvent): Promise<boolean | void> {
     switch (event.type) {
       case 'workspace_created':
         await this.applyWorkspaceCreated(event);
@@ -54,6 +62,9 @@ export class WorkspaceEventApplier {
       case 'session_updated':
         await this.applySessionUpdated(event);
         break;
+      case 'session_deleted':
+        await this.applySessionDeleted(event);
+        break;
       case 'state_saved':
         await this.applyStateSaved(event);
         break;
@@ -65,6 +76,17 @@ export class WorkspaceEventApplier {
         break;
       case 'trace_added':
         await this.applyTraceAdded(event);
+        break;
+      case 'tool_operation_started':
+        return this.applyToolOperationStarted(event);
+      case 'tool_operation_completed':
+        await this.applyToolOperationCompleted(event);
+        break;
+      case 'tool_operation_failed':
+        await this.applyToolOperationFailed(event);
+        break;
+      case 'tool_operation_indeterminate':
+        await this.applyToolOperationIndeterminate(event);
         break;
     }
   }
@@ -123,11 +145,25 @@ export class WorkspaceEventApplier {
     }
   }
 
+  /**
+   * A `workspace_deleted` event has to remove everything the workspace owns,
+   * not just its row.
+   *
+   * This runs during replay — `rebuildCache()` and cross-device sync — where the
+   * events that created the workspace's sessions, states and traces have already
+   * been applied from the same stream moments earlier. Deleting only the
+   * `workspaces` row left every one of those children behind as an orphan that
+   * reappeared on every rebuild: the schema declares `ON DELETE CASCADE`, but FK
+   * enforcement is off on the shared connection, so nothing cascaded.
+   *
+   * `purgeWorkspaceRows` is shared with `WorkspaceRepository.delete` precisely so
+   * the live delete and the replay of that delete cannot drift apart.
+   */
   private async applyWorkspaceDeleted(event: WorkspaceDeletedEvent): Promise<void> {
     if (!this.isValidWorkspaceId(event.workspaceId)) {
       return;
     }
-    await this.sqliteCache.run('DELETE FROM workspaces WHERE id = ?', [event.workspaceId]);
+    await purgeWorkspaceRows(this.sqliteCache, event.workspaceId);
   }
 
   private async applySessionCreated(event: SessionCreatedEvent): Promise<void> {
@@ -151,6 +187,25 @@ export class WorkspaceEventApplier {
         1
       ]
     );
+  }
+
+  /**
+   * A `session_deleted` event has to remove everything the session owns, not
+   * just its row.
+   *
+   * This runs during replay — `rebuildCache()` and cross-device sync — where the
+   * `session_created`, `state_saved` and `trace_added` events for this session
+   * were applied from the same workspace stream moments earlier. The tombstone
+   * is what cancels them out; a session has no stream of its own to remove.
+   *
+   * `purgeSessionRows` is shared with `SessionRepository.delete` precisely so
+   * the live delete and the replay of that delete cannot drift apart.
+   */
+  private async applySessionDeleted(event: SessionDeletedEvent): Promise<void> {
+    if (!event.sessionId) {
+      return;
+    }
+    await purgeSessionRows(this.sqliteCache, event.sessionId);
   }
 
   private async applySessionUpdated(event: SessionUpdatedEvent): Promise<void> {
@@ -181,19 +236,27 @@ export class WorkspaceEventApplier {
       return;
     }
 
+    // Derive the denormalized columns from the snapshot exactly as
+    // StateRepository.saveState does on the live write path. If these two
+    // diverge, "Nexus: Rebuild cache" quietly changes which states are listed.
+    const derived = deriveStateMetadataFromJson(event.data.stateJson);
+
     await this.sqliteCache.run(
       `INSERT OR REPLACE INTO states
-       (id, sessionId, workspaceId, name, description, created, stateJson, tagsJson)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+       (id, sessionId, workspaceId, name, description, created, stateJson, tagsJson, isArchived)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         event.data.id,
         event.sessionId,
         event.workspaceId,
         event.data.name ?? 'Unnamed State',
-        event.data.description ?? null,
+        resolveStateDescription(event.data.description, derived),
         event.data.created ?? Date.now(),
         event.data.stateJson ?? '{}',
-        event.data.tags ? JSON.stringify(event.data.tags) : null
+        event.data.tags ? JSON.stringify(event.data.tags) : null,
+        // NULL (unparseable stateJson) leaves the flag unknown rather than
+        // asserting "not archived"; MemoryService then falls back to content.
+        derived ? (derived.isArchived ? 1 : 0) : null
       ]
     );
   }
@@ -218,8 +281,22 @@ export class WorkspaceEventApplier {
       updates.push('tagsJson = ?');
       values.push(JSON.stringify(event.data.tags));
     }
-    // stateJson lives in JSONL only (not in the SQLite states table), so no
-    // SQLite column update is needed when only content changes.
+    if (event.data.stateJson !== undefined) {
+      // The full snapshot still lives in JSONL only — but the archive flag
+      // denormalized out of it (issue #219) has to follow content updates,
+      // because archiving a state IS a content update. Without this, a replay
+      // of state_saved + state_updated would resurrect archived states.
+      const derived = deriveStateMetadataFromJson(event.data.stateJson);
+      if (derived) {
+        updates.push('isArchived = ?');
+        values.push(derived.isArchived ? 1 : 0);
+      }
+      // The applier keeps a copy of the snapshot for rows it owns, so the
+      // stateJson column has to track the update too — otherwise the v16
+      // backfill would read a stale snapshot out of it.
+      updates.push('stateJson = ?');
+      values.push(event.data.stateJson);
+    }
 
     if (updates.length > 0) {
       values.push(event.stateId);
@@ -257,4 +334,84 @@ export class WorkspaceEventApplier {
       ]
     );
   }
+
+  private async applyToolOperationStarted(event: ToolOperationStartedEvent): Promise<boolean> {
+    const data = event.data;
+    if (!data?.operationId || !data.signature || !this.isValidWorkspaceId(data.workspaceId)) {
+      return false;
+    }
+
+    // The first signature observed for an operation id wins. A conflicting
+    // replay remains visible to the execution layer instead of overwriting the
+    // original receipt during multi-device reconciliation.
+    const result = await this.sqliteCache.run(
+      `INSERT OR IGNORE INTO tool_operation_receipts
+       (operationId, signature, status, origin, workspaceId, sessionId,
+        conversationId, messageId, turnId, replayPolicy, replayable,
+        commandSummary, resultJson, resultTruncated, error, startedAt,
+        completedAt, updatedAt)
+       VALUES (?, ?, 'started', ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, 0, NULL, ?, NULL, ?)`,
+      [
+        data.operationId,
+        data.signature,
+        data.origin,
+        data.workspaceId,
+        data.sessionId,
+        data.conversationId ?? null,
+        data.messageId ?? null,
+        data.turnId ?? null,
+        data.replayPolicy,
+        data.replayable ? 1 : 0,
+        data.commandSummary,
+        event.timestamp,
+        event.timestamp,
+      ]
+    );
+    return hasRunChanges(result) && result.changes === 1;
+  }
+
+  private async applyToolOperationCompleted(event: ToolOperationCompletedEvent): Promise<void> {
+    await this.applyToolOperationTerminal(event, 'completed', event.resultJson, event.resultTruncated, null);
+  }
+
+  private async applyToolOperationFailed(event: ToolOperationFailedEvent): Promise<void> {
+    await this.applyToolOperationTerminal(event, 'failed', null, false, event.error);
+  }
+
+  private async applyToolOperationIndeterminate(event: ToolOperationIndeterminateEvent): Promise<void> {
+    await this.applyToolOperationTerminal(event, 'indeterminate', null, false, event.error);
+  }
+
+  private async applyToolOperationTerminal(
+    event: ToolOperationCompletedEvent | ToolOperationFailedEvent | ToolOperationIndeterminateEvent,
+    status: 'completed' | 'failed' | 'indeterminate',
+    resultJson: string | null,
+    resultTruncated: boolean,
+    error: string | null
+  ): Promise<void> {
+    if (!event.operationId || !event.signature || !this.isValidWorkspaceId(event.workspaceId)) {
+      return;
+    }
+    await this.sqliteCache.run(
+      `UPDATE tool_operation_receipts
+       SET status = ?, resultJson = ?, resultTruncated = ?, error = ?, completedAt = ?, updatedAt = ?
+       WHERE operationId = ? AND signature = ?`,
+      [
+        status,
+        resultJson,
+        resultTruncated ? 1 : 0,
+        error,
+        event.completedAt,
+        event.timestamp,
+        event.operationId,
+        event.signature,
+      ]
+    );
+  }
+}
+
+function hasRunChanges(value: unknown): value is { changes: number } {
+  return typeof value === 'object'
+    && value !== null
+    && typeof (value as { changes?: unknown }).changes === 'number';
 }

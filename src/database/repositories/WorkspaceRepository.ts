@@ -35,6 +35,8 @@ import { PaginatedResult, PaginationParams } from '../../types/pagination/Pagina
 import { QueryOptions } from '../interfaces/IStorageAdapter';
 import { QueryCache } from '../optimizations/QueryCache';
 import { parseJsonColumn } from '../utils/jsonColumn';
+import { purgeWorkspaceRows, workspaceOwnedStreamPaths } from '../workspaceOwnership';
+import { workspaceStreamPath, workspaceStreamPathForRemoval } from './base/workspaceStreamPath';
 
 type SqliteValue = string | number | null;
 
@@ -63,7 +65,7 @@ export class WorkspaceRepository
 
   protected readonly tableName = 'workspaces';
   protected readonly entityType = 'workspace';
-  protected readonly jsonlPath = (id: string): string => `workspaces/ws_${id}.jsonl`;
+  protected readonly jsonlPath = (id: string): string => workspaceStreamPath(id, this.entityType);
 
   constructor(deps: RepositoryDependencies) {
     super(deps);
@@ -226,23 +228,86 @@ export class WorkspaceRepository
     }
   }
 
+  /**
+   * Permanently delete a workspace and everything keyed to it.
+   *
+   * This is the only destructive delete in the storage layer and it is reachable
+   * only from the settings UI (`WorkspacesTab`) — the AI gets `archiveWorkspace`,
+   * which is reversible. Do not expose it to a tool.
+   *
+   * ## Ordering, and what happens when half of it fails
+   *
+   * JSONL is the source of truth and SQLite is a rebuildable cache, so the two
+   * halves are NOT symmetric and the order is a deliberate choice:
+   *
+   *   1. Tombstone. A `workspace_deleted` event goes into the workspace stream
+   *      first. If everything after this fails, the stream that survives is
+   *      self-cancelling — replay creates the workspace and its children, then
+   *      `WorkspaceEventApplier.applyWorkspaceDeleted` purges all of them again
+   *      (both paths share `purgeWorkspaceRows`). It also makes
+   *      `reconcileMissingWorkspaces` skip the file.
+   *   2. Streams. Both owned streams are removed (workspace AND tasks — see
+   *      `workspaceOwnedStreamPaths`). Every removal is attempted even if an
+   *      earlier one throws, so a retry has less to do, and the errors are
+   *      aggregated and rethrown.
+   *   3. SQLite. Only if step 2 removed everything.
+   *
+   * The failure modes this produces, on purpose:
+   *
+   * - **Stream removal fails** → we throw BEFORE touching SQLite. Nothing is
+   *   destroyed, the workspace still lists, and `WorkspaceService` skips its
+   *   'deleted' notification because we threw. The delete is a retryable no-op.
+   * - **SQLite purge fails** (a local transaction, so barely reachable) → the
+   *   rows are stale cache over a JSONL store that no longer has the workspace.
+   *   The next `rebuildCache()` clears them. It converges on deleted.
+   *
+   * The order is chosen so that every partial failure converges toward the
+   * user's intent (deleted) rather than away from it. The opposite order —
+   * SQLite first — converges on the workspace coming BACK with all its states
+   * at the next rebuild, which is the shape of #333 and the bug this method
+   * was rewritten to remove.
+   */
   async delete(id: string): Promise<void> {
     try {
-      await this.transaction(async () => {
-        // 1. Write event to JSONL
-        await this.writeEvent<WorkspaceDeletedEvent>(
-          this.jsonlPath(id),
-          {
-            type: 'workspace_deleted',
-            workspaceId: id
-          }
-        );
+      // 1. Tombstone, so a stream we fail to remove still cancels itself out.
+      //
+      // Minted with the REMOVAL guard, not `this.jsonlPath` (the write guard):
+      // the streams most in need of a permanent delete are the malformed ones
+      // the write guard now refuses to create, and they are already on disk.
+      // Routing this through the write tier would throw here and skip both the
+      // stream removal and the SQLite purge below, making every pre-existing
+      // phantom workspace undeletable. Path safety is still enforced.
+      await this.writeEvent<WorkspaceDeletedEvent>(
+        workspaceStreamPathForRemoval(id, this.entityType),
+        {
+          type: 'workspace_deleted',
+          workspaceId: id
+        }
+      );
 
-        // 2. Delete from SQLite (cascades to sessions, states, traces)
-        await this.sqliteCache.run('DELETE FROM workspaces WHERE id = ?', [id]);
+      // 2. Remove the source of truth: every stream the workspace owns.
+      const streamFailures: string[] = [];
+      for (const streamPath of workspaceOwnedStreamPaths(id)) {
+        try {
+          await this.jsonlWriter.deleteStream(streamPath);
+        } catch (error) {
+          streamFailures.push(error instanceof Error ? error.message : String(error));
+        }
+      }
+      if (streamFailures.length > 0) {
+        throw new Error(
+          `Workspace ${id} was not deleted: its event stream(s) could not be removed ` +
+          `(${streamFailures.join('; ')}). Nothing was removed from the cache, so the ` +
+          'workspace is unchanged and the delete can be retried.'
+        );
+      }
+
+      // 3. Now the cache, which is only ever catching up to the event store.
+      await this.transaction(async () => {
+        await purgeWorkspaceRows(this.sqliteCache, id);
       });
 
-      // 3. Invalidate cache
+      // 4. Invalidate cache
       this.invalidateCache();
       this.log('delete', { id });
     } catch (error) {

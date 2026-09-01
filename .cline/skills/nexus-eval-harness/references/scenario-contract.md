@@ -74,6 +74,13 @@ result it was supposed to get looks identical to one that works.
   case-insensitively as substrings of the actual value, and nested objects match
   partially. Assert the path on the unwrapped domain call when you care about
   arguments.
+- **Expected param names must be the schema's names, not normalizer aliases.**
+  The generated catalog advertises only the production tool's declared schema;
+  a model shown it will never produce an alias the normalizer merely accepts
+  (e.g. `destination` for `storageManager_move`, whose schema requires
+  `newPath`). An alias in `params` fails every model identically — the tell for
+  this whole class of fixture bug. Check the tool's `getSchema()` in
+  `src/agents/` before naming a param.
 - **Rounds are consumed in order** unless `allowReorder: true`, which only
   requires that every expected call appears somewhere in the exchange. Reach for
   it whenever the order is genuinely free (search-then-read versus
@@ -98,6 +105,19 @@ Three fields grade whether a model recovers from a steering error, using the
 
 `EVAL_ENFORCE_CONTEXT=1` turns the first one on globally, which is a cheap way
 to ask "does this model self-correct" across every existing scenario.
+
+## Thinking scenarios grade the Nexus stream, not hidden provider tokens
+
+The optional `thinking` scenario block sends the same enable/effort controls as
+the app and grades only what `StreamingOrchestrator` exposes: visible reasoning
+text, its order relative to the first tool call, and whether normal answer text
+arrives after the continuation. It cannot prove that a provider reasoned
+internally when that provider deliberately withholds all summaries.
+
+Use a tool round when testing thinking with Nexus. A text-only prompt proves
+reasoning display, but not whether signed or opaque provider state survives the
+tool-result continuation. Keep capability probes excluded from leaderboard
+aggregation when some targeted models legitimately do not expose reasoning.
 
 ## Quarantine, do not delete
 

@@ -573,6 +573,34 @@ export class JSONLWriter {
   }
 
   /**
+   * Permanently remove a logical event stream — every shard of it on a
+   * vault-root install, plus any legacy flat file of the same name.
+   *
+   * Warning: this destroys the source of truth for that stream and cannot be
+   * undone. It exists for the deletions that are meant to be permanent and are
+   * driven by a human from the UI: deleting a workspace from the settings tab,
+   * and deleting a conversation from the chat sidebar. Everything reachable by
+   * the AI uses a deletion EVENT (a tombstone) instead — and so does every
+   * entity that owns no stream of its own, such as a session, whose events live
+   * in its parent workspace's stream.
+   *
+   * Idempotent — removing an already-removed stream succeeds — so a delete that
+   * failed partway can be retried as a whole.
+   *
+   * @param relativePath - Logical path relative to basePath (e.g. 'workspaces/ws_123.jsonl')
+   * @throws Error if removal fails
+   */
+  async deleteStream(relativePath: string): Promise<void> {
+    try {
+      await this.router.deleteStream(relativePath, this.basePath);
+    } catch (error) {
+      console.error(`[JSONLWriter] Failed to delete stream ${relativePath}:`, error);
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(`Failed to delete stream ${relativePath}: ${message}`);
+    }
+  }
+
+  /**
    * Get file modification time
    *
    * @param relativePath - File path relative to basePath

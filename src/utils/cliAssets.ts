@@ -7,7 +7,7 @@
  */
 
 /** Combined content hash — used to detect and refresh a stale on-disk install. */
-export const NEXUS_CLI_ASSETS_HASH = "c095e1097b9c3b8c";
+export const NEXUS_CLI_ASSETS_HASH = "72acd9eeb1c076bc";
 
 /** Bundled standalone `nexus` CLI (written to <dataDir>/nexus-cli.js). */
 export const NEXUS_CLI_JS = `#!/usr/bin/env node
@@ -172,6 +172,7 @@ var CONTEXT_VALUE_FLAGS = /* @__PURE__ */ new Set([
   "workspace",
   "session",
   "constraints",
+  "operation-id",
   "vault"
 ]);
 var CONTEXT_BOOLEAN_FLAGS = /* @__PURE__ */ new Set(["json", "dry-run", "help"]);
@@ -188,6 +189,7 @@ var MISPLACEABLE_CONTEXT_FLAGS = /* @__PURE__ */ new Set([
   "memory",
   "goal",
   "constraints",
+  "operation-id",
   "vault",
   "session",
   "json",
@@ -598,6 +600,7 @@ CONTEXT (flags on \\\`use\\\`; \\\`tools\\\` accepts them too. \\\`playbook\\\` 
   --workspace <id>        scope for traces/memory (default: "default")
   --session <name>        continuity across calls (default: "nexus-cli"; keep it stable)
   --constraints "<text>"  optional guardrails
+  --operation-id <id>     optional stable retry identity; reuse only for the exact same command
   --vault <name>          target a vault (else: the single open one, or $NEXUS_VAULT)
   --json                  print the raw JSON result
   --dry-run               print the reconstructed request; do not connect or execute
@@ -642,7 +645,7 @@ GOTCHAS
   \\u2022 \\\`content read\\\` requires a start line: content read --path X --start-line 1 (1 = top).
   \\u2022 ALL flags are kebab-case \\u2014 camelCase (e.g. --newPath, --activeTask) is rejected as
     an unknown flag; use --new-path, --active-task. Get exact flags from \\\`nexus tools <tool>\\\`.
-  \\u2022 Context fields (--memory/--goal/--session/--constraints/--vault) go before \\\`--\\\`.
+  \\u2022 Context fields (--memory/--goal/--session/--constraints/--operation-id/--vault) go before \\\`--\\\`.
     Putting one after it is rejected with a steer. \\\`--workspace\\\` is the one exception
     (it is also a real tool flag) \\u2014 so pass tool values positionally and it can never
     be misread as context.
@@ -860,6 +863,7 @@ Write: nexus use --memory "<what you've done so far>" --goal "<this call's objec
       goal
     };
     if (typeof flags.constraints === "string") args.constraints = flags.constraints;
+    if (typeof flags["operation-id"] === "string") args.operationId = flags["operation-id"];
     if (flags["dry-run"] === true) {
       process.stdout.write("DRY RUN \\u2014 no vault connection and no tool execution.\\n");
       process.stdout.write(JSON.stringify(args, null, 2) + "\\n");
@@ -1351,7 +1355,7 @@ Run \`nexus tools task create\` / \`task move\` / \`task update\` for the exact 
     "vault-work.md": `---
 name: vault-work
 intent: Search the vault, read what you find, then create or edit notes — the typical loop
-tools: [search content, search directory, content read, content write, content replace, content insert, content set-property, storage list, memory list-workspaces, memory create-state]
+tools: [search content, search directory, content read, content write, content replace, content insert, content set-property, content remove-property, storage list, memory list-workspaces, memory create-state]
 ---
 
 # Playbook: vault-work
@@ -1372,6 +1376,8 @@ update it," "answer a question from my notes," "add a section to Y," etc.
    top). Never quote, summarize, or edit from a search result alone — it has no body.
 4. **Make the change** with the narrowest tool:
    - \`content set-property\` — a frontmatter field.
+   - \`content remove-property\` — drop a frontmatter field, or one item from a
+     list field with \`--value\`.
    - \`content insert\` — add a section (append/prepend/at an anchor).
    - \`content replace\` — a surgical edit. It is **pattern-anchored**:
      \`{path, start, end, content}\` where \`start\`/\`end\` are exact **anchor text**

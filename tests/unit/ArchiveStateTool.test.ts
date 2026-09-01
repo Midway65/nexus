@@ -35,12 +35,20 @@ function buildAgentMocks(opts: {
   agent: MemoryManagerAgent;
   memoryService: {
     getStates: jest.Mock;
+    findState: jest.Mock;
     getState: jest.Mock;
     updateState: jest.Mock;
   };
   workspaceService: { getWorkspaceByNameOrId: jest.Mock };
 } {
   const memoryService = {
+    findState: jest.fn(async (_ws: string, identifier: string, options?: { matchId?: boolean; caseSensitiveName?: boolean }) => {
+      const matchId = options?.matchId !== false;
+      const cs = options?.caseSensitiveName !== false;
+      const same = (n?: string) => (cs ? n === identifier : n?.toLowerCase() === identifier.toLowerCase());
+      return opts.listItems.find(s => matchId && s.id === identifier)
+        ?? opts.listItems.find(s => same(s.name)) ?? null;
+    }),
     getStates: jest.fn().mockResolvedValue({
       items: opts.listItems,
       page: 0,
@@ -134,6 +142,29 @@ describe('ArchiveStateTool', () => {
     // Snapshot sub-fields survive
     expect(passedNextState.state?.recentTraces).toEqual([{ id: 'trace-1' }]);
     expect(passedNextState.state?.contextFiles).toEqual(['notes/Plan.md']);
+  });
+
+  it('does not ask getStates to hide archived states — restore has to find them', async () => {
+    // Issue #219 pushed the archive filter into SQL. If archiveState inherited
+    // that filter, an archived state would be invisible to the very command
+    // that un-archives it, and restore would fail with "not found".
+    const listItems: StateListItem[] = [{ id: 'state-1', name: 'Checkpoint', sessionId: 'session-1' }];
+    const { agent, memoryService } = buildAgentMocks({
+      listItems,
+      getStateResult: buildWorkspaceState({
+        state: { workspace: null, recentTraces: [], contextFiles: [], metadata: { isArchived: true } }
+      } as Partial<WorkspaceState>)
+    });
+    const tool = new ArchiveStateTool(agent);
+
+    const result = await tool.execute({ context: archiveContext(), name: 'Checkpoint', restore: true });
+
+    expect(result.success).toBe(true);
+    // Restore has to resolve a row that a list would hide, which is exactly why
+    // the lookup goes through findState: it applies no archive filter at all,
+    // and it is not bounded by a page.
+    expect(memoryService.findState).toHaveBeenCalledWith('workspace-1', 'Checkpoint');
+    expect(memoryService.getStates).not.toHaveBeenCalled();
   });
 
   it('restores an archived state by toggling metadata.isArchived to false, preserving tags', async () => {

@@ -26,10 +26,80 @@ default, so an unknown type is dropped in silence during replay.
 Fix: write through the repository (event first, then cache) and add the `case` to
 the applier. Re-verify by rebuilding the cache again and confirming survival.
 
+## "A list tool returns an entity, but loading it by ID or name says not found"
+
+Check `pluginStorage.migration.state` before blaming the point lookup. Affected
+builds could keep legacy roots readable but disable `VaultEventStore` reads
+during a pending or failed cutover, even though writes already went to the
+vault-root destination. SQLite could still contain metadata replayed from those
+shards. The result was a split read path: list queries saw the SQLite row, while
+repositories that needed the JSONL body saw only legacy files and returned null.
+A just-created entity could appear healthy until reload because its body was
+still in the repository's in-memory write cache.
+
+Confirm all three facts before changing data: the metadata row lists, the event
+body exists under the resolved vault-root stream, and the persisted migration
+state is `pending` or `failed`. Do not hand-copy or edit shards. Fix the cutover
+read policy or resolve the migration conflict, then verify a cold point lookup;
+an in-session lookup can be a cache hit and is not proof.
+
+The runtime invariant is: read the configured vault-root destination first at
+every migration phase, retain legacy roots only as fallbacks until verification,
+and let `StorageRouter` deduplicate by event ID. After verified cutover, remove
+the legacy fallbacks but keep destination reads enabled.
+
 ## "Data reappeared after a rebuild"
 
 The inverse: something deleted from SQLite without appending a deletion event.
 Replay faithfully restores what the event store still says exists.
+
+**Appending the deletion event is not sufficient, and stopping there is how this
+ships twice.** Three further things have to hold, and a delete has failed on all
+of them at once:
+
+- **The applier must delete as much as the delete did.** Replay reaches the
+  tombstone only after re-applying every event that created the entity's
+  children, so an applier narrower than the live delete leaves those children as
+  orphans on every rebuild.
+- **Nothing cascades in SQLite.** The schema declares `ON DELETE CASCADE` in
+  several places, but FK enforcement is off — SQLite's per-connection default,
+  and nothing turns it on (`grep -rn "foreign_keys" src/` returns nothing). A
+  `DELETE FROM workspaces` removes exactly one row. Delete children explicitly,
+  child-before-parent, and put the statement list in ONE place both the
+  repository and the applier call, or the two drift.
+- **One entity can own more than one stream.** A workspace owns
+  `workspaces/ws_<id>` *and* `tasks/tasks_<id>`; a tombstone in the first says
+  nothing about the second, and `fullRebuild` replays every stream it lists.
+  Derive the set from the repositories' `jsonlPath`, do not assume one.
+
+Do not settle for "the row is gone from the UI". The check is
+`adapter.rebuildCache()` followed by a count per table, in the running app.
+
+## "There is no deletion event to fix — the type does not exist"
+
+Do not assume a delete writes an event just because its siblings do. Session
+deletion had no `session_deleted` type at all: `SessionRepository.delete` ran one
+`DELETE FROM sessions` and touched JSONL never, so a deleted session was measured
+coming back on the next rebuild (`sessions 0 → 1`), with its states and traces
+still in the cache from before. Start every deletion investigation with
+`grep -rn "<entity>_deleted" src/`; an empty result is the diagnosis.
+
+Adding the type is a three-place change — the interface plus both union/guard
+lists in `StorageEvents.ts`, the applier `case`, and the repository write — and
+then two questions have to be answered explicitly:
+
+- **Which stream does the tombstone go in, and does this entity own one?** A
+  session owns none: its events live in the *parent workspace's* stream, shared
+  with the workspace and its sibling sessions. There is nothing to remove from
+  disk and removing that file would destroy the parent — the tombstone IS the
+  removal. Contrast a workspace, which owns two streams that must both go.
+- **Does old JSONL need a backfill?** For a brand-new deletion type, no, and
+  synthesising one is dangerous: the only signal that a pre-fix delete happened
+  is "present in JSONL, absent from SQLite", which is also what a cold, partial
+  or mid-hydration cache looks like. Writing tombstones from that inference turns
+  a rebuildable cache state into permanent data loss, inverting the invariant in
+  `storage-model.md`. Old streams simply have no tombstone; the entity comes back
+  once and the user's next delete is permanent.
 
 ## "The view says 'no tasks' but the data is there"
 

@@ -22,6 +22,7 @@ import {
   SearchResult,
   ToolCall
 } from './types';
+import { BRAND_NAME } from '../../../constants/branding';
 import { BaseCache, CacheManager } from '../utils/CacheManager';
 import { LLMCostCalculator } from '../utils/LLMCostCalculator';
 import { TokenUsageExtractor } from '../utils/TokenUsageExtractor';
@@ -45,6 +46,7 @@ import {
 } from '../streaming/SSEStreamProcessor';
 import { pumpSseEventQueue } from './shared/SseStreamPump';
 import { createProviderStreamError } from '../streaming/streamErrorFrames';
+import type { AnthropicThinkingBlock } from '../../../types/llm/ProviderTypes';
 
 // Browser-compatible hash function (djb2 algorithm)
 // Not cryptographically secure but sufficient for cache keys
@@ -88,6 +90,7 @@ interface StreamToolCallAccumulator {
   };
   reasoning_details?: Array<Record<string, unknown>>;
   thought_signature?: string;
+  anthropic_thinking_blocks?: AnthropicThinkingBlock[];
 }
 
 interface JsonLineParseOptions {
@@ -279,6 +282,9 @@ export abstract class BaseAdapter {
               if (typeof toolCall.thought_signature === 'string') {
                 accumulated.thought_signature = toolCall.thought_signature;
               }
+              if (Array.isArray(toolCall.anthropic_thinking_blocks)) {
+                accumulated.anthropic_thinking_blocks = toolCall.anthropic_thinking_blocks;
+              }
               toolCallsAccumulator.set(index, accumulated);
               shouldYieldToolCalls = options.toolCallThrottling?.initialYield !== false;
             } else {
@@ -299,6 +305,9 @@ export abstract class BaseAdapter {
               }
               if (typeof toolCall.thought_signature === 'string' && !existing.thought_signature) {
                 existing.thought_signature = toolCall.thought_signature;
+              }
+              if (Array.isArray(toolCall.anthropic_thinking_blocks) && !existing.anthropic_thinking_blocks) {
+                existing.anthropic_thinking_blocks = toolCall.anthropic_thinking_blocks;
               }
             }
           }
@@ -667,7 +676,11 @@ export abstract class BaseAdapter {
   protected buildHeaders(additionalHeaders?: Record<string, string>): Record<string, string> {
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
-      'User-Agent': 'Synaptic-Lab-Kit/1.0.0',
+      // Every adapter that calls buildHeaders() advertises this to its provider.
+      // It said 'Synaptic-Lab-Kit/1.0.0' until 2026-08-15 — another project's
+      // name, left behind by the rename. Adapters that must impersonate a
+      // specific client (GithubCopilotAdapter) override it deliberately.
+      'User-Agent': BRAND_NAME,
       ...additionalHeaders
     };
 
